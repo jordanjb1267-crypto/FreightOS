@@ -177,10 +177,14 @@ not lost.
 | --- | --- | --- |
 | Context capability matrix as executable code | `packages/identity` or `packages/context` | PR 2 |
 | Context-conditional RLS predicates | Phase 1 migrations | PR 2 onward, per table |
-| **Kill-switch scope extension.** Requirement 7 names `legal entity` and `context` as targets. `app.kill_switch_scope` (`0004_kill_switches.up.sql:11-19`) has `system, legal_plane, tenant, workflow, agent, tool, integration` — neither exists. Requires a reviewed migration extending the enum and the resolution function | `packages/database/migrations/` | PR 2 or PR 6 |
-| **Event-envelope `purpose` attribute.** Requirement 6 names `purpose`. `schemas/event-envelope.schema.json` has `additionalProperties: false` and no `purpose`, so an enveloped event carrying one is currently invalid. Requires updating the declared override and its `handoff-provenance.json` entry | `schemas/event-envelope.schema.json` | PR 6 |
+| **Kill-switch scope extension (OQ-19).** Requirement 7 names `legal entity` and `context` as targets. `app.kill_switch_scope` (`0004_kill_switches.up.sql:11-19`) has `system, legal_plane, tenant, workflow, agent, tool, integration` — neither exists. Reviewed `ALTER TYPE` migration declaring `-- freightos:no-transaction`, extended precedence in SQL and TypeScript, and a regression test proving Phase 0 records resolve identically | `packages/database/migrations/` | **PR 2** |
+| **Event-envelope `purpose` attribute (OQ-20).** Requirement 6 names `purpose`. `schemas/event-envelope.schema.json` has `additionalProperties: false` and no `purpose`, so an enveloped event carrying one is currently invalid. `purpose` is supplied by the trusted command or control-plane context from a closed vocabulary, never by model output. Requires a declared override and its `handoff-provenance.json` entry | `schemas/event-envelope.schema.json` | **PR 2** — the first PR that emits domain events |
 | Standing `autonomous_mobility` suspension recorded as a kill switch | seed or runbook | PR 2 |
-| `custody-event.schema.json` still carries the pre-ADR-0015 `authority_mode` enum with five values and is a verbatim copy with no declared override, so a Phase 1 custody event cannot express this model | `schemas/custody-event.schema.json` + `handoff-provenance.json` | PR 7 |
+| **Custody contract (OQ-21).** `custody-event.schema.json` still carries the pre-ADR-0015 `authority_mode` enum with five values and is a verbatim copy with no declared override, so a Phase 1 custody event cannot express this model. Replace with `legal_authority_class` + `operating_context`, version the contract, and add negative tests | `schemas/custody-event.schema.json` + `handoff-provenance.json` | **PR 6** — the event-contract PR, one ahead of PR 7 where `custody_events` is created |
+
+Full specifications for OQ-19, OQ-20, and OQ-21 — required migration, schema, precedence, audit,
+compatibility, tests, exit evidence, and owner-decision status — are in
+`docs/governance/OPEN_QUESTIONS.md` §"Accepted implementation obligations".
 
 ## Consequences
 

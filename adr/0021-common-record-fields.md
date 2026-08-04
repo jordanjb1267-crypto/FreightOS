@@ -93,7 +93,7 @@ mutation counter or a mutation author, and carrying either would imply it may be
 ### Consistency obligations against Phase 0
 
 This contract renames and extends what Phase 0 shipped. Two names for one concept across
-forty-five tables is exactly the drift this ADR exists to prevent, so the Phase 0 tables are
+sixty-two tables is exactly the drift this ADR exists to prevent, so the Phase 0 tables are
 brought into line rather than grandfathered.
 
 | Change | Affects | Target PR |
@@ -112,7 +112,7 @@ on the row rather than reconstructed. The nullable cases are four enumerated cat
 per-table justification, tests, and fail-closed parent checks — not a generic escape hatch that
 grows quietly.
 
-**Cost.** Two extra `NOT NULL uuid` columns and one extra `text` column on roughly forty-five
+**Cost.** Two extra `NOT NULL uuid` columns and one extra `text` column on sixty-two
 tables, plus the index maintenance that follows. Three Phase 0 migrations must be amended rather
 than left alone, which touches tested code. The category-4 parent-agreement check is genuinely
 fiddly to write correctly and will need its own test per relationship table.

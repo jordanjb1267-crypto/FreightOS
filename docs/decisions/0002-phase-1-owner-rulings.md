@@ -253,6 +253,32 @@ resolved by decision and glossary, never by editing the binding source (ADR-0014
 
 ---
 
+## 4b. Accepted implementation obligations — OQ-19, OQ-20, OQ-21
+
+Three obligations follow from the approved rulings that no existing artifact satisfies. The owner
+has accepted them as **implementation obligations, not reasons to reject Specification PR 1**. Each
+is documented, assigned, and gated. **None is implemented in this documentation PR.**
+
+| ID    | Deficiency                                                                                                           | Target PR                                                                                                                                                                        | Blocking dependency                                                                       | Owner input still required |
+| ----- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------- |
+| OQ-19 | `app.kill_switch_scope` lacks `legal_entity` and `operating_context`, which Ruling A requires as kill-switch targets | **PR 2** — the earliest PR introducing legal-entity and operating-context domain enforcement. No safer specification-only correction exists, because the enum is a database type | Ruling A's kill-switch guarantee is unenforceable until the values exist                  | **No**                     |
+| OQ-20 | Event envelopes lack a required `purpose`; `audit_events` lacks `purpose` and `outcome`                              | **PR 2** for both, ahead of the `admin` schema — Ruling D requires the audit fields **before** privileged domain access is established                                           | No `admin.*` function may ship before the columns exist to record its purpose and outcome | **No** for the mechanism   |
+| OQ-21 | `schemas/custody-event.schema.json` retains the obsolete overloaded `authority_mode` concept                         | **PR 6** — the expected target. The "required earlier by PR 5" exception does **not** apply: the approved data model allocates `custody_events` to PR 7, not PR 5                | Blocks **PR 7**, where `custody_events` is created                                        | **No**                     |
+
+Full specifications — required migration, schema, precedence, audit, backward compatibility,
+tests, and exit evidence — are in `docs/governance/OPEN_QUESTIONS.md` §"Accepted implementation
+obligations". Three binding constraints are worth restating here:
+
+1. **OQ-19 requires backward compatibility with Phase 0 kill-switch records.** Adding enum values
+   is additive; no existing row is rewritten, no existing scope changes meaning, and
+   `app.resolve_kill_switch_mode` must return an identical result for every pre-existing input. A
+   regression test asserts it.
+2. **OQ-20's `purpose` is supplied by the trusted command or control-plane context, never by
+   arbitrary model output**, and a privileged operation missing actor or purpose **fails closed**.
+3. **OQ-21 must not silently mutate existing events.** The contract is versioned; a stored event
+   keeps the schema version it was written against, and re-interpretation under a newer version is
+   a new record, never an edit.
+
 ## 5. Approved ten-PR Phase 1 sequence
 
 | #   | PR                                                                   | Owner decision required before starting |

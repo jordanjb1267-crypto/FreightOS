@@ -1,8 +1,26 @@
 # Canonical Domain Glossary
 
-**Status:** Owner-approved (Phase 1 rulings, 2026-08-04)
-**Scope:** Binding canonical names for FreightOS implementation artifacts — tables, types, events,
-and API resources.
+**Status:** Mixed — see the authority note below. **Not wholly owner-ruled.**
+**Scope:** Canonical names for FreightOS implementation artifacts — tables, types, events, and API
+resources.
+
+## Authority of each section
+
+Only §5 carries a direct owner ruling. The rest is engineering resolution derived from the
+approved plan, binding on implementation but **not** an owner decision, and open to correction
+without a superseding ruling.
+
+| Section                                            | Authority                                                                                                                           |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| §1 Resolved naming drift                           | Derived from `docs/plans/phase-1-definition-and-owner-decisions.md` §6 Specification 4. Engineering resolution; **not owner-ruled** |
+| §2 Entities the handoff names but does not specify | Derived from the plan §6. **Not owner-ruled**                                                                                       |
+| §3 Entities out of Phase 1 scope                   | Follows from the approved scope in `21_…:56-71` and the ten-PR sequence. Scope consequence, **not a new ruling**                    |
+| §4 State vocabularies                              | Derived from the plan §5 and `19_…:258-296`. **Not owner-ruled**                                                                    |
+| §5 Package ownership                               | **Owner-ruled** — Ruling H, ADR-0024                                                                                                |
+| §6 Terms carried forward                           | Restates the preserved handoff glossary. No new authority                                                                           |
+
+Where a §1 resolution would change an owner ruling it is not applied here; it is raised for owner
+decision instead. None currently does.
 
 This register does **not** replace
 `docs/production-handoff/v1.2/docs/DOMAIN_GLOSSARY.md`. That file is part of the immutable

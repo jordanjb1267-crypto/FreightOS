@@ -50,11 +50,20 @@ ruled text governs where they diverge:
    ADR-0025 removes that by making the mechanism policy-driven with an explicit `POLICY_REQUIRED`
    refusal and no code-level default. OQ-4 is now non-blocking.
 
-Two obligations the rulings create that no current artifact satisfies are tracked as OQ-19, OQ-20,
-and OQ-21 in `docs/governance/OPEN_QUESTIONS.md`: the kill-switch scope enum lacks `legal_entity`
-and `operating_context`; the event envelope has no `purpose` attribute and `audit_events` has no
-`purpose` or `outcome` column; and `schemas/custody-event.schema.json` still carries the
-pre-ADR-0015 `authority_mode` enum with no declared override.
+Three obligations the rulings create that no current artifact satisfies are tracked as OQ-19,
+OQ-20, and OQ-21. The owner has accepted them as **implementation obligations, not defects in
+Specification PR 1**, and each is assigned, gated, and fully specified — deficiency, target PR,
+blocking dependency, required migration and schema work, required tests, exit evidence, and
+owner-decision status — in `docs/governance/OPEN_QUESTIONS.md` §"Accepted implementation
+obligations".
+
+| ID    | Deficiency                                                                                                                        | Target PR                             | Blocks                                                                          |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------- |
+| OQ-19 | `app.kill_switch_scope` lacks `legal_entity` and `operating_context`, which Ruling A requires as kill-switch targets              | **PR 2**                              | Ruling A being enforceable at runtime from PR 2                                 |
+| OQ-20 | The event envelope has no `purpose` attribute; `audit_events` has no `purpose` or `outcome` column, both mandatory under Ruling D | **PR 2**, ahead of the `admin` schema | Any `admin.*` function — ADR-0020 claims an audit trail that does not yet exist |
+| OQ-21 | `schemas/custody-event.schema.json` still carries the pre-ADR-0015 `authority_mode` enum with no declared override                | **PR 6**                              | **PR 7**, where `custody_events` is created                                     |
+
+None is implemented in PR 1, which is documentation only.
 
 Where prose and configuration disagree, the stricter restriction wins
 (`docs/production-handoff/v1.2/02_GOVERNANCE_AND_NON_REGRESSION.md:97`). That rule is applied
@@ -175,12 +184,12 @@ Phase 1 begins only on an owner ruling. This document is the input to that rulin
 | `carrier_copilot`                | `ACTIVE_BUILD`, `autonomy_max: A3` | Runtime is **Phase 2**; Phase 1 builds only the data it will read                     |
 | `rigreceipts_economics_boundary` | `ACTIVE_BUILD`                     | Contract + simulation only (owner ruling 3)                                           |
 | `rigdesk_maintenance_hooks`      | `ACTIVE_BUILD`                     | Contract + simulation only (owner ruling 3)                                           |
-| `minimum_facility_primitives`    | `FOUNDATION_ONLY`                  | Shared primitives only. `module_states.yaml:20` — `standalone_product_allowed: false` |
+| `minimum_facility_primitives`    | `FOUNDATION_ONLY`                  | Shared primitives only. `module_states.yaml:18` — `standalone_product_allowed: false` |
 | Everything else                  | gated or dormant                   | Contracts, schemas, disabled config, fixtures, simulation only                        |
 
 `FOUNDATION_ONLY` permits `production_code_allowed: true` but
 `live_external_writes_allowed: limited_to_active_product_workflow`
-(`config/scope/module_states.yaml:19-21`). Facility primitives may be built as real tables and
+(`config/scope/module_states.yaml:16-19`). Facility primitives may be built as real tables and
 APIs; they may not acquire an outward connector.
 
 ### 2.3 Authorized Phase 1 scope
@@ -1251,7 +1260,7 @@ Phase 1 — `prepare_response` is a Phase 2 agent capability.
 
 ### Specification 6 — Minimum facility primitives
 
-Scope is exactly `21_…:77-87`. Anything not on that list is out. `module_states.yaml:20` —
+Scope is exactly `21_…:77-87`. Anything not on that list is out. `module_states.yaml:18` —
 `standalone_product_allowed: false`.
 
 **Facility identity.** `facilities` extends `locations` (Specification 3) with `facility_type`,
@@ -1631,11 +1640,11 @@ evidence-based, and Phase 1 runs no agent. They are Phase 2 owner deliverables.
 
 ## 7. Proposed data model
 
-Consolidated table inventory, grouped by PR. Approximately 45 tables. Every one carries the
+Consolidated table inventory, grouped by PR. **62 tables.** Every one carries the
 common-field contract (`adr/0017:48-57` + Ruling F), `ENABLE` + `FORCE ROW LEVEL SECURITY`, a
 tenant-isolation policy with `USING` and `WITH CHECK`, and explicit `GRANT`/`REVOKE`.
 
-**PR 2 — Identity and organization (10).** `organization_nodes`, `organization_node_closure`,
+**PR 2 — Identity and organization (12).** `organization_nodes`, `organization_node_closure`,
 `legal_entities`, `operating_authorities`, `carrier_appointments`, `users`, `memberships`, `roles`,
 `permissions`, `role_permissions`, `service_accounts`, `policy_bindings`.
 
@@ -1643,19 +1652,19 @@ tenant-isolation policy with `USING` and `WITH CHECK`, and explicit `GRANT`/`REV
 `party_duplicate_candidates`, `locations`, `location_external_identifiers`, `operating_hours`,
 `location_restrictions`, `contacts`.
 
-**PR 4 — Carrier and fleet (9).** `carrier_profiles`, `drivers`, `powered_units`,
+**PR 4 — Carrier and fleet (10).** `carrier_profiles`, `drivers`, `powered_units`,
 `nonpowered_equipment`, `equipment_capabilities`, `equipment_capability_assignments`,
 `availability_windows`, `maintenance_restrictions`, `assignments`,
 `active_powered_unit_observations`.
 
-**PR 5 — Freight core (10).** `shipments`, `consignments`, `cargo_items`, `handling_units`,
+**PR 5 — Freight core (11).** `shipments`, `consignments`, `cargo_items`, `handling_units`,
 `handling_unit_contents`, `transport_journeys`, `transport_legs`, `stops`, `milestones`,
 `documents`, `exceptions`.
 
 **PR 6 — State machines and events.** No new tables. Adds transition-guard functions, state enums,
 event-type registry, and the `admin` schema from Ruling D.
 
-**PR 7 — Facility primitives (12).** `facilities`, `facility_operational_locations`,
+**PR 7 — Facility primitives (13).** `facilities`, `facility_operational_locations`,
 `facility_restrictions`, `appointments`, `cargo_readiness`, `vehicle_visits`,
 `load_unload_events`, `seals`, `custody_events`, `detention_clocks`, `free_time_rules`,
 `goods_receipts`, `delivery_discrepancies`.
@@ -1908,7 +1917,7 @@ New and updated risks for Phase 1. Existing Phase 0 risks R-01…R-15 remain in
 | `db/0005` is never applied in any form           | `adr/0017:41-42` | The facility half is re-authored under the new legal model; the AV half stays reference-only                                             |
 | Two-dimension legal model                        | `adr/0015`       | Every Phase 1 table carries both columns and the pairing `CHECK`                                                                         |
 | Computed autonomy ceilings                       | `adr/0018`       | No Phase 1 configuration can raise autonomy                                                                                              |
-| No ORM, reviewed raw SQL                         | `adr/0016`       | ~45 tables of hand-written SQL and hand-written query layer                                                                              |
+| No ORM, reviewed raw SQL                         | `adr/0016`       | 62 tables of hand-written SQL and hand-written query layer                                                                               |
 | Handoff immutable                                | `adr/0014:26-29` | Naming drift resolved by decision + glossary, never by editing the handoff                                                               |
 | Control plane via policy branch, not `BYPASSRLS` | `0001:63-68`     | Decision D builds on this rather than replacing it                                                                                       |
 | Provenance drift detection                       | `adr/0014:32-37` | Any schema override needs a declared ADR citation (see C1)                                                                               |
@@ -1932,7 +1941,7 @@ New and updated risks for Phase 1. Existing Phase 0 risks R-01…R-15 remain in
 
 | ID   | Risk                                                                                          | Severity | Probability | Owner           | Mitigation                                                                                                                                        | Blocking?                      | Latest resolution point |
 | ---- | --------------------------------------------------------------------------------------------- | -------- | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ----------------------- |
-| P-01 | Control-plane pattern set wrong in PR 2 and copied into ~45 tables                            | Critical | Medium      | Owner + Eng     | Decision D before PR 2; CI asserts no `BYPASSRLS`, every table has a policy                                                                       | **Yes**                        | Before PR 2             |
+| P-01 | Control-plane pattern set wrong in PR 2 and copied into 62 tables                             | Critical | Medium      | Owner + Eng     | Decision D before PR 2; CI asserts no `BYPASSRLS`, every table has a policy                                                                       | **Yes**                        | Before PR 2             |
 | P-02 | `software_only` becomes a permission wildcard                                                 | Critical | Medium      | Owner           | Decision A; 18-pairing cross-product test                                                                                                         | **Yes** for PR 7               | Before PR 2             |
 | P-03 | Facility primitives drift into FacilityOS (R-09)                                              | High     | Medium      | Eng             | Facility allow-list check in `validate-scope.mjs`; no outbound command surface (C7); no inventory ledger (C11)                                    | No                             | PR 7                    |
 | P-04 | Cross-tenant leakage through a missing policy on a new table                                  | Critical | Low         | Eng             | Extend `rls.test.ts:192` to enumerate every tenant-owned table and fail on any without a policy                                                   | No                             | Every PR                |
@@ -1945,7 +1954,7 @@ New and updated risks for Phase 1. Existing Phase 0 risks R-01…R-15 remain in
 | P-11 | A Phase 1 handler creating an A3 execution path                                               | Critical | Low         | Eng             | A2 assertion in CI; no outbound connector; `send` always refuses                                                                                  | No                             | PR 6, PR 8              |
 | P-12 | Brokerage reachable through a Phase 1 code path                                               | Critical | Very low    | Owner + Counsel | Three independent refusals already in place (R-05); Phase 1 adds no fourth surface                                                                | No                             | Every PR                |
 | P-13 | Custody schema override (C1) skipped, leaving events unemittable                              | High     | Medium      | Eng             | Declare the override with its ADR citation in PR 7; provenance check fails otherwise                                                              | **Yes** for PR 7               | PR 7                    |
-| P-14 | ~45 tables of hand-written SQL accumulating inconsistency                                     | Medium   | High        | Eng             | A single canonical table template; a CI check that every tenant-owned table has the full common-field set, `FORCE`, a policy, and explicit grants | No                             | PR 2 sets the template  |
+| P-14 | 62 tables of hand-written SQL accumulating inconsistency                                      | Medium   | High        | Eng             | A single canonical table template; a CI check that every tenant-owned table has the full common-field set, `FORCE`, a policy, and explicit grants | No                             | PR 2 sets the template  |
 | P-15 | Naming drift re-entering through a later PR                                                   | Medium   | Medium      | Eng             | Specification 4's canonical-name table becomes a glossary entry under `docs/governance/`; review checks it                                        | No                             | PR 5                    |
 | P-16 | Hidden Phase 2 dependency — a Phase 1 table shaped for a scoring runtime nobody has specified | Medium   | Medium      | Eng             | Phase 1 stores facts, not scores. `profitability_results` stores a contract response, not a rank                                                  | No                             | PR 9, PR 10             |
 | P-17 | Hidden Phase 3 dependency — kill-switch enforcement assumed but absent (C12)                  | Medium   | Medium      | Eng             | Phase 1 states plainly that it reads but does not enforce; no Phase 1 claim of kill-switch protection                                             | No                             | PR 6                    |
@@ -1994,7 +2003,7 @@ every CI run.
 ## 15. PR-by-PR implementation sequence
 
 Ten PRs. Dependency-ordered. **This is not a single Phase 1 pull request**, and it should not be:
-~45 tables, ~13 state machines, and two external contracts in one diff is unreviewable, and
+62 tables, 13 state machines, and two external contracts in one diff is unreviewable, and
 Constitution Art. VIII.2 requires reviewed PRs with migrations, tests, observability, and rollback.
 
 Each PR must independently satisfy `checklists/PHASE_EXIT_GATE.md` items that apply to it, and CI
@@ -2021,12 +2030,23 @@ must be green before the next opens.
 
 - **Scope.** Specification 1. 12 tables, RLS policies, the `admin` schema and its first functions,
   the canonical table template, organization closure and cycle prevention, policy inheritance
-  resolution.
+  resolution. **Plus obligations OQ-19 and OQ-20**: extend `app.kill_switch_scope` with
+  `legal_entity` and `operating_context` (reviewed `ALTER TYPE` declaring
+  `-- freightos:no-transaction`, extended precedence in SQL and TypeScript, Phase 0 records
+  resolving identically); add `purpose` and `outcome` to `audit_events` **before** any `admin.*`
+  function ships; add `purpose` to the event envelope as a declared override with its
+  `handoff-provenance.json` entry. Also the ADR-0021 Phase 0 alignment — `version` →
+  `record_version`, `updated_by` on `tenants`.
 - **Dependencies.** PR 1 merged; **Decisions A and D ruled**; Rulings F and H ruled.
 - **Migrations.** `0005_identity_and_organization.{up,down}.sql`, possibly split by aggregate.
 - **Tests.** Families 1, 2, 3, 4, 5, 10, 12, 19. Plus: hierarchy cycle rejected, depth bound
   enforced, child cannot weaken a protected control, control-plane function emits audit, no role
-  holds `BYPASSRLS`, tenant cannot `SET ROLE` into the control plane.
+  holds `BYPASSRLS`, tenant cannot `SET ROLE` into the control plane, every `SECURITY DEFINER`
+  function pins `search_path`. **OQ-19/OQ-20 tests:** new kill-switch scopes resolvable,
+  most-restrictive-wins across old and new scopes, **Phase 0 kill-switch records resolve
+  identically**, privileged call missing actor fails closed, missing purpose fails closed, purpose
+  outside the vocabulary rejected, envelope without `purpose` fails schema validation,
+  `PROVENANCE=PASS` with four declared overrides.
 - **Rollback.** Down migration drops all 12 tables; nothing references them yet.
 - **Excludes.** Freight, carrier, facility, adapters, external contracts. No authentication or
   session management — that is an application concern, not a Phase 1 domain concern.
@@ -2093,13 +2113,18 @@ must be green before the next opens.
 
 - **Scope.** Specification 5 for machines 1–6 and 13, transition guard functions, event-type
   registry, outbox emission helpers, idempotency and version handling, the kill-switch read from
-  C12.
-- **Dependencies.** PRs 2, 4, 5.
+  C12. **Plus obligation OQ-21**: replace `authority_mode` in `schemas/custody-event.schema.json`
+  with `legal_authority_class` + `operating_context`, mirroring the envelope's ADR-0015 rule-6
+  pairing constraint; version the contract as a breaking change; declare the override in
+  `handoff-provenance.json` citing ADR-0015 and ADR-0019. No stored event is mutated.
+- **Dependencies.** PRs 2, 4, 5. **Must land before PR 7**, which creates `custody_events`.
 - **Migrations.** `0009_state_machines.{up,down}.sql` — enums, guard functions, no new tables.
 - **Tests.** Families 6, 10, 11, 12, 18. Plus: every prohibited transition returns `422` and is
   audited, terminal states refuse all exits, no agent actor may transition, every emitted event
   validates against the envelope schema, replay emits no second event, `suspended` kill-switch mode
-  refuses a transition.
+  refuses a transition. **OQ-21 negative tests:** a custody event carrying `authority_mode` is
+  rejected, an impermissible class/context pairing is rejected, a missing `legal_entity_id` outside
+  system scope is rejected, an empty evidence array is rejected.
 - **Rollback.** Down migration drops enums and functions.
 - **Excludes.** Facility machines (PR 7), policy engine, approval workflow, any A3 path.
 - **Review gate.** Architecture review — `02_…:37` requires it for event-envelope changes; this PR
@@ -2112,7 +2137,7 @@ must be green before the next opens.
 
 - **Scope.** Specification 6, plus Specification 5 machines 7–12. 13 tables, the custody schema
   override (C1), the facility allow-list validator check (R-09/P-03).
-- **Dependencies.** PRs 2, 3, 4, 5, 6.
+- **Dependencies.** PRs 2, 3, 4, 5, 6. **OQ-21 must have landed in PR 6** — `custody_events` is created here and cannot be written against a schema that contradicts ADR-0015.
 - **Migrations.** `0010_facility_primitives.{up,down}.sql`.
 - **Tests.** Families 1, 2, 3, 6, 10, 11, 12, 13, 16. Plus: appointment capacity conflict rejected,
   reschedule preserves the original window, hold cannot be released by an agent, load/unload
@@ -2196,7 +2221,7 @@ call appears anywhere in PRs 1–10.
 
 **Superseded as a live register.** `docs/governance/OPEN_QUESTIONS.md` is now the maintained
 open-question register, and it records the post-ruling status of every item below plus OQ-15
-through OQ-21. Ten of the fourteen questions here are resolved; OQ-4 is no longer blocking. The
+through OQ-21. Seven of the fourteen questions here are resolved; OQ-4 is no longer blocking. The
 table is retained as the record of what was asked.
 
 | ID    | Question                                                                                                                              | Owner           | Blocks                                                                    | Latest point                                  |
@@ -2213,7 +2238,7 @@ table is retained as the record of what was asked.
 | OQ-10 | Should local `main` be fast-forwarded to `origin/main` (§1.4)?                                                                        | Owner           | Nothing; cosmetic                                                         | Any time                                      |
 | OQ-11 | Equipment capability seed vocabulary beyond dry-van FTL — who supplies it?                                                            | Owner/domain    | Full registry (not Phase 1)                                               | Before Phase 2                                |
 | OQ-12 | Retention periods (`DATA_CLASSIFICATION.md` — "Not yet set")                                                                          | Owner + counsel | Retention enforcement (not Phase 1)                                       | Before Horizon 1 release                      |
-| OQ-13 | Does the owner accept ~45 tables across 9 schema PRs, or prefer a different split?                                                    | Owner           | The sequence in §15                                                       | Before PR 2                                   |
+| OQ-13 | Does the owner accept 62 tables across 8 schema PRs, or prefer a different split?                                                     | Owner           | The sequence in §15                                                       | Before PR 2                                   |
 | OQ-14 | Confirm that Phase 1 reads but does not enforce kill switches (C12), and that this is stated in the exit evidence rather than glossed | Owner           | PR 6 framing                                                              | Before PR 6                                   |
 
 ---

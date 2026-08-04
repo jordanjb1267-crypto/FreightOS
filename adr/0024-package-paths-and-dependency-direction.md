@@ -50,7 +50,7 @@ requires its own decision.
 1. **No `apps/` directory in the initial domain PRs.**
 2. **No `services/` directory.**
 3. **No standalone FacilityOS package.** `packages/facility-primitives` is shared primitives —
-   `config/scope/module_states.yaml:20` sets `standalone_product_allowed: false` for
+   `config/scope/module_states.yaml:18` sets `standalone_product_allowed: false` for
    `FOUNDATION_ONLY`.
 4. **Deferred integration packages contain contracts, schemas, fixtures, and simulation adapters
    only.** No live client, no credential, no network call.
@@ -107,7 +107,7 @@ ADR adds the layer check.
 **Good.** The doctrine's package list is settled as an enumeration rather than an exhaustive
 allowlist, which is the only reading consistent with the accepted Phase 0 baseline. Dependency
 direction is mechanical rather than aspirational, so the modular monolith ADR-0001 requires stays
-modular under fourteen packages.
+modular under twelve packages.
 
 **Cost.** Layering forbids some convenient shortcuts. `rigreceipts-contracts` cannot import a
 domain type, so a small amount of mapping code is written by hand in the consumer. That is the

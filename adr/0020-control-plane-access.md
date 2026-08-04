@@ -29,7 +29,7 @@ tenant-scoped caller cannot set its way across the boundary —
 
 What Phase 0 did **not** provide is any record that a privileged access *happened*. The policy
 branch makes the escape visible in the source; it does not make a use of it auditable. Across four
-platform tables that was tolerable. Phase 1 introduces roughly forty-five domain tables carrying
+platform tables that was tolerable. Phase 1 introduces sixty-two domain tables carrying
 `TENANT_ECONOMICS` and `PERSONAL` data, and it stops being tolerable.
 
 ## Decision
@@ -103,7 +103,7 @@ and no audit trail. `rls.test.ts:168` asserts `FORCE ROW LEVEL SECURITY` so that
 owner is subject; granting `BYPASSRLS` would undo that test's intent while leaving it passing.
 
 **Policy branch alone (the Phase 0 state).** Correct isolation, zero auditability. Adequate for
-four platform tables, inadequate for forty-five domain tables.
+four platform tables, inadequate for sixty-two domain tables.
 
 **`SECURITY DEFINER` functions alone.** Without the policy branch, the definer role would itself
 need to be RLS-exempt, which reintroduces an invisible escape — exactly what the Phase 0 comment
@@ -130,7 +130,7 @@ rewriting every policy block.
 | Obligation | Artifact | Target PR |
 | --- | --- | --- |
 | `admin` schema, non-login owner role, first privileged functions | `packages/database/migrations/` | PR 2 |
-| **`audit_events` lacks `purpose` and `outcome` columns**, both mandatory above. Requires a reviewed migration adding them, with `purpose` `NOT NULL` for privileged operations | `packages/database/migrations/` | PR 2 |
+| **`audit_events` lacks `purpose` and `outcome` columns (OQ-20)**, both mandatory above. Reviewed migration adding them, with `purpose` `NOT NULL` for privileged operations and `outcome` a closed set. **These columns must exist before any `admin.*` function ships** — otherwise this ADR claims an audit trail that does not exist. `purpose` is supplied by the trusted command or control-plane context, never by model output, and a privileged call missing actor or purpose fails closed with `insufficient_privilege` | `packages/database/migrations/` | **PR 2**, ahead of the `admin` schema |
 | CI assertion that no role holds `rolbypassrls` | `packages/database/test/integration/` | PR 2 |
 | CI assertion that every `SECURITY DEFINER` function pins `search_path` | `packages/database/test/integration/` | PR 2 |
 | Per-table control-plane grant decision recorded in each migration | every Phase 1 migration | PR 2 onward |
