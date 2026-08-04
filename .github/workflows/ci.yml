@@ -39,6 +39,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the secret scan below covers every commit, not just the diff.
+          fetch-depth: 0
 
       # No `version:` here on purpose. pnpm/action-setup@v4 errors out when a version is given
       # both here and as `packageManager` in package.json. package.json is the better source of
@@ -103,7 +106,22 @@ jobs:
 
       # -- Secrets -----------------------------------------------------------
       # Constitution: no production secrets in source, prompts, logs, fixtures, or agent memory.
+      #
+      # This replaces gitleaks/gitleaks-action@v2, which scans only the pull request's commit
+      # range. Under actions/checkout's default shallow clone the range's base parent does not
+      # exist, so the scan died with "unknown revision" after reading ~0 bytes — while still
+      # logging "no leaks found in partial scan". A secret scan that reports success having read
+      # nothing is worse than no secret scan, because it looks like coverage.
+      #
+      # Scanning full history instead removes the failure mode rather than patching it: there is
+      # no commit range to resolve, and a secret that was committed and later deleted is still
+      # caught.
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.24.3
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks detect --redact --exit-code=1 -v
