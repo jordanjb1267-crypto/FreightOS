@@ -44,6 +44,16 @@ export interface LegalContext {
   readonly actorId: string;
   /** Omitted only under system scope with an authorized actor — ADR-0015 rule 4. */
   readonly legalEntityId?: string;
+  /**
+   * The organization node the caller administers. ADR-0021 adds it to the common-field contract,
+   * and the Phase 1 policies on `users`, `memberships` and `service_accounts` read it to bound
+   * visibility to that node's subtree (plan §9.2).
+   *
+   * Optional here rather than required, because system-scope tenant administration operates above
+   * any single node. Where a policy requires it and it is absent, the predicate is NULL and the
+   * read or write is refused — absence narrows, never broadens.
+   */
+  readonly organizationNodeId?: string;
   /** Required when the class is `carrier_agent`: acting for one appointed carrier. */
   readonly carrierId?: string;
   /** Evidence of the written appointment backing `carrierId`. */
@@ -84,6 +94,14 @@ export function validateLegalContext(
   }
   if (!context.actorId || context.actorId.trim() === '') {
     reasons.push('actorId is required on every context');
+  }
+  // organizationNodeId is new in Phase 1 and is cast to uuid by
+  // app.current_organization_node_id(), so a non-uuid would fail at the database with a cast error
+  // rather than a policy refusal. legalEntityId deliberately keeps its Phase 0 shape: the event
+  // envelope types it as a plain string, and tightening it here would change accepted behaviour
+  // ADR-0021 requires to stay unchanged.
+  if (context.organizationNodeId !== undefined && !UUID_RE.test(context.organizationNodeId)) {
+    reasons.push('organizationNodeId must be a uuid');
   }
 
   if (!LEGAL_AUTHORITY_CLASSES.includes(context.legalAuthorityClass)) {

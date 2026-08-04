@@ -152,14 +152,18 @@ describe('append-only audit ledger', () => {
 });
 
 describe('transactional outbox', () => {
+  // `purpose` is a mandatory envelope attribute from OQ-20 onward (migration 0006, ADR-0019
+  // requirement 6). Every assertion below is unchanged in behaviour; the fixture carries the new
+  // attribute because the envelope now requires one.
   async function insertOutbox(client: Client, eventId: string) {
     return client.query(
       `INSERT INTO outbox_events (
          tenant_id, legal_entity_id, legal_authority_class, operating_context,
          event_id, event_type, event_source, event_time, actor_id, correlation_id,
-         payload, created_by)
+         payload, created_by, purpose)
        VALUES ($1,$2,'carrier_agent','carrier',$3,'rig.freight.shipment.created.v1',
-               '/freightos/test', now(), 'test:actor', $4, '{}'::jsonb, 'test:actor')
+               '/freightos/test', now(), 'test:actor', $4, '{}'::jsonb, 'test:actor',
+               'service_operation')
        RETURNING id, status`,
       [TENANT_A, LEGAL_ENTITY, eventId, randomUUID()],
     );

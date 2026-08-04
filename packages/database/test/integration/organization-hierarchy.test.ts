@@ -1,0 +1,571 @@
+import { randomUUID } from 'node:crypto';
+import type { Client } from 'pg';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  MAX_ORGANIZATION_DEPTH,
+  ORGANIZATION_NODE_TYPES,
+  isPermittedNodeParent,
+} from '../../../identity/src/organization.ts';
+import { withLegalContext } from '../../src/session.ts';
+import { TENANT_A, TestDatabase } from './harness.ts';
+import { seedIdentity, systemContext, type IdentityFixture } from './identity-harness.ts';
+
+/**
+ * Four-level hierarchy traversal, closure maintenance, cycle and depth rejection, and policy
+ * inheritance — risk P-18 and `04_ENTERPRISE_SCALE_AND_TENANCY:18-22`.
+ */
+const db = new TestDatabase('freightos_test_org_hierarchy');
+
+let app: Client;
+let admin: Client;
+let a: IdentityFixture;
+/** The node at exactly MAX_ORGANIZATION_DEPTH, built by the depth-bound test below. */
+let deepNodeId: string;
+
+async function addNode(
+  client: Client,
+  parentId: string | null,
+  nodeType: string,
+  name: string,
+): Promise<string> {
+  const id = randomUUID();
+  await client.query(
+    `INSERT INTO organization_nodes
+       (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+     VALUES ($1, $2, $1, $3, $4, $5, 'test')`,
+    [id, TENANT_A, parentId, nodeType, name],
+  );
+  return id;
+}
+
+beforeAll(async () => {
+  await db.reset();
+  await db.seedTenants();
+  app = db.connectAs('freightos_app');
+  await app.connect();
+  admin = db.connectAs('postgres');
+  await admin.connect();
+  a = await seedIdentity(app, TENANT_A);
+}, 60_000);
+
+afterAll(async () => {
+  await app?.end();
+  await admin?.end();
+});
+
+describe('four-level traversal', () => {
+  it('records the depth of each level', async () => {
+    const rows = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await c.query<{ id: string; depth: number; node_type: string }>(
+        'SELECT id, depth, node_type FROM organization_nodes ORDER BY depth',
+      );
+      return r.rows;
+    });
+    expect(rows.map((r) => [r.node_type, r.depth])).toEqual([
+      ['enterprise', 0],
+      ['legal_entity', 1],
+      ['region', 2],
+      ['terminal', 3],
+    ]);
+  });
+
+  it('materialises the full closure — ten rows for a four-node chain', async () => {
+    const count = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await c.query<{ count: string }>(
+        'SELECT count(*)::text AS count FROM organization_node_closure',
+      );
+      return Number(r.rows[0]!.count);
+    });
+    // n(n+1)/2 for a chain of 4: 4 + 3 + 2 + 1.
+    expect(count).toBe(10);
+  });
+
+  it('links the deepest node to every ancestor at the right distance', async () => {
+    const rows = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await c.query<{ ancestor_id: string; depth: number }>(
+        `SELECT ancestor_id, depth FROM organization_node_closure
+          WHERE descendant_id = $1 ORDER BY depth`,
+        [a.terminalNodeId],
+      );
+      return r.rows;
+    });
+    expect(rows.map((r) => [r.ancestor_id, r.depth])).toEqual([
+      [a.terminalNodeId, 0],
+      [a.regionNodeId, 1],
+      [a.legalEntityNodeId, 2],
+      [a.enterpriseNodeId, 3],
+    ]);
+  });
+
+  it('resolves the governing legal entity at every level below the boundary', async () => {
+    const answers = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const out: Record<string, string | null> = {};
+      for (const [label, node] of [
+        ['enterprise', a.enterpriseNodeId],
+        ['legal_entity', a.legalEntityNodeId],
+        ['region', a.regionNodeId],
+        ['terminal', a.terminalNodeId],
+      ] as const) {
+        const r = await c.query<{ governing: string | null }>(
+          'SELECT app.governing_legal_entity_id($1, $2) AS governing',
+          [TENANT_A, node],
+        );
+        out[label] = r.rows[0]!.governing;
+      }
+      return out;
+    });
+
+    // Above the legal-entity boundary there is nothing to govern the node — the ADR-0021
+    // category-5 case, and the reason policy_bindings.legal_entity_id is conditionally nullable.
+    expect(answers['enterprise']).toBeNull();
+    expect(answers['legal_entity']).toBe(a.legalEntityId);
+    expect(answers['region']).toBe(a.legalEntityId);
+    expect(answers['terminal']).toBe(a.legalEntityId);
+  });
+
+  it('lets a nested legal entity govern its own subtree rather than its parent doing so', async () => {
+    const inner = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const client = c as Client;
+      const bu = await addNode(client, a.regionNodeId, 'business_unit', 'Inner BU');
+      const node = await addNode(client, bu, 'legal_entity', 'Inner Co');
+      const entityId = randomUUID();
+      await client.query(
+        `INSERT INTO legal_entities
+           (id, tenant_id, organization_node_id, legal_entity_id, legal_name, jurisdiction,
+            created_by)
+         VALUES ($1, $2, $3, $1, 'Inner Co LLC', 'US-NV', 'test')`,
+        [entityId, TENANT_A, node],
+      );
+      const below = await addNode(client, node, 'terminal', 'Inner Yard');
+      const r = await client.query<{ governing: string | null }>(
+        'SELECT app.governing_legal_entity_id($1, $2) AS governing',
+        [TENANT_A, below],
+      );
+      return { entityId, governing: r.rows[0]!.governing };
+    });
+    expect(inner.governing).toBe(inner.entityId);
+  });
+});
+
+describe('hierarchy invariants', () => {
+  it('permits exactly one root per tenant', async () => {
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await addNode(c as Client, null, 'enterprise', 'Second root');
+      }),
+    ).rejects.toThrow(/one_root_per_tenant/);
+  });
+
+  it('refuses a root that is not an enterprise node', async () => {
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await addNode(c as Client, null, 'region', 'Rootless region');
+      }),
+    ).rejects.toThrow(/root_is_enterprise/);
+  });
+
+  it('refuses an enterprise node with a parent', async () => {
+    // Two refusals stand behind this and the trigger is first to fire: app.is_permitted_node_parent
+    // gives `enterprise` no permitted parent at all, and the organization_nodes_root_is_enterprise
+    // CHECK would reject it regardless.
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await addNode(c as Client, a.regionNodeId, 'enterprise', 'Nested enterprise');
+      }),
+    ).rejects.toThrow(/may not be a child of|root_is_enterprise/);
+  });
+
+  it('refuses an impermissible parent type', async () => {
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await addNode(c as Client, a.terminalNodeId, 'operating_authority', 'Bad parent');
+      }),
+    ).rejects.toThrow(/may not be a child of/);
+  });
+
+  it('agrees with packages/identity over the full 8 x 8 parent cross-product', async () => {
+    for (const child of ORGANIZATION_NODE_TYPES) {
+      for (const parent of ORGANIZATION_NODE_TYPES) {
+        const r = await admin.query<{ ok: boolean | null }>(
+          'SELECT app.is_permitted_node_parent($1, $2) AS ok',
+          [child, parent],
+        );
+        expect(r.rows[0]!.ok ?? false, `${child}/${parent}`).toBe(
+          isPermittedNodeParent(child, parent),
+        );
+      }
+    }
+  });
+
+  it('rejects a move that would make a node its own ancestor', async () => {
+    // A business unit is a permitted parent of a region, so the parent-type rule does not fire
+    // here and the cycle check is what has to catch it.
+    const descendant = await withLegalContext(app, systemContext(TENANT_A), async (c) =>
+      addNode(c as Client, a.regionNodeId, 'business_unit', 'Cycle bait'),
+    );
+
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await c.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [
+          descendant,
+          a.regionNodeId,
+        ]);
+      }),
+    ).rejects.toThrow(/cycle rejected/);
+  });
+
+  it('rejects a self-parent', async () => {
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await c.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $1', [
+          a.regionNodeId,
+        ]);
+      }),
+    ).rejects.toThrow(/not_own_parent|cycle rejected/);
+  });
+
+  it('accepts a chain down to exactly the depth bound', async () => {
+    deepNodeId = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const client = c as Client;
+      // The region sits at depth 2, so 14 more business units reach exactly 16. A business unit
+      // may parent a business unit, so the parent-type rule stays out of the way.
+      let parent = a.regionNodeId;
+      for (let depth = 3; depth <= MAX_ORGANIZATION_DEPTH; depth += 1) {
+        parent = await addNode(client, parent, 'business_unit', `Deep BU ${depth}`);
+      }
+      const atBound = await client.query<{ depth: number }>(
+        'SELECT depth FROM organization_nodes WHERE id = $1',
+        [parent],
+      );
+      expect(atBound.rows[0]!.depth).toBe(MAX_ORGANIZATION_DEPTH);
+      return parent;
+    });
+  });
+
+  it('rejects one level past the bound', async () => {
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await addNode(c as Client, deepNodeId, 'business_unit', 'One too deep');
+      }),
+    ).rejects.toThrow(/depth bound of 16 exceeded|depth_bound/);
+  });
+
+  it('rejects moving a tall subtree under a deep parent', async () => {
+    // Each node is individually within bounds and neither is an ancestor of the other, so this is
+    // not a cycle. The subtree HEIGHT is what makes the move illegal, which is why the check is on
+    // the tree rather than on the row.
+    const tallRoot = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const client = c as Client;
+      const root = await addNode(client, a.regionNodeId, 'business_unit', 'Tall root');
+      const mid = await addNode(client, root, 'business_unit', 'Tall mid');
+      await addNode(client, mid, 'business_unit', 'Tall leaf');
+      return root;
+    });
+
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await c.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [
+          deepNodeId,
+          tallRoot,
+        ]);
+      }),
+    ).rejects.toThrow(/depth bound of 16 exceeded/);
+  });
+});
+
+describe('moving a subtree', () => {
+  it('re-parents the subtree, re-depths it, and rebuilds the closure', async () => {
+    const moved = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const client = c as Client;
+      const branch = await addNode(client, a.legalEntityNodeId, 'business_unit', 'Movable BU');
+      const child = await addNode(client, branch, 'region', 'Movable region');
+      const grandchild = await addNode(client, child, 'terminal', 'Movable yard');
+
+      // Move the branch one level deeper, under the region.
+      await client.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [
+        a.regionNodeId,
+        branch,
+      ]);
+
+      const depths = await client.query<{ id: string; depth: number }>(
+        'SELECT id, depth FROM organization_nodes WHERE id = ANY($1) ORDER BY depth',
+        [[branch, child, grandchild]],
+      );
+      const ancestors = await client.query<{ ancestor_id: string; depth: number }>(
+        `SELECT ancestor_id, depth FROM organization_node_closure
+          WHERE descendant_id = $1 ORDER BY depth`,
+        [grandchild],
+      );
+      return { branch, child, grandchild, depths: depths.rows, ancestors: ancestors.rows };
+    });
+
+    // branch was at depth 2 under the legal entity; under the region it is at 3.
+    expect(moved.depths.map((d) => d.depth)).toEqual([3, 4, 5]);
+    expect(moved.ancestors).toHaveLength(6);
+    expect(moved.ancestors.map((r) => r.ancestor_id)).toEqual([
+      moved.grandchild,
+      moved.child,
+      moved.branch,
+      a.regionNodeId,
+      a.legalEntityNodeId,
+      a.enterpriseNodeId,
+    ]);
+  });
+
+  it('leaves no closure row linking the moved subtree to its former ancestors only', async () => {
+    const orphans = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      // Every closure row must correspond to a real parent chain. Recompute the transitive closure
+      // from parent_id and compare with the materialised table.
+      const r = await c.query<{ count: string }>(
+        `WITH RECURSIVE walk(ancestor_id, descendant_id, depth) AS (
+           SELECT id, id, 0 FROM organization_nodes WHERE tenant_id = $1
+           UNION ALL
+           SELECT w.ancestor_id, n.id, w.depth + 1
+             FROM walk w JOIN organization_nodes n ON n.parent_id = w.descendant_id
+            WHERE n.tenant_id = $1
+         )
+         SELECT count(*)::text AS count FROM (
+           (SELECT ancestor_id, descendant_id, depth FROM walk
+            EXCEPT
+            SELECT ancestor_id, descendant_id, depth FROM organization_node_closure)
+           UNION ALL
+           (SELECT ancestor_id, descendant_id, depth FROM organization_node_closure
+            EXCEPT
+            SELECT ancestor_id, descendant_id, depth FROM walk)
+         ) AS difference`,
+        [TENANT_A],
+      );
+      return Number(r.rows[0]!.count);
+    });
+    expect(orphans).toBe(0);
+  });
+});
+
+describe('policy inheritance', () => {
+  async function bind(
+    client: Client,
+    nodeId: string,
+    legalEntityId: string | null,
+    controlKey: string,
+    controlValue: string,
+    restrictiveness: number,
+    protectedCategory: string | null,
+    direction = 'local_override',
+  ) {
+    return client.query<{ id: string }>(
+      `INSERT INTO policy_bindings
+         (tenant_id, organization_node_id, legal_entity_id, policy_key, policy_version,
+          control_key, control_value, restrictiveness, direction, protected_category, created_by)
+       VALUES ($1, $2, $3, 'base_policy', '1.2.0', $4, $5, $6, $7, $8, 'test')
+       RETURNING id`,
+      [
+        TENANT_A,
+        nodeId,
+        legalEntityId,
+        controlKey,
+        controlValue,
+        restrictiveness,
+        direction,
+        protectedCategory,
+      ],
+    );
+  }
+
+  it('binds a control at the enterprise root with a null legal entity', async () => {
+    const id = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await bind(
+        c as Client,
+        a.enterpriseNodeId,
+        null,
+        'data_residency',
+        'eu_only',
+        5,
+        'residency',
+        'inherited',
+      );
+      return r.rows[0]!.id;
+    });
+    expect(id).toBeTruthy();
+  });
+
+  it('refuses a root binding that names a legal entity nothing governs', async () => {
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await bind(c as Client, a.enterpriseNodeId, a.legalEntityId, 'wrong_entity', 'x', 1, null);
+      }),
+    ).rejects.toThrow(/does not match the legal entity governing node/);
+  });
+
+  it('refuses a below-boundary binding with a null legal entity', async () => {
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await bind(c as Client, a.terminalNodeId, null, 'missing_entity', 'x', 1, null);
+      }),
+    ).rejects.toThrow(/does not match the legal entity governing node/);
+  });
+
+  it('inherits the root binding down to the terminal and names the root as its source', async () => {
+    const resolved = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await c.query<{
+        control_key: string;
+        control_value: string;
+        source_node_id: string;
+        source_depth: number;
+      }>(
+        `SELECT control_key, control_value, source_node_id, source_depth
+           FROM app.resolve_effective_policy($1, $2, now())
+          WHERE control_key = 'data_residency'`,
+        [TENANT_A, a.terminalNodeId],
+      );
+      return r.rows[0]!;
+    });
+    expect(resolved.control_value).toBe('eu_only');
+    expect(resolved.source_node_id).toBe(a.enterpriseNodeId);
+    expect(resolved.source_depth).toBe(3);
+  });
+
+  it('lets a child tighten a protected control', async () => {
+    await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      await bind(
+        c as Client,
+        a.terminalNodeId,
+        a.legalEntityId,
+        'data_residency',
+        'de_only',
+        9,
+        'residency',
+      );
+    });
+
+    const resolved = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await c.query<{ control_value: string; source_node_id: string }>(
+        `SELECT control_value, source_node_id FROM app.resolve_effective_policy($1, $2, now())
+          WHERE control_key = 'data_residency'`,
+        [TENANT_A, a.terminalNodeId],
+      );
+      return r.rows[0]!;
+    });
+    expect(resolved.control_value).toBe('de_only');
+    expect(resolved.source_node_id).toBe(a.terminalNodeId);
+  });
+
+  it('refuses a child binding that weakens a protected control', async () => {
+    await expect(
+      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await bind(
+          c as Client,
+          a.regionNodeId,
+          a.legalEntityId,
+          'data_residency',
+          'anywhere',
+          1,
+          'residency',
+        );
+      }),
+    ).rejects.toThrow(/may not be weakened/);
+  });
+
+  it('refuses the weakening for all six protected categories', async () => {
+    const categories = [
+      'legal',
+      'safety',
+      'enterprise_minimum',
+      'security',
+      'residency',
+      'approval',
+    ];
+    for (const category of categories) {
+      await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+        await bind(
+          c as Client,
+          a.enterpriseNodeId,
+          null,
+          `c_${category}`,
+          'strict',
+          9,
+          category,
+          'inherited',
+        );
+      });
+
+      await expect(
+        withLegalContext(app, systemContext(TENANT_A), async (c) => {
+          await bind(
+            c as Client,
+            a.regionNodeId,
+            a.legalEntityId,
+            `c_${category}`,
+            'loose',
+            1,
+            category,
+          );
+        }),
+        category,
+      ).rejects.toThrow(/may not be weakened/);
+    }
+  });
+
+  it('permits weakening an unprotected control', async () => {
+    await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      await bind(c as Client, a.enterpriseNodeId, null, 'verbosity', 'high', 9, null, 'inherited');
+    });
+    const id = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await bind(
+        c as Client,
+        a.regionNodeId,
+        a.legalEntityId,
+        'verbosity',
+        'low',
+        1,
+        null,
+      );
+      return r.rows[0]!.id;
+    });
+    expect(id).toBeTruthy();
+
+    // Resolution still takes the most restrictive value, so a permitted weaker binding is stored
+    // and simply loses.
+    const resolved = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await c.query<{ control_value: string }>(
+        `SELECT control_value FROM app.resolve_effective_policy($1, $2, now())
+          WHERE control_key = 'verbosity'`,
+        [TENANT_A, a.terminalNodeId],
+      );
+      return r.rows[0]!.control_value;
+    });
+    expect(resolved).toBe('high');
+  });
+
+  it('ignores a revoked binding', async () => {
+    await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      await c.query(
+        `UPDATE policy_bindings
+            SET status = 'revoked', revoked_at = now(), revoked_by = 'test:operator'
+          WHERE control_key = 'data_residency' AND organization_node_id = $1`,
+        [a.terminalNodeId],
+      );
+    });
+
+    const resolved = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await c.query<{ control_value: string; source_node_id: string }>(
+        `SELECT control_value, source_node_id FROM app.resolve_effective_policy($1, $2, now())
+          WHERE control_key = 'data_residency'`,
+        [TENANT_A, a.terminalNodeId],
+      );
+      return r.rows[0]!;
+    });
+    expect(resolved.control_value).toBe('eu_only');
+    expect(resolved.source_node_id).toBe(a.enterpriseNodeId);
+  });
+
+  it('resolves nothing for a node in another tenant', async () => {
+    const rows = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      const r = await c.query('SELECT * FROM app.resolve_effective_policy($1, $2, now())', [
+        '22222222-2222-4222-8222-222222222222',
+        a.terminalNodeId,
+      ]);
+      return r.rowCount;
+    });
+    expect(rows).toBe(0);
+  });
+});

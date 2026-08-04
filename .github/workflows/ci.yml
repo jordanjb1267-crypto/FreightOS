@@ -97,6 +97,13 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # ACCEPTANCE_THRESHOLDS §2 sets 90% line, 85% branch and 90% function coverage over newly
+      # introduced deterministic Phase 1 domain logic. The include list scopes it to exactly that,
+      # excluding raw migrations, schema declarations and fixtures as §2 requires. Thresholds are
+      # arguments to the runner, so a miss fails the step rather than printing a number nobody reads.
+      - name: Coverage — new deterministic Phase 1 logic
+        run: pnpm test:coverage
+
       - name: Integration tests
         env:
           FREIGHTOS_PGSOCK: localhost

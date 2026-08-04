@@ -42,8 +42,32 @@ transactional store, and what may be copied to a development environment.
 | `.env`              | `SECRET`              | Gitignored. Only `.env.example` is committed, with development-only values.                                     |
 | `schema_migrations` | `INTERNAL`            | Version, name, checksum, timestamp.                                                                             |
 
-Phase 0 stores no `PERSONAL` and no `TENANT_ECONOMICS` data. Both arrive in Phase 1 with the fleet
-and cost-profile domains, and this register must be extended in the same change.
+Phase 0 stored no `PERSONAL` and no `TENANT_ECONOMICS` data.
+
+## Phase 1 PR 2 inventory — identity and organization
+
+| Store                             | Class                 | Notes                                                                                                                                                                                                              |
+| --------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `organization_nodes`              | `TENANT_CONFIDENTIAL` | Tenant structure. RLS-isolated, `FORCE` enabled.                                                                                                                                                                   |
+| `organization_node_closure`       | `TENANT_CONFIDENTIAL` | Derived transitive closure of the above.                                                                                                                                                                           |
+| `legal_entities`                  | `TENANT_CONFIDENTIAL` | Legal names and jurisdictions.                                                                                                                                                                                     |
+| `operating_authorities`           | `TENANT_CONFIDENTIAL` | Regulatory posture and authority numbers.                                                                                                                                                                          |
+| `carrier_appointments`            | `TENANT_CONFIDENTIAL` | Appointment evidence references. The referenced document is not stored.                                                                                                                                            |
+| **`users`**                       | **`PERSONAL`**        | Display name and an authentication-subject reference. The first `PERSONAL` store in the system. No credential: a `CHECK` refuses a subject shaped like one                                                         |
+| `memberships`, `membership_roles` | `TENANT_CONFIDENTIAL` | Who is attached where, and with which roles.                                                                                                                                                                       |
+| `roles`, `role_permissions`       | `TENANT_CONFIDENTIAL` | Tenant authorization model.                                                                                                                                                                                        |
+| `permissions`                     | `INTERNAL`            | Global catalog. A vocabulary, not tenant data — which is why its read policy is unconditional.                                                                                                                     |
+| `service_accounts`                | `TENANT_CONFIDENTIAL` | Non-human actors.                                                                                                                                                                                                  |
+| **`service_account_credentials`** | `TENANT_CONFIDENTIAL` | **Credential REFERENCES only, never credential material.** A URI or an algorithm-prefixed digest; `CHECK` constraints refuse a raw secret. The referenced secret is class `SECRET` and lives outside this database |
+| `service_account_permissions`     | `TENANT_CONFIDENTIAL` | Direct grants to machine actors.                                                                                                                                                                                   |
+| `policy_bindings`                 | `TENANT_CONFIDENTIAL` | Effective policy per node.                                                                                                                                                                                         |
+
+`users` being `PERSONAL` has consequences that are already in force: no development copy
+(Art. III.4), minimum necessary and redacted to a model provider (Art. III.5), and identifiers only
+in logs. Phase 1 runs no model gateway, so the second is not yet exercisable in either direction.
+
+PR 2 stores no `TENANT_ECONOMICS` data. That arrives with the cost-profile domain in PR 9, and this
+register must be extended in the same change.
 
 ## Retention
 

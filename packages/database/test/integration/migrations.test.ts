@@ -254,8 +254,12 @@ describe('kill switches in the database', () => {
   it('records releases instead of deleting them', async () => {
     await expect(admin.query('DELETE FROM kill_switches')).rejects.toThrow(/append-only/i);
 
+    // released_by_type joins the release columns from OQ-19 onward (migration 0015): Art. V.1
+    // reserves kill-switch authority to humans, and Phase 0 constrained engagement only. The
+    // assertions below are unchanged in behaviour.
     await admin.query(
-      `UPDATE kill_switches SET released_at = now(), released_by = 'test:operator'
+      `UPDATE kill_switches
+          SET released_at = now(), released_by = 'test:operator', released_by_type = 'human'
        WHERE scope = 'system' AND released_at IS NULL`,
     );
     const r = await admin.query<{ mode: string }>(

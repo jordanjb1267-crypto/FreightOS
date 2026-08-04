@@ -9,10 +9,21 @@
  * Art. V.2: "Policy or audit failure blocks autonomous execution."
  */
 
-/** Ordered broadest to narrowest, exactly as 09_ lists them. */
+/**
+ * Ordered broadest to narrowest, as 09_ lists them, with `legal_entity` and `operating_context`
+ * inserted at their natural width by OQ-19.
+ *
+ * ADR-0019 requirement 7 names legal entity and operating context as kill-switch targets and
+ * neither existed. Order here mirrors the database enum after migration 0014, which used
+ * `ADD VALUE ... AFTER` for the same reason. It is documentation only: restrictiveness ordering
+ * lives on KILL_SWITCH_MODES, and resolution is most-restrictive-wins across whichever scopes
+ * apply, so scope order changes nothing.
+ */
 export const KILL_SWITCH_SCOPES = [
   'system',
   'legal_plane',
+  'legal_entity',
+  'operating_context',
   'tenant',
   'workflow',
   'agent',
@@ -20,6 +31,19 @@ export const KILL_SWITCH_SCOPES = [
   'integration',
 ] as const;
 export type KillSwitchScope = (typeof KILL_SWITCH_SCOPES)[number];
+
+/**
+ * Scopes that are deliberately cross-tenant and therefore carry no tenant id.
+ *
+ * `operating_context` joins `system` and `legal_plane` because an operating context is a
+ * platform-wide surface: suspending one suspends it everywhere. `legal_entity` does not, because a
+ * legal entity belongs to exactly one tenant. Mirrors the `kill_switches_tenant_shape` CHECK.
+ */
+export const CROSS_TENANT_KILL_SWITCH_SCOPES: readonly KillSwitchScope[] = Object.freeze([
+  'system',
+  'legal_plane',
+  'operating_context',
+]);
 
 /**
  * Ordered MOST to LEAST permissive. That ordering is the whole mechanism: resolution takes the
@@ -120,7 +144,11 @@ export function capabilitiesFor(mode: KillSwitchMode): ModeCapabilities {
 
 export interface KillSwitchRecord {
   readonly scope: KillSwitchScope;
-  /** null for `system` scope; otherwise the tenant, workflow, agent, tool, or integration id. */
+  /**
+   * null for `system` scope, which by definition has no narrower subject. Otherwise the legal
+   * plane, legal-entity id, operating-context value, tenant, workflow, agent, tool, or
+   * integration id.
+   */
   readonly scopeRef: string | null;
   readonly mode: KillSwitchMode;
 }
@@ -128,18 +156,29 @@ export interface KillSwitchRecord {
 export interface ResolutionRequest {
   readonly tenantId?: string;
   readonly legalPlane?: string;
+  readonly legalEntityId?: string;
+  readonly operatingContext?: string;
   readonly workflowId?: string;
   readonly agentId?: string;
   readonly toolId?: string;
   readonly integrationId?: string;
 }
 
+/**
+ * An unsupplied field is `undefined`, and `scopeRef` is `string | null`, so an unasked-about scope
+ * can never match. That is what makes the two new scopes additive: a caller written before OQ-19
+ * resolves exactly as it did, because it supplies neither field.
+ */
 function matches(record: KillSwitchRecord, request: ResolutionRequest): boolean {
   switch (record.scope) {
     case 'system':
       return true;
     case 'legal_plane':
       return record.scopeRef === request.legalPlane;
+    case 'legal_entity':
+      return record.scopeRef === request.legalEntityId;
+    case 'operating_context':
+      return record.scopeRef === request.operatingContext;
     case 'tenant':
       return record.scopeRef === request.tenantId;
     case 'workflow':

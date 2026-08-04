@@ -192,6 +192,81 @@ if (existsSync(packagesDir)) {
 }
 
 // ---------------------------------------------------------------------------
+// 3b. Package layering — ADR-0024 §Enforcement.
+//
+// "Dependency direction is asserted in CI, not merely documented. A check reads each package's
+// package.json workspace dependencies, maps them to layers, and fails on any same-layer or upward
+// edge — which also makes a cycle impossible to introduce."
+//
+// Only the roots ADR-0024 authorizes may exist. `packages/facility-contracts/` and the five other
+// paths 21_...:161-171 permits are deliberately absent: the doctrine allows them, and ADR-0024 §
+// "Authorized Phase 1 package roots" does not commission them.
+// ---------------------------------------------------------------------------
+const PACKAGE_LAYERS = {
+  config: 0,
+  schemas: 0,
+  context: 1,
+  database: 2,
+  'rigreceipts-contracts': 3,
+  'rigdesk-contracts': 3,
+  identity: 4,
+  parties: 4,
+  carrier: 5,
+  'modal-core': 5,
+  'mode-road': 6,
+  'facility-primitives': 6,
+};
+
+// L3 is a leaf on purpose: an external contract package importing a domain type would put tenant
+// domain types inside a package whose whole purpose is to model something FreightOS does not own.
+const LEAF_LAYERS = new Set([3]);
+
+if (existsSync(packagesDir)) {
+  for (const pkg of readdirSync(packagesDir)) {
+    if (!statSync(join(packagesDir, pkg)).isDirectory()) continue;
+
+    const layer = PACKAGE_LAYERS[pkg];
+    if (layer === undefined) {
+      errors.push(
+        `packages/${pkg}/ is not an authorized package root. ADR-0024 names the preserved Phase 0 ` +
+          `packages and the eight Phase 1 roots; creating another requires its own decision.`,
+      );
+      continue;
+    }
+
+    const manifestPath = join(packagesDir, pkg, 'package.json');
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+
+    const dependencies = Object.keys({
+      ...(manifest.dependencies ?? {}),
+      ...(manifest.devDependencies ?? {}),
+      ...(manifest.peerDependencies ?? {}),
+    }).filter((d) => d.startsWith('@freightos/'));
+
+    for (const dependency of dependencies) {
+      const name = dependency.slice('@freightos/'.length);
+      const dependencyLayer = PACKAGE_LAYERS[name];
+      if (dependencyLayer === undefined) {
+        errors.push(`packages/${pkg} depends on unknown workspace package ${dependency}`);
+        continue;
+      }
+      if (LEAF_LAYERS.has(layer)) {
+        errors.push(
+          `packages/${pkg} is an external-contract leaf (ADR-0024 L${layer}) and may depend only ` +
+            `on L0; it depends on ${dependency}`,
+        );
+      } else if (dependencyLayer >= layer) {
+        errors.push(
+          `packages/${pkg} (L${layer}) depends on ${dependency} (L${dependencyLayer}). ADR-0024 ` +
+            `permits only strictly lower layers — no same-layer edge and no upward edge.`,
+        );
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 4. No future product is billable or sale-enabled — 21_...:191.
 // ---------------------------------------------------------------------------
 const products = parse(read('config/pricing/products.yaml'));
@@ -378,6 +453,7 @@ if (existsSync(migrationsDir)) {
 notes.push(`modules checked: ${Object.keys(MODULE_EXPECTATIONS).length}`);
 notes.push(`mandatory-false flags: ${MANDATORY_FALSE.length}`);
 notes.push(`prohibited paths: ${PROHIBITED_PATHS.length}`);
+notes.push(`authorized package roots: ${Object.keys(PACKAGE_LAYERS).length}`);
 notes.push(`products checked: ${(products.products ?? []).length}`);
 notes.push(
   `agents checked: ${(agentRegistry.agents ?? []).length} (${clampedCount} clamped below declared ceiling)`,
@@ -396,4 +472,5 @@ console.log('DEFERRED_MODULES_DISABLED=PASS');
 console.log('AUTONOMY_CEILING=PASS');
 console.log('SAFETY_BOUNDARY=PASS');
 console.log('BILLING_DISABLED=PASS');
+console.log('PACKAGE_LAYERING=PASS');
 for (const n of notes) console.log(`  ${n}`);

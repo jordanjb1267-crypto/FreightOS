@@ -15,6 +15,20 @@ export {
 } from './legal.ts';
 
 export {
+  RESOURCE_GROUPS,
+  CapabilityError,
+  assertCapability,
+  capabilityFor,
+  contextCapabilities,
+  isPermittedAction,
+  type Capability,
+  type CapabilitySet,
+  type ResourceAction,
+  type ResourceGroup,
+} from './capabilities.ts';
+
+export {
+  CROSS_TENANT_KILL_SWITCH_SCOPES,
   KILL_SWITCH_MODES,
   KILL_SWITCH_SCOPES,
   capabilitiesFor,

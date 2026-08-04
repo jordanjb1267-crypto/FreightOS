@@ -20,6 +20,7 @@
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:all": "vitest run",
+    "test:coverage": "vitest run --project unit --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --coverage.all=false --coverage.include='packages/identity/src/**' --coverage.include='packages/context/src/capabilities.ts' --coverage.thresholds.lines=90 --coverage.thresholds.branches=85 --coverage.thresholds.functions=90 --coverage.thresholds.statements=90",
     "db:up": "node --experimental-strip-types packages/database/src/cli.ts up",
     "db:down": "node --experimental-strip-types packages/database/src/cli.ts down",
     "db:status": "node --experimental-strip-types packages/database/src/cli.ts status",
@@ -28,12 +29,13 @@
     "validate:provenance": "node scripts/check-handoff-provenance.mjs",
     "validate:scope": "node scripts/validate-scope.mjs",
     "validate": "pnpm validate:handoff && pnpm validate:provenance && pnpm validate:scope",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm validate"
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:coverage && pnpm validate"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
+    "@vitest/coverage-v8": "^2.1.9",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
     "turbo": "^2.3.3",

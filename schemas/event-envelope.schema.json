@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rigfreightos.local/schemas/event-envelope.schema.json",
   "title": "FreightOS event envelope (CloudEvents 1.0 compatible)",
-  "description": "Operational override of the handoff envelope, authorised by ADR-0015. Two changes: (1) the single `authoritymode` attribute is replaced by `legalauthorityclass` + `operatingcontext`, because the handoff enum omitted facility_operator and autonomous_mobility and therefore made Horizon 1 custody events unemittable; (2) `legalentityid` is required except for system-scoped events, which must instead carry an authorized actor. Attribute names are all-lowercase because CloudEvents 1.0 requires context attribute names to be lowercase alphanumeric — this is spec compliance, not a naming inconsistency.",
+  "description": "Operational override of the handoff envelope, authorised by ADR-0015 and ADR-0019. Three changes: (1) the single `authoritymode` attribute is replaced by `legalauthorityclass` + `operatingcontext`, because the handoff enum omitted facility_operator and autonomous_mobility and therefore made Horizon 1 custody events unemittable; (2) `legalentityid` is required except for system-scoped events, which must instead carry an authorized actor; (3) `purpose` is a required context attribute — ADR-0019 requirement 6 names it on every envelope, and OQ-20 records that the handoff schema set additionalProperties:false with no such attribute, so an envelope carrying one was invalid. Purpose is drawn from a closed vocabulary and is supplied by the trusted command or control-plane context, never by model output. Attribute names are all-lowercase because CloudEvents 1.0 requires context attribute names to be lowercase alphanumeric — this is spec compliance, not a naming inconsistency.",
   "type": "object",
   "required": [
     "specversion",
@@ -15,6 +15,7 @@
     "operatingcontext",
     "actorid",
     "correlationid",
+    "purpose",
     "data"
   ],
   "properties": {
@@ -72,6 +73,21 @@
     "correlationid": {
       "type": "string",
       "minLength": 1
+    },
+    "purpose": {
+      "enum": [
+        "service_operation",
+        "tenant_provisioning",
+        "tenant_lifecycle",
+        "identity_administration",
+        "access_review",
+        "audit_export",
+        "incident_response",
+        "security_investigation",
+        "regulatory_request",
+        "platform_operations"
+      ],
+      "description": "Why the actor performed the operation. ADR-0019 requirement 6 and OQ-20. Closed vocabulary, mirrored by app.is_permitted_purpose in migration 0006 and by PURPOSES in packages/identity/src/purpose.ts. Supplied by the trusted command or control-plane context; model output may not author, widen, or select it."
     },
     "causationid": {
       "type": ["string", "null"]
