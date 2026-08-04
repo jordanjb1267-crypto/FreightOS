@@ -45,15 +45,56 @@ export class TestDatabase {
     });
   }
 
-  /** Drop and recreate the database, migrate it, and make the test roles connectable. */
-  async reset(): Promise<void> {
-    const maintenance = new Client({
+  private maintenanceClient(): Client {
+    return new Client({
       host: SOCKET_DIR,
       port: PORT,
       user: 'postgres',
       database: 'postgres',
       ...(NEEDS_PASSWORD ? { password: SUPERUSER_PASSWORD } : {}),
     });
+  }
+
+  /**
+   * Run `work` while holding the cluster-wide role lock.
+   *
+   * Roles are shared catalog rows, so two test files touching them concurrently — via migration
+   * 0001's CREATE ROLE or an ALTER ROLE — produce "tuple concurrently updated".
+   *
+   * The lock is taken on the shared `postgres` database, never on a per-file one: PostgreSQL
+   * advisory lock tags include the database OID, so a lock taken inside each file's own database
+   * would never conflict and would serialise nothing. It is session-scoped rather than
+   * transaction-scoped because it has to span work on other connections.
+   */
+  private async withRoleLock<T>(work: (maintenance: Client) => Promise<T>): Promise<T> {
+    const maintenance = this.maintenanceClient();
+    await maintenance.connect();
+    try {
+      await maintenance.query('SELECT pg_advisory_lock($1)', [ROLE_SETUP_LOCK]);
+      try {
+        return await work(maintenance);
+      } finally {
+        await maintenance.query('SELECT pg_advisory_unlock($1)', [ROLE_SETUP_LOCK]);
+      }
+    } finally {
+      await maintenance.end();
+    }
+  }
+
+  private async grantRoles(client: Client): Promise<void> {
+    for (const role of ['freightos_app', 'freightos_control_plane']) {
+      await client.query(
+        NEEDS_PASSWORD
+          ? `ALTER ROLE ${role} LOGIN PASSWORD '${ROLE_PASSWORD}'`
+          : `ALTER ROLE ${role} LOGIN`,
+      );
+      await client.query(`GRANT CONNECT ON DATABASE ${this.name} TO ${role}`);
+    }
+  }
+
+  /** Drop and recreate the database, migrate it, and make the test roles connectable. */
+  async reset(): Promise<void> {
+    const maintenance = this.maintenanceClient();
     await maintenance.connect();
     try {
       await maintenance.query(
@@ -61,45 +102,36 @@ export class TestDatabase {
          WHERE datname = $1 AND pid <> pg_backend_pid()`,
         [this.name],
       );
-      // DROP/CREATE DATABASE cannot run inside a transaction, so these come first.
+      // DROP/CREATE DATABASE cannot run inside a transaction, and must not hold the role lock.
       await maintenance.query(`DROP DATABASE IF EXISTS ${this.name}`);
       await maintenance.query(`CREATE DATABASE ${this.name}`);
-
-      // Roles are cluster-wide catalog rows shared by every test database. Two files racing on
-      // them — migration 0001's CREATE ROLE, or the ALTER ROLE below — produce "tuple
-      // concurrently updated".
-      //
-      // The lock is taken on the shared `postgres` database, not on the per-file one:
-      // PostgreSQL advisory lock tags include the database OID, so a lock taken inside each
-      // file's own database would never conflict and would serialise nothing. It is
-      // session-scoped rather than transaction-scoped because it has to span the migration run,
-      // which happens on a different connection.
-      await maintenance.query('SELECT pg_advisory_lock($1)', [ROLE_SETUP_LOCK]);
-      try {
-        const admin = this.connectAs('postgres');
-        await admin.connect();
-        try {
-          await migrateUp(admin, loadMigrations(MIGRATIONS_DIR));
-        } finally {
-          await admin.end();
-        }
-
-        // The migrations create these roles without LOGIN; production grants credentials out of
-        // band. The local test cluster uses trust auth over a unix socket, CI uses a password.
-        for (const role of ['freightos_app', 'freightos_control_plane']) {
-          await maintenance.query(
-            NEEDS_PASSWORD
-              ? `ALTER ROLE ${role} LOGIN PASSWORD '${ROLE_PASSWORD}'`
-              : `ALTER ROLE ${role} LOGIN`,
-          );
-          await maintenance.query(`GRANT CONNECT ON DATABASE ${this.name} TO ${role}`);
-        }
-      } finally {
-        await maintenance.query('SELECT pg_advisory_unlock($1)', [ROLE_SETUP_LOCK]);
-      }
     } finally {
       await maintenance.end();
     }
+
+    await this.withRoleLock(async (m) => {
+      const admin = this.connectAs('postgres');
+      await admin.connect();
+      try {
+        await migrateUp(admin, loadMigrations(MIGRATIONS_DIR));
+      } finally {
+        await admin.end();
+      }
+      await this.grantRoles(m);
+    });
+  }
+
+  /**
+   * Re-grant login to the test roles. Needed after a test reverts migration 0001, which drops the
+   * grants along with the schema.
+   *
+   * Always go through here rather than issuing ALTER ROLE directly, for two reasons. A hand-rolled
+   * `ALTER ROLE ... LOGIN` omits the password — harmless under trust auth, and it silently strips
+   * the credential under the password auth CI uses, so it passes locally and fails only in CI. And
+   * it would run outside the cluster-wide role lock, racing other test files.
+   */
+  async grantTestRoleLogin(): Promise<void> {
+    await this.withRoleLock((m) => this.grantRoles(m));
   }
 
   /** Seed two tenants via the control plane, the only role permitted to create them. */

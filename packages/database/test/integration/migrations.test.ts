@@ -100,10 +100,9 @@ describe('apply, revert, re-apply', () => {
     expect(result.applied).toEqual(migrations.map((m) => m.version));
 
     // Prove the recovered schema actually works, not merely that DDL ran.
-    for (const role of ['freightos_app', 'freightos_control_plane']) {
-      await admin.query(`ALTER ROLE ${role} LOGIN`);
-      await admin.query(`GRANT CONNECT ON DATABASE ${db.name} TO ${role}`);
-    }
+    // Reverting 0001 dropped the grants, so the roles need re-granting — via the harness, so
+    // the password-auth path CI uses is exercised too.
+    await db.grantTestRoleLogin();
 
     const control = db.connectAs('freightos_control_plane');
     await control.connect();

@@ -76,7 +76,9 @@ jobs:
       # These run before the tests on purpose: a scope violation should fail fast and loudly,
       # not after a long test run.
       - name: Handoff integrity (SHA256)
-        run: sha256sum -c docs/production-handoff/v1.2/SHA256SUMS.txt
+        # Paths inside SHA256SUMS.txt are relative to the handoff root, so this runs from there.
+        # Do not add a path prefix to the filename — working-directory already supplies it.
+        run: sha256sum -c SHA256SUMS.txt
         working-directory: docs/production-handoff/v1.2
 
       - name: Handoff validator
