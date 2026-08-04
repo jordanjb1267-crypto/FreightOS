@@ -1,0 +1,24 @@
+catalog_version: 2026-08-03-v1
+currency: USD
+packs:
+- id: cold_chain
+  unit: active_refrigerated_unit_month
+  price: 12
+- id: hazmat_advanced
+  unit: applicable_active_unit_month
+  price: 20
+- id: heavy_haul
+  unit: applicable_active_unit_month
+  price: 15
+- id: bulk
+  unit: applicable_active_unit_month
+  price: 15
+- id: drayage
+  unit: active_powered_unit_month
+  price: 10
+- id: auto_transport
+  unit: applicable_active_unit_month
+  price: 10
+- id: high_value_security
+  unit: applicable_active_unit_month
+  price: 15

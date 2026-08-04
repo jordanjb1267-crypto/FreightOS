@@ -1,0 +1,94 @@
+version: 1.2.0
+products:
+- id: carrier_core
+  name: FreightOS Core
+  revenue_category: saas
+  autonomy_max: A0
+  build_state: ACTIVE_BUILD
+  commercial_status: LAUNCH_CATALOG_TARGET
+  billing_enabled: false
+  billing_activation_gate: horizon_1_production_release
+  customer_sale_allowed: false
+- id: carrier_copilot
+  name: FreightOS Copilot
+  revenue_category: saas
+  autonomy_max: A3
+  build_state: ACTIVE_BUILD
+  commercial_status: LAUNCH_CATALOG_TARGET
+  billing_enabled: false
+  billing_activation_gate: horizon_1_production_release
+  customer_sale_allowed: false
+- id: carrier_autonomous
+  name: FreightOS Autonomous
+  revenue_category: saas
+  autonomy_max: A4
+  build_state: PROMOTION_GATED
+  commercial_status: PRE_LAUNCH_TARGET
+  billing_enabled: false
+  customer_sale_allowed: false
+- id: shipper_control_tower
+  name: Shipper Control Tower
+  revenue_category: saas
+  autonomy_max: A3
+  build_state: PROMOTION_GATED
+  commercial_status: PRE_LAUNCH_TARGET
+  billing_enabled: false
+  customer_sale_allowed: false
+- id: digital_brokerage
+  name: Digital Brokerage
+  revenue_category: brokerage
+  legal_gate: brokerage
+  build_state: LEGAL_AND_MARKET_GATED
+  commercial_status: PRE_LAUNCH_TARGET
+  billing_enabled: false
+  customer_sale_allowed: false
+- id: freight_exchange
+  name: Autonomous Freight Exchange
+  revenue_category: exchange
+  legal_gate: exchange
+  build_state: LIQUIDITY_GATED
+  commercial_status: PRE_LAUNCH_TARGET
+  billing_enabled: false
+  customer_sale_allowed: false
+- id: facility_connect
+  name: RIG FacilityOS Connect
+  revenue_category: saas
+  autonomy_max: A1
+  build_state: PROMOTION_GATED
+  commercial_status: PRE_LAUNCH_TARGET
+  billing_enabled: false
+  customer_sale_allowed: false
+- id: facility_copilot
+  name: RIG FacilityOS Copilot
+  revenue_category: saas
+  autonomy_max: A3
+  build_state: PROMOTION_GATED
+  commercial_status: PRE_LAUNCH_TARGET
+  billing_enabled: false
+  customer_sale_allowed: false
+- id: facility_autonomous
+  name: RIG FacilityOS Autonomous
+  revenue_category: saas
+  autonomy_max: A4
+  safety_critical_motion_control: prohibited
+  build_state: CUSTOMER_GATED
+  commercial_status: PRE_LAUNCH_TARGET
+  billing_enabled: false
+  customer_sale_allowed: false
+- id: autonomous_vehicle_link
+  name: RIG Autonomous Vehicle Link
+  revenue_category: saas
+  autonomy_max: A4
+  activation_gate: autonomous_vehicle
+  build_state: PARTNER_AND_SAFETY_GATED
+  commercial_status: PRE_LAUNCH_TARGET
+  billing_enabled: false
+  customer_sale_allowed: false
+- id: autonomous_operations_center
+  name: RIG Autonomous Operations Center
+  revenue_category: support
+  activation_gate: autonomous_vehicle
+  build_state: PARTNER_AND_SAFETY_GATED
+  commercial_status: PRE_LAUNCH_TARGET
+  billing_enabled: false
+  customer_sale_allowed: false

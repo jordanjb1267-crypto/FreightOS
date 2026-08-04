@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/meter-event.schema.json",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "billing_account_id",
+    "meter_id",
+    "occurred_at",
+    "quantity",
+    "idempotency_key",
+    "revenue_category"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "billing_account_id": {
+      "type": "string"
+    },
+    "meter_id": {
+      "type": "string"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "quantity": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "revenue_category": {
+      "enum": [
+        "saas",
+        "autonomy",
+        "brokerage",
+        "exchange",
+        "financing",
+        "support",
+        "implementation"
+      ]
+    },
+    "source_resource_type": {
+      "type": "string"
+    },
+    "source_resource_id": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

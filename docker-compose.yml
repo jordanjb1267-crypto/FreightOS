@@ -1,0 +1,65 @@
+# Local development stack (ADR-0016).
+#
+# Development may run locally; production runs on redundant always-on cloud infrastructure
+# (17_CLAUDE_IMPLEMENTATION_INSTRUCTIONS §8). Nothing here is a production topology and no value
+# here is a production credential.
+#
+# Phase 0 only requires PostgreSQL. Temporal and MinIO are declared now because the infrastructure
+# baseline is fixed, but no Phase 0 code connects to them.
+#
+# Where Docker is unavailable (sandboxes, some CI runners), scripts/dev-postgres.sh brings up an
+# equivalent local PostgreSQL 16 cluster instead.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: freightos-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: devonly
+      POSTGRES_DB: freightos
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d freightos']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Durable workflows. Phase 3 uses this; declared here so the baseline is unambiguous.
+  temporal:
+    image: temporalio/auto-setup:1.26.2
+    container_name: freightos-temporal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PWD: devonly
+      POSTGRES_SEEDS: postgres
+    ports:
+      - '7233:7233'
+    profiles: ['full']
+
+  # S3-compatible object storage for documents. Phase 2 uses this.
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: freightos-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+    profiles: ['full']
+
+volumes:
+  postgres-data:
+  minio-data:

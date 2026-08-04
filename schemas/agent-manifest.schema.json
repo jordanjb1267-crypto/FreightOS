@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/agent-manifest.schema.json",
+  "title": "FreightOS agent manifest",
+  "description": "Operational override of the handoff manifest schema, authorised by ADR-0015 and ADR-0018. Changes: (1) `planes` is replaced by `legal_authority_class` + `operating_contexts` per ADR-0015; (2) `module` becomes required so the autonomy ceiling can be computed rather than trusted; (3) `additionalProperties` is tightened from true to false, because a manifest that silently accepts unknown keys cannot enforce Constitution Art. IV.1 (agents operate only within manifests). `maximum_autonomy` here is a DECLARED ceiling and is never the effective one — see ADR-0018.",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "purpose",
+    "owner",
+    "module",
+    "legal_authority_class",
+    "operating_contexts",
+    "tenant_scope",
+    "maximum_autonomy",
+    "allowed_tools",
+    "prohibited_actions",
+    "evaluation_suite"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 10
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "module": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "description": "Key in config/scope/module_states.yaml. Required so effectiveMaximumAutonomy() can clamp against the module's state and horizon."
+    },
+    "legal_authority_class": {
+      "enum": ["software_only", "carrier_agent", "brokerage"],
+      "description": "ADR-0015. The regulatory posture. Operating context never widens it."
+    },
+    "operating_contexts": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "system",
+          "carrier",
+          "shipper_owned",
+          "facility_operator",
+          "autonomous_mobility",
+          "brokerage"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "tenant_scope": {
+      "enum": ["isolated", "organization_scoped", "global_control_only"]
+    },
+    "maximum_autonomy": {
+      "enum": ["A0", "A1", "A2", "A3", "A4", "A5"],
+      "description": "DECLARED ceiling only. The effective ceiling is min(this, module ceiling, horizon ceiling) — ADR-0018. No consumer may use this value directly."
+    },
+    "allowed_tools": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true,
+      "description": "Empty means no tool may be called. 14_TEST_AND_ACCEPTANCE_STRATEGY requires that agents cannot call unlisted tools; the tool registry is a Phase 2 deliverable, so empty is the correct Phase 0 value."
+    },
+    "prohibited_actions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "evaluation_suite": {
+      "type": "string",
+      "minLength": 1
+    },
+    "confidence_threshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "allOf": [
+    {
+      "description": "ADR-0015 rule 6: the declared legal class constrains which operating contexts an agent may run in.",
+      "oneOf": [
+        {
+          "properties": {
+            "legal_authority_class": { "const": "software_only" },
+            "operating_contexts": {
+              "items": {
+                "enum": ["system", "shipper_owned", "facility_operator", "autonomous_mobility"]
+              }
+            }
+          },
+          "required": ["legal_authority_class", "operating_contexts"]
+        },
+        {
+          "properties": {
+            "legal_authority_class": { "const": "carrier_agent" },
+            "operating_contexts": { "items": { "const": "carrier" } }
+          },
+          "required": ["legal_authority_class", "operating_contexts"]
+        },
+        {
+          "properties": {
+            "legal_authority_class": { "const": "brokerage" },
+            "operating_contexts": { "items": { "const": "brokerage" } }
+          },
+          "required": ["legal_authority_class", "operating_contexts"]
+        }
+      ]
+    }
+  ],
+  "additionalProperties": false
+}

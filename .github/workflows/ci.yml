@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  # `push` is limited to main. Every other branch is covered by `pull_request`, and matching both
+  # made each PR commit run the whole suite twice against the same SHA.
+  push:
+    branches: [main]
+  pull_request:
+
+# PHASE_0_FOUNDATION requires formatting, linting, typecheck, tests, CI, the handoff validator,
+# and the anti-overbuilding validator. Every step below is blocking. 17_..:63 rejects "tests
+# passed" without output, so nothing here is advisory and nothing is allowed to continue-on-error.
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        # PostgreSQL 16 baseline — ADR-0016. The reference DDL's ALTER TYPE ... ADD VALUE and
+        # gen_random_uuid() both constrain the version, and it was pinned nowhere in the handoff.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the secret scan below covers every commit, not just the diff.
+          fetch-depth: 0
+
+      # No `version:` here on purpose. pnpm/action-setup@v4 errors out when a version is given
+      # both here and as `packageManager` in package.json. package.json is the better source of
+      # truth — it pins the exact version for local development too — so this reads from there.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Python for the handoff validator
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install validator dependencies
+        # validate_handoff.py hard-requires PyYAML and the handoff ships no requirements file.
+        run: python3 -m pip install --quiet pyyaml
+
+      # -- Static checks -----------------------------------------------------
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # -- Governance validators --------------------------------------------
+      # These run before the tests on purpose: a scope violation should fail fast and loudly,
+      # not after a long test run.
+      - name: Handoff integrity (SHA256)
+        # Paths inside SHA256SUMS.txt are relative to the handoff root, so this runs from there.
+        # Do not add a path prefix to the filename — working-directory already supplies it.
+        run: sha256sum -c SHA256SUMS.txt
+        working-directory: docs/production-handoff/v1.2
+
+      - name: Handoff validator
+        run: python3 docs/production-handoff/v1.2/scripts/validate_handoff.py
+
+      - name: Handoff provenance and drift
+        run: node scripts/check-handoff-provenance.mjs
+
+      - name: Anti-overbuilding and autonomy ceiling
+        run: node scripts/validate-scope.mjs
+
+      # -- Tests -------------------------------------------------------------
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Integration tests
+        env:
+          FREIGHTOS_PGSOCK: localhost
+          FREIGHTOS_PGPORT: '5432'
+          PGPASSWORD: postgres
+        run: pnpm test:integration
+
+      # -- Secrets -----------------------------------------------------------
+      # Constitution: no production secrets in source, prompts, logs, fixtures, or agent memory.
+      #
+      # This replaces gitleaks/gitleaks-action@v2, which scans only the pull request's commit
+      # range. Under actions/checkout's default shallow clone the range's base parent does not
+      # exist, so the scan died with "unknown revision" after reading ~0 bytes — while still
+      # logging "no leaks found in partial scan". A secret scan that reports success having read
+      # nothing is worse than no secret scan, because it looks like coverage.
+      #
+      # Scanning full history instead removes the failure mode rather than patching it: there is
+      # no commit range to resolve, and a secret that was committed and later deleted is still
+      # caught.
+      - name: Secret scan
+        env:
+          GITLEAKS_VERSION: 8.24.3
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks detect --redact --exit-code=1 -v

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/policy-decision.schema.json",
+  "type": "object",
+  "required": [
+    "decision",
+    "policyVersion",
+    "reasons",
+    "constraints"
+  ],
+  "properties": {
+    "decision": {
+      "enum": [
+        "allow",
+        "deny",
+        "require_approval"
+      ]
+    },
+    "policyVersion": {
+      "type": "string"
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requiredApprovals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "constraints": {
+      "type": "object"
+    },
+    "expiresAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

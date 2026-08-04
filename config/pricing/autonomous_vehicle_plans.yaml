@@ -1,0 +1,53 @@
+catalog_version: 2026-08-04-v1
+status: launch_target_provider_cost_and_risk_validation_required
+currency: USD
+bands:
+- min_connected_units: 1
+  max_connected_units: 49
+  monthly_platform_fee: 1000
+  active_unit_fee: 75
+  completed_mission_fee: 15
+- min_connected_units: 50
+  max_connected_units: 249
+  monthly_platform_fee: 5000
+  active_unit_fee: 45
+  completed_mission_fee: 8
+- min_connected_units: 250
+  max_connected_units: 999
+  monthly_platform_fee: 15000
+  active_unit_fee: 25
+  completed_mission_fee: 4
+- min_connected_units: 1000
+  max_connected_units: 4999
+  monthly_platform_fee: 50000
+  active_unit_fee: 14
+  completed_mission_fee: 2
+- min_connected_units: 5000
+  max_connected_units: 24999
+  monthly_platform_fee: 125000
+  active_unit_fee: 8
+  completed_mission_fee: 1
+- min_connected_units: 25000
+  max_connected_units: null
+  monthly_platform_fee: 250000
+  active_unit_fee: 4
+  completed_mission_fee_min: 0.25
+  completed_mission_fee_max: 0.75
+remote_assistance_coordination:
+- min_cases: 1
+  max_cases: 1000
+  fee_per_case: 20
+- min_cases: 1001
+  max_cases: 10000
+  fee_per_case: 10
+- min_cases: 10001
+  max_cases: 100000
+  fee_per_case: 4
+- min_cases: 100001
+  max_cases: null
+  fee_per_case_min: 1
+  fee_per_case_max: 3
+remote_driving: excluded
+commercial_status: PRE_LAUNCH_TARGET
+billing_enabled: false
+customer_sale_allowed: false

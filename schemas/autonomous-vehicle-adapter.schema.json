@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/autonomous-vehicle-adapter.schema.json",
+  "type": "object",
+  "required": [
+    "provider",
+    "version",
+    "read_capabilities",
+    "mission_commands",
+    "prohibited_controls",
+    "provider_authority"
+  ],
+  "properties": {
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string"
+    },
+    "read_capabilities": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "vehicle.identity",
+          "automation.capability",
+          "automation.state",
+          "odd.profile",
+          "mission.eligibility",
+          "location.summary",
+          "eta",
+          "vehicle.health_summary",
+          "sensor.health_summary",
+          "energy.status",
+          "trailer.status",
+          "cargo_sensor.status",
+          "remote_assistance.status",
+          "minimal_risk.status",
+          "maintenance.status",
+          "cybersecurity.status"
+        ]
+      }
+    },
+    "mission_commands": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "mission.validate",
+          "mission.request",
+          "mission.authorize",
+          "mission.hold",
+          "mission.cancel",
+          "facility_target.submit",
+          "credential.submit",
+          "remote_assistance.request",
+          "recovery.request",
+          "inspection.request",
+          "maintenance.request",
+          "fuel.request",
+          "charge.request",
+          "cleaning.request"
+        ]
+      }
+    },
+    "prohibited_controls": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "vehicle.steer",
+          "vehicle.accelerate",
+          "vehicle.brake",
+          "vehicle.change_lane",
+          "vehicle.reverse",
+          "vehicle.override_perception",
+          "vehicle.disable_safety_system",
+          "vehicle.execute_fallback"
+        ]
+      },
+      "minItems": 8,
+      "uniqueItems": true
+    },
+    "provider_authority": {
+      "const": "dynamic_driving_task_and_odd"
+    },
+    "message_security": {
+      "type": "object",
+      "properties": {
+        "mutual_auth": {
+          "type": "boolean"
+        },
+        "signed_messages": {
+          "type": "boolean"
+        },
+        "replay_protection": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "mutual_auth",
+        "signed_messages",
+        "replay_protection"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
