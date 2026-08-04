@@ -2,7 +2,7 @@
 
 Required by `02_GOVERNANCE_AND_NON_REGRESSION.md:5-17`. Did not exist before Phase 0.
 
-`11_INTEGRATIONS_API_EDI_AND_MCP.md:15` specifies seventeen fields every integration must record:
+`11_INTEGRATIONS_API_EDI_AND_MCP.md:15` specifies sixteen fields every integration must record:
 provider, purpose, data classification, legal plane, tenants, authentication, credential owner,
 webhook verification, rate limits, retry, idempotency, health, kill switch, retention, contract,
 and cost.
@@ -17,20 +17,21 @@ Every row below is a placeholder recording what must be registered before the in
 built. An integration may not be implemented until its row is complete and has passed the security
 review `02_…:41-49` requires for every new external integration.
 
-| Integration                    | Legal plane     | Class                 | Horizon | Status                                                                                                                             |
-| ------------------------------ | --------------- | --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| RigReceipts economics boundary | `software_only` | `TENANT_ECONOMICS`    | 1       | **Contract + simulation only** (owner ruling 3). No live credential, no external write. Contract does not yet exist.               |
-| RIGDESK maintenance hooks      | `software_only` | `TENANT_CONFIDENTIAL` | 1       | **Contract + simulation only.** Contract does not yet exist.                                                                       |
-| Load sources / broker boards   | `carrier_agent` | `TENANT_CONFIDENTIAL` | 1       | Not registered. Phase 2.                                                                                                           |
-| Email ingestion                | `carrier_agent` | `TENANT_CONFIDENTIAL` | 1       | Not registered. Phase 2.                                                                                                           |
-| EDI (X12 204/990/214/210)      | `carrier_agent` | `TENANT_CONFIDENTIAL` | 1       | Not registered. Phase 1. **X12 sets are licensed documents; licensing is an unresolved prerequisite (R-15).**                      |
-| Object storage (S3-compatible) | `software_only` | `TENANT_CONFIDENTIAL` | 1       | Baseline fixed (ADR-0016); local MinIO only. No production provider selected.                                                      |
-| Model gateway                  | `software_only` | see below             | 1       | Provider-independent. **`MODEL_GATEWAY_ENABLED=false`** — a model call fails closed rather than reaching an unconfigured provider. |
-| Temporal                       | `software_only` | `TENANT_CONFIDENTIAL` | 1       | Baseline fixed; local Docker only. Used from Phase 3.                                                                              |
-| Brokerage systems              | `brokerage`     | —                     | ≥3      | **Prohibited.** `BROKERAGE_LEGAL_GATE.md` unsigned.                                                                                |
-| ADS providers                  | `software_only` | —                     | ≥3      | **Prohibited.** `AUTONOMOUS_VEHICLE_ACTIVATION_GATE.md` unsigned.                                                                  |
-| Rail / ocean / air carriers    | `software_only` | —                     | ≥3      | **Prohibited.** Adapters are interface-and-simulation only.                                                                        |
-| WMS / YMS / WES                | `software_only` | —                     | ≥3      | **Prohibited.** `FACILITY_AUTOMATION_GATE.md` unsigned.                                                                            |
+| Integration                    | Legal plane     | Class                 | Horizon | Status                                                                                                                                                                                                                                                                                                               |
+| ------------------------------ | --------------- | --------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RigReceipts economics boundary | `software_only` | `TENANT_ECONOMICS`    | 1       | **`contract_and_simulation_only`** for all of Phase 1 — Phase 1 ruling B. No live credential, no live call, no external write. Formulas marked `EXTERNALLY_SUPPLIED` / `UNRESOLVED` / `authoritative: false`. Contract does not yet exist (OQ-2).                                                                    |
+| RIGDESK maintenance hooks      | `software_only` | `TENANT_CONFIDENTIAL` | 1       | **`contract_and_simulation_only`** for all of Phase 1 — Phase 1 ruling C. Fail-closed asymmetry: stale, simulated, or non-authoritative data may never make equipment available. Contract does not yet exist (OQ-3).                                                                                                 |
+| Load sources / broker boards   | `carrier_agent` | `TENANT_CONFIDENTIAL` | 1       | Not registered. Phase 2.                                                                                                                                                                                                                                                                                             |
+| Email ingestion                | `carrier_agent` | `TENANT_CONFIDENTIAL` | 1       | Not registered. Phase 2.                                                                                                                                                                                                                                                                                             |
+| EDI (X12 204/990/214/210)      | `carrier_agent` | `TENANT_CONFIDENTIAL` | 1       | **Not registered, and deliberately not registered in Phase 1** — ADR-0023. The EDI boundary remains Horizon 1 scope (`21_…:70`, `21_…:87`); only the **licensed X12 mappings** are deferred. Named as future connector targets with `implemented: false`. Licensing remains an unresolved prerequisite (R-15, OQ-6). |
+| Canonical JSON load ingestion  | `carrier_agent` | `TENANT_CONFIDENTIAL` | 1       | The **first working ingestion path** (ADR-0023). Governed REST or file import. Not registered at PR 1; registration is required before the boundary accepts external traffic.                                                                                                                                        |
+| Object storage (S3-compatible) | `software_only` | `TENANT_CONFIDENTIAL` | 1       | Baseline fixed (ADR-0016); local MinIO only. No production provider selected.                                                                                                                                                                                                                                        |
+| Model gateway                  | `software_only` | see below             | 1       | Provider-independent. **`MODEL_GATEWAY_ENABLED=false`** — a model call fails closed rather than reaching an unconfigured provider.                                                                                                                                                                                   |
+| Temporal                       | `software_only` | `TENANT_CONFIDENTIAL` | 1       | Baseline fixed; local Docker only. Used from Phase 3.                                                                                                                                                                                                                                                                |
+| Brokerage systems              | `brokerage`     | —                     | ≥3      | **Prohibited.** `BROKERAGE_LEGAL_GATE.md` unsigned.                                                                                                                                                                                                                                                                  |
+| ADS providers                  | `software_only` | —                     | ≥3      | **Prohibited.** `AUTONOMOUS_VEHICLE_ACTIVATION_GATE.md` unsigned.                                                                                                                                                                                                                                                    |
+| Rail / ocean / air carriers    | `software_only` | —                     | ≥3      | **Prohibited.** Adapters are interface-and-simulation only.                                                                                                                                                                                                                                                          |
+| WMS / YMS / WES                | `software_only` | —                     | ≥3      | **Prohibited.** `FACILITY_AUTOMATION_GATE.md` unsigned.                                                                                                                                                                                                                                                              |
 
 ## Model-provider constraint
 
@@ -40,7 +41,7 @@ being the authority for money, permission, or legal status regardless of what it
 
 ## Adding an integration
 
-1. Complete all seventeen fields from `11_…:15`.
+1. Complete all sixteen fields from `11_…:15`.
 2. Pass security review (`02_…:41-49`).
 3. Register a kill switch at `integration` scope before first use — the kill-switch table already
    supports it.
