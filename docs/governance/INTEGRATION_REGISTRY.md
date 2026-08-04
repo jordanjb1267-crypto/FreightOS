@@ -2,7 +2,7 @@
 
 Required by `02_GOVERNANCE_AND_NON_REGRESSION.md:5-17`. Did not exist before Phase 0.
 
-`11_INTEGRATIONS_API_EDI_AND_MCP.md:15` specifies seventeen fields every integration must record:
+`11_INTEGRATIONS_API_EDI_AND_MCP.md:15` specifies sixteen fields every integration must record:
 provider, purpose, data classification, legal plane, tenants, authentication, credential owner,
 webhook verification, rate limits, retry, idempotency, health, kill switch, retention, contract,
 and cost.
@@ -41,7 +41,7 @@ being the authority for money, permission, or legal status regardless of what it
 
 ## Adding an integration
 
-1. Complete all seventeen fields from `11_…:15`.
+1. Complete all sixteen fields from `11_…:15`.
 2. Pass security review (`02_…:41-49`).
 3. Register a kill switch at `integration` scope before first use — the kill-switch table already
    supports it.

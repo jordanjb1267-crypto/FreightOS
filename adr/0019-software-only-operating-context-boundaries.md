@@ -137,8 +137,10 @@ read, `W` = write, `—` = no access, `DENIED` = refused before any predicate is
 
 ### RLS consequences
 
-The base predicate is unchanged from the Phase 0 pattern
-(`packages/database/migrations/0002_tenants.up.sql:48-50`):
+The base predicate follows the Phase 0 pattern. `tenants` is the one variation — its policy
+compares `id` rather than `tenant_id`, because the tenant row **is** the tenant
+(`0002_tenants.up.sql:48-50`, self-reference `CHECK` at `0002_tenants.up.sql:19`). Every Phase 1
+tenant-owned table uses the general form:
 
 ```sql
 USING      (app.is_control_plane() OR tenant_id = app.current_tenant_id())

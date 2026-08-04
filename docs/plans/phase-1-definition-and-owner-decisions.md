@@ -251,7 +251,7 @@ rail, ocean, facility-automation, or ADS credentials.
 ### 2.5 Autonomy ceiling for Phase 1
 
 `13_IMPLEMENTATION_ROADMAP.md:19` and `prompts/PHASE_1_UNIVERSAL_CORE.md:7` both set **A0–A2**
-for Phase 1 — one level _below_ the A3 horizon ceiling that `adr/0018:44` enforces. Under
+for Phase 1 — one level _below_ the A3 horizon ceiling that `adr/0018:45` enforces. Under
 `02_…:97` the stricter reading governs: **Phase 1 effective ceiling is A2**, and no Phase 1
 artifact may create an execution path above A2. The A3 backstop in `effectiveMaximumAutonomy()`
 stays as it is; Phase 1 simply must not build anything that reaches it.
@@ -379,11 +379,11 @@ and 3 cannot be _specified_, let alone built.
 
 **Options.**
 
-| Option                                             | Feasible today? | Assessment                                                                                                                                                                                                |
-| -------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| B1 — Contract + simulation only for all of Phase 1 | Yes             | **Recommended.**                                                                                                                                                                                          |
-| B2 — Read-only live integration during Phase 1     | **No**          | Requires an authoritative contract, a registered integration with all seventeen fields (`11_…:15`), security review (`02_…:41-49`), and a credential owner. None exists. Also contradicts owner ruling 3. |
-| B3 — Limited bidirectional integration             | **No**          | Everything wrong with B2, plus an external write, which `21_…:105` forbids for scaffold code and which owner ruling 3 forbids outright.                                                                   |
+| Option                                             | Feasible today? | Assessment                                                                                                                                                                                              |
+| -------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1 — Contract + simulation only for all of Phase 1 | Yes             | **Recommended.**                                                                                                                                                                                        |
+| B2 — Read-only live integration during Phase 1     | **No**          | Requires an authoritative contract, a registered integration with all sixteen fields (`11_…:15`), security review (`02_…:41-49`), and a credential owner. None exists. Also contradicts owner ruling 3. |
+| B3 — Limited bidirectional integration             | **No**          | Everything wrong with B2, plus an external write, which `21_…:105` forbids for scaffold code and which owner ruling 3 forbids outright.                                                                 |
 
 **Recommended option: B1 — contract and simulation only.**
 
@@ -850,7 +850,7 @@ capability _references_, home terminal (`organization_node_id`), status. Hours-o
 **out of scope for Phase 1** — it is an ELD/telematics integration (`11_…:19`, not registered).
 
 **PoweredUnit / NonpoweredEquipment.** Deliberately two tables, not one, because
-`05_…:26-28` distinguishes powered status and because the active-powered-unit meter counts only
+`05_…:29` distinguishes powered status and because the active-powered-unit meter counts only
 the former. Both reference `EquipmentCapability` rows rather than carrying boolean columns —
 `05_…:41`: _"New profiles are registry data, not schema migrations."_
 
@@ -1210,7 +1210,7 @@ Custody state is a **projection over an append-only `custody_events` table**, no
 Every event requires, per `19_…:154-162` and `schemas/custody-event.schema.json`: shipment,
 consignment/handling units, releasing and accepting party, facility, occurred-at, condition,
 quantity, seal, **at least one evidence item** (`minItems: 1`), and the legal pairing. `14_…:66`:
-custody transitions require authorized parties and evidence. `01_CONSTITUTION.md:74` (Art. IX.5):
+custody transitions require authorized parties and evidence. `01_CONSTITUTION.md:75` (Art. IX.5):
 custody transfer cannot be inferred solely from communication — so an email reference alone is not
 sufficient evidence, and the evidence type vocabulary must distinguish `communication` from
 `signature`, `photograph`, `scan`, `sensor`, `machine_credential`.
@@ -1736,6 +1736,10 @@ CREATE POLICY <t>_isolation ON <t>
   WITH CHECK (app.is_control_plane() OR tenant_id = app.current_tenant_id());
 ```
 
+`tenants` itself is the one variation: its policy compares `id`, not `tenant_id`, because the
+tenant row **is** the tenant (`0002_tenants.up.sql:48-50`, `0002_tenants.up.sql:19`). Every other
+tenant-owned table uses the predicate above verbatim.
+
 `app.current_tenant_id()` returns `NULL` when unset, and `tenant_id = NULL` is `NULL`, never true —
 that is the fail-closed mechanism (`0001_platform_foundation.up.sql:91-95`).
 `app.is_control_plane()` is role membership, not a session variable (`0001:121-128`), and
@@ -1816,7 +1820,7 @@ Full detail in Specifications 8 and 9. Shared properties of both:
 | Replay log                           | `external_contract_invocations`              | `external_contract_invocations`                      |
 | Business logic authored by FreightOS | **None**                                     | **None**                                             |
 
-Both contracts must be registered in `docs/governance/INTEGRATION_REGISTRY.md` with all seventeen
+Both contracts must be registered in `docs/governance/INTEGRATION_REGISTRY.md` with all sixteen
 fields from `11_…:15` **before** any live integration, and must pass the security review
 `02_…:41-49` requires. Neither is registered today, and Phase 1 does not register them, because
 Phase 1 adds no live integration.
@@ -2050,8 +2054,9 @@ must be green before the next opens.
 - **Rollback.** Down migration drops all 12 tables; nothing references them yet.
 - **Excludes.** Freight, carrier, facility, adapters, external contracts. No authentication or
   session management — that is an application concern, not a Phase 1 domain concern.
-- **Review gate.** Architecture review — `02_…:33-35` requires it for tenant hierarchy changes and
-  new authority sources. Security review — `02_…:47` requires it for a new privileged role.
+- **Review gate.** Architecture review — `02_…:34` requires it for tenant hierarchy changes and
+  `02_…:39` for a new authority source. Security review — `02_…:46` requires it for a new
+  privileged role.
 - **Owner decision required before starting?** **Yes — A and D.**
 
 ---
@@ -2127,7 +2132,7 @@ must be green before the next opens.
   system scope is rejected, an empty evidence array is rejected.
 - **Rollback.** Down migration drops enums and functions.
 - **Excludes.** Facility machines (PR 7), policy engine, approval workflow, any A3 path.
-- **Review gate.** Architecture review — `02_…:37` requires it for event-envelope changes; this PR
+- **Review gate.** Architecture review — `02_…:36` requires it for event-envelope changes; this PR
   fixes the event-type registry shape.
 - **Owner decision required before starting?** No.
 
@@ -2168,7 +2173,7 @@ must be green before the next opens.
 - **Rollback.** Down migration plus package removal.
 - **Excludes.** X12 maps, X12 fixtures, X12 code lists, live connectors, routing computation, rail
   and ocean adapters beyond empty contract stubs.
-- **Review gate.** Architecture review — `02_…:36` requires it for adapter contract changes.
+- **Review gate.** Architecture review — `02_…:35` requires it for adapter contract changes.
 - **Owner decision required before starting?** **Yes — E**, to confirm the interfaces-only posture.
 
 ---
@@ -2270,11 +2275,11 @@ documentation only and does not carry it.
 
 | Approval                                            | Required by | Applies to                             |
 | --------------------------------------------------- | ----------- | -------------------------------------- |
-| Owner — material scope change                       | `02_…:25`   | The Phase 1 authorization itself       |
+| Owner — material scope change                       | `02_…:24`   | The Phase 1 authorization itself       |
 | Architecture review — core schema                   | `02_…:33`   | PR 5                                   |
 | Architecture review — tenant hierarchy              | `02_…:34`   | PR 2                                   |
-| Architecture review — adapter contract              | `02_…:36`   | PR 8                                   |
-| Architecture review — event envelope                | `02_…:37`   | PR 6, and PR 7's custody override (C1) |
+| Architecture review — adapter contract              | `02_…:35`   | PR 8                                   |
+| Architecture review — event envelope                | `02_…:36`   | PR 6, and PR 6's custody override (C1) |
 | Architecture review — new authority source          | `02_…:39`   | PR 2 (`carrier_appointments`)          |
 | Security review — new external integration          | `02_…:43`   | PR 9                                   |
 | Security review — new privileged role               | `02_…:46`   | PR 2 (`admin` schema)                  |
