@@ -1,0 +1,37 @@
+version: 1.0.0
+status: dormant_until_activation_gate
+provider_authority:
+- dynamic_driving_task
+- operational_design_domain
+- vehicle_readiness
+allowed_mission_commands:
+- mission.validate
+- mission.request
+- mission.authorize
+- mission.hold
+- mission.cancel
+- facility_target.submit
+- credential.submit
+- remote_assistance.request
+- recovery.request
+- inspection.request
+- maintenance.request
+- fuel.request
+- charge.request
+- cleaning.request
+prohibited_controls:
+- vehicle.steer
+- vehicle.accelerate
+- vehicle.brake
+- vehicle.change_lane
+- vehicle.reverse
+- vehicle.override_perception
+- vehicle.disable_safety_system
+- vehicle.execute_fallback
+security:
+  mutual_authentication: required
+  signed_messages: required
+  replay_protection: required
+  idempotency: required
+  audit: required
+  provider_kill_switch: required

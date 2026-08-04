@@ -1,0 +1,51 @@
+{
+  "name": "freightos",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "RIG FreightOS \u2014 governed freight operating system. Horizon 1 build scope.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:all": "vitest run",
+    "db:up": "node --experimental-strip-types packages/database/src/cli.ts up",
+    "db:down": "node --experimental-strip-types packages/database/src/cli.ts down",
+    "db:status": "node --experimental-strip-types packages/database/src/cli.ts status",
+    "sync:handoff": "node scripts/sync-handoff.mjs",
+    "validate:handoff": "python3 docs/production-handoff/v1.2/scripts/validate_handoff.py",
+    "validate:provenance": "node scripts/check-handoff-provenance.mjs",
+    "validate:scope": "node scripts/validate-scope.mjs",
+    "validate": "pnpm validate:handoff && pnpm validate:provenance && pnpm validate:scope",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm validate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "pg": "^8.13.1",
+    "yaml": "^2.6.1",
+    "zod": "^3.24.1"
+  }
+}

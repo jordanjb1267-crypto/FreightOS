@@ -1,0 +1,18 @@
+# The preserved handoff package is immutable and byte-pinned by SHA256SUMS.txt.
+# Formatting it would break checksum verification.
+docs/production-handoff/
+
+# Generated operational copies are byte-identical to their handoff source by design.
+# Formatting them would create false drift.
+adr/
+checklists/
+config/
+schemas/
+db/reference/
+scripts/validate_handoff.py
+
+pnpm-lock.yaml
+node_modules/
+dist/
+coverage/
+.turbo/

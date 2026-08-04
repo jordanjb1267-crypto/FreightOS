@@ -1,0 +1,19 @@
+version: 1.2.0
+modes:
+- id: road
+  status: active_build_horizon_1
+  adapter_version: 1.0.0
+- id: rail
+  status: interface_and_simulation_only
+  adapter_version: 0.1.0
+- id: ocean
+  status: interface_and_simulation_only
+  adapter_version: 0.1.0
+- id: air
+  status: dormant
+  adapter_version: 0.0.1
+cross_mode_capabilities:
+- id: facility_operations
+  status: minimum_primitives_only_horizon_1
+- id: autonomous_vehicle_gateway
+  status: interface_and_simulation_only

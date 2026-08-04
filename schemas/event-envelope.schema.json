@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/event-envelope.schema.json",
+  "title": "FreightOS event envelope (CloudEvents 1.0 compatible)",
+  "description": "Operational override of the handoff envelope, authorised by ADR-0015. Two changes: (1) the single `authoritymode` attribute is replaced by `legalauthorityclass` + `operatingcontext`, because the handoff enum omitted facility_operator and autonomous_mobility and therefore made Horizon 1 custody events unemittable; (2) `legalentityid` is required except for system-scoped events, which must instead carry an authorized actor. Attribute names are all-lowercase because CloudEvents 1.0 requires context attribute names to be lowercase alphanumeric — this is spec compliance, not a naming inconsistency.",
+  "type": "object",
+  "required": [
+    "specversion",
+    "id",
+    "type",
+    "source",
+    "time",
+    "tenantid",
+    "legalauthorityclass",
+    "operatingcontext",
+    "actorid",
+    "correlationid",
+    "data"
+  ],
+  "properties": {
+    "specversion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^rig\\.freight\\.[a-z0-9_.-]+\\.v[0-9]+$"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject": {
+      "type": "string"
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "tenantid": {
+      "type": "string",
+      "format": "uuid",
+      "description": "System-scoped events use the designated system tenant 00000000-0000-0000-0000-000000000000."
+    },
+    "legalentityid": {
+      "type": ["string", "null"],
+      "description": "Required unless operatingcontext is `system`. See ADR-0015 rule 4."
+    },
+    "legalauthorityclass": {
+      "enum": ["software_only", "carrier_agent", "brokerage"],
+      "description": "The regulatory posture FreightOS acts under. Never widened by operatingcontext."
+    },
+    "operatingcontext": {
+      "enum": [
+        "system",
+        "carrier",
+        "shipper_owned",
+        "facility_operator",
+        "autonomous_mobility",
+        "brokerage"
+      ],
+      "description": "The operational surface. Never a substitute for legal authority."
+    },
+    "actorid": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The authorized actor. Mandatory for every event, and the sole compensating control when legalentityid is omitted under system scope."
+    },
+    "correlationid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "causationid": {
+      "type": ["string", "null"]
+    },
+    "policyversion": {
+      "type": ["string", "null"],
+      "description": "Policy pack version in force when the event was emitted (12_OBSERVABILITY correlation set)."
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "description": "ADR-0015 rule 4: legalentityid may be omitted only under explicit system scope with an authorized actor.",
+      "if": {
+        "properties": { "operatingcontext": { "const": "system" } },
+        "required": ["operatingcontext"]
+      },
+      "then": {
+        "required": ["actorid"]
+      },
+      "else": {
+        "required": ["legalentityid"],
+        "properties": { "legalentityid": { "type": "string", "minLength": 1 } }
+      }
+    },
+    {
+      "description": "ADR-0015 rule 6: only these class/context pairings are legal. carrier_agent + brokerage is unrepresentable, which is what keeps the two planes separate.",
+      "oneOf": [
+        {
+          "properties": {
+            "legalauthorityclass": { "const": "software_only" },
+            "operatingcontext": {
+              "enum": ["system", "shipper_owned", "facility_operator", "autonomous_mobility"]
+            }
+          },
+          "required": ["legalauthorityclass", "operatingcontext"]
+        },
+        {
+          "properties": {
+            "legalauthorityclass": { "const": "carrier_agent" },
+            "operatingcontext": { "const": "carrier" }
+          },
+          "required": ["legalauthorityclass", "operatingcontext"]
+        },
+        {
+          "properties": {
+            "legalauthorityclass": { "const": "brokerage" },
+            "operatingcontext": { "const": "brokerage" }
+          },
+          "required": ["legalauthorityclass", "operatingcontext"]
+        }
+      ]
+    }
+  ],
+  "additionalProperties": false
+}

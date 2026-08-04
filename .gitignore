@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# Environment. Only .env.example is committed — never a populated env file.
+.env
+.env.*
+!.env.example
+
+# Local development data
+.pgdata/
+.minio/
+*.log
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

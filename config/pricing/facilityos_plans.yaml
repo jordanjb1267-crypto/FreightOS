@@ -1,0 +1,45 @@
+catalog_version: 2026-08-04-v1
+status: launch_target_market_validation_required
+currency: USD
+plans:
+- id: facility_connect
+  monthly_fee_per_active_facility: 499
+  included_completed_vehicle_visits: 500
+  overage_per_visit: 0.75
+  autonomy_max: A1
+- id: facility_copilot
+  monthly_fee_per_active_facility: 1999
+  included_completed_vehicle_visits: 2500
+  overage_per_visit: 0.35
+  autonomy_max: A3
+- id: facility_autonomous
+  monthly_fee_per_active_facility: 4999
+  included_completed_vehicle_visits: 10000
+  overage_per_visit: 0.15
+  autonomy_max: A4
+  safety_critical_motion_control: prohibited
+enterprise_network_bands:
+- min_facilities: 10
+  max_facilities: 49
+  monthly_account_platform_fee: 10000
+  active_facility_fee: 1250
+  visit_fee: 0.12
+- min_facilities: 50
+  max_facilities: 249
+  monthly_account_platform_fee: 25000
+  active_facility_fee: 750
+  visit_fee: 0.08
+- min_facilities: 250
+  max_facilities: 999
+  monthly_account_platform_fee: 75000
+  active_facility_fee: 400
+  visit_fee: 0.05
+- min_facilities: 1000
+  max_facilities: null
+  monthly_account_platform_fee: 200000
+  active_facility_fee: 200
+  visit_fee_min: 0.02
+  visit_fee_max: 0.04
+commercial_status: PRE_LAUNCH_TARGET
+billing_enabled: false
+customer_sale_allowed: false

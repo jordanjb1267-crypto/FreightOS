@@ -1,0 +1,57 @@
+version: 1.2.0
+default_decision: deny
+autonomy_levels:
+- A0
+- A1
+- A2
+- A3
+- A4
+- A5
+red_actions:
+- contract.sign
+- contract.materially_amend
+- money.move
+- bank.change
+- traffic.allocate_cross_carrier
+- risk_hold.release
+- claim.settle
+- authority.change
+- autonomy_policy.change
+- audit.disable
+- vehicle.steer
+- vehicle.accelerate
+- vehicle.brake
+- vehicle.change_lane
+- vehicle.reverse
+- vehicle.override_perception
+- vehicle.disable_safety_system
+- vehicle.execute_fallback
+- robot.move
+- forklift.move
+- yard_tractor.move
+- conveyor.control
+- crane.control
+- dock_restraint.control
+- door.control
+- plc.write
+- safety_interlock.override
+- odd.override
+- remote_drive
+- module_state.change
+- horizon.promote
+- commercial_status.activate
+required_context:
+- tenant_id
+- organization_node_id
+- legal_entity_id
+- authority_mode
+- actor_id
+- action
+absolute_prohibitions:
+- dynamic_driving_task.control
+- warehouse_robotics.control
+- industrial_plc.control
+- safety_interlock.override
+- remote_driving
+- agent_self_promotion
+- deferred_module.live_external_write
