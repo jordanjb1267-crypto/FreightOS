@@ -1,0 +1,60 @@
+catalog_version: 2026-08-03-v1
+currency: USD
+bands:
+- min_units: 1
+  max_units: 4
+  platform_fee: 0
+  core_per_unit: 59
+  copilot_per_unit: 149
+  autonomous_per_unit: 249
+- min_units: 5
+  max_units: 49
+  platform_fee: 299
+  core_per_unit: 29
+  copilot_per_unit: 89
+  autonomous_per_unit: 159
+- min_units: 50
+  max_units: 249
+  platform_fee: 1500
+  core_per_unit: 18
+  copilot_per_unit: 59
+  autonomous_per_unit: 109
+- min_units: 250
+  max_units: 999
+  platform_fee: 5000
+  core_per_unit: 12
+  copilot_per_unit: 39
+  autonomous_per_unit: 74
+- min_units: 1000
+  max_units: 4999
+  platform_fee: 15000
+  core_per_unit: 8
+  copilot_per_unit: 24
+  autonomous_per_unit: 46
+- min_units: 5000
+  max_units: 24999
+  platform_fee: 50000
+  core_per_unit: 5
+  copilot_per_unit: 14
+  autonomous_per_unit: 26
+- min_units: 25000
+  max_units: 99999
+  platform_fee: 125000
+  core_per_unit: 3
+  copilot_per_unit: 8
+  autonomous_per_unit: 15
+- min_units: 100000
+  max_units: null
+  platform_fee: 250000
+  core_per_unit: 2
+  copilot_per_unit: 4
+  autonomous_per_unit: 8
+included_autonomous_ftl_operations_per_active_unit: 15
+billing_quantity_rule: max(contracted_minimum, monthly_average_daily_active_powered_units)
+commercial_status: MIXED_INITIAL_AND_PRE_LAUNCH_TARGETS
+billing_enabled: false
+billing_activation_gate: horizon_1_production_release
+plan_status:
+  core: LAUNCH_CATALOG_TARGET
+  copilot: LAUNCH_CATALOG_TARGET
+  autonomous: PRE_LAUNCH_TARGET

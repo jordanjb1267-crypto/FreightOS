@@ -1,0 +1,27 @@
+catalog_version: 2026-08-03-v1
+currency: USD
+plans:
+- id: essentials
+  platform_fee: 499
+  included_orders: 100
+  overage: 5.0
+- id: growth
+  platform_fee: 2500
+  included_orders: 1000
+  overage: 2.5
+- id: enterprise
+  platform_fee: 10000
+  included_orders: 10000
+  overage: 1.0
+- id: strategic
+  platform_fee: 50000
+  included_orders: 100000
+  overage: 0.35
+- id: global
+  platform_fee: 150000
+  included_orders: null
+  overage_min: 0.1
+  overage_max: 0.3
+commercial_status: PRE_LAUNCH_TARGET
+billing_enabled: false
+customer_sale_allowed: false

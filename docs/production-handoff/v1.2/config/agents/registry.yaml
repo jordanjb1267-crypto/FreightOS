@@ -1,0 +1,236 @@
+version: 1.2.0
+agents:
+- id: chief-dispatch-orchestrator
+  max_autonomy: A4
+  planes:
+  - carrier_agent
+  prohibited:
+  - money.move
+  - contract.amend
+  - traffic.allocate_cross_carrier
+- id: capacity-agent
+  max_autonomy: A2
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - assignment.commit
+- id: load-discovery-agent
+  max_autonomy: A2
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - load.accept
+- id: profitability-agent
+  max_autonomy: A1
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - rate.change
+  - load.accept
+- id: planning-agent
+  max_autonomy: A2
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - assignment.commit
+- id: negotiation-agent
+  max_autonomy: A4
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - contract.amend
+  - policy.change
+- id: feasibility-agent
+  max_autonomy: A1
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - eligibility.override
+- id: dispatch-agent
+  max_autonomy: A4
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - traffic.allocate_cross_carrier
+- id: tracking-agent
+  max_autonomy: A4
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - milestone.fabricate
+- id: exception-agent
+  max_autonomy: A4
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - claim.settle
+  - risk_hold.release
+- id: documentation-agent
+  max_autonomy: A4
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - document.forge
+- id: settlement-agent
+  max_autonomy: A3
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - money.move
+  - bank.change
+- id: risk-agent
+  max_autonomy: A2
+  planes:
+  - carrier_agent
+  - brokerage
+  prohibited:
+  - risk_hold.release
+- id: facility-operations-orchestrator
+  max_autonomy: A4
+  planes:
+  - facility_operator
+  prohibited:
+  - physical_motion.command
+  - safety_interlock.override
+- id: order-readiness-agent
+  max_autonomy: A2
+  planes:
+  - facility_operator
+  - shipper_owned
+  prohibited:
+  - inventory.release_override
+- id: appointment-agent
+  max_autonomy: A4
+  planes:
+  - facility_operator
+  - shipper_owned
+  prohibited:
+  - physical_motion.command
+- id: facility-capacity-agent
+  max_autonomy: A2
+  planes:
+  - facility_operator
+  prohibited:
+  - capacity.fabricate
+- id: gate-agent
+  max_autonomy: A4
+  planes:
+  - facility_operator
+  prohibited:
+  - physical_motion.command
+  - credential.security_override
+- id: yard-orchestration-agent
+  max_autonomy: A3
+  planes:
+  - facility_operator
+  prohibited:
+  - yard_tractor.control
+  - robot.control
+- id: dock-agent
+  max_autonomy: A3
+  planes:
+  - facility_operator
+  prohibited:
+  - dock_restraint.control
+  - door.control
+  - plc.write
+- id: load-verification-agent
+  max_autonomy: A2
+  planes:
+  - facility_operator
+  - carrier_agent
+  prohibited:
+  - custody.fabricate
+  - inspection.override
+- id: receiving-agent
+  max_autonomy: A4
+  planes:
+  - facility_operator
+  - shipper_owned
+  prohibited:
+  - inventory.acceptance.fabricate
+- id: facility-exception-agent
+  max_autonomy: A4
+  planes:
+  - facility_operator
+  prohibited:
+  - safety_hold.release
+  - claim.settle
+- id: labor-resource-planning-agent
+  max_autonomy: A2
+  planes:
+  - facility_operator
+  prohibited:
+  - employment.commit
+- id: facility-customer-communication-agent
+  max_autonomy: A4
+  planes:
+  - facility_operator
+  - shipper_owned
+  prohibited:
+  - contract.amend
+- id: autonomous-mission-orchestrator
+  max_autonomy: A4
+  planes:
+  - autonomous_mobility
+  - carrier_agent
+  prohibited:
+  - vehicle.steer
+  - vehicle.accelerate
+  - vehicle.brake
+  - vehicle.change_lane
+  - vehicle.reverse
+- id: odd-eligibility-agent
+  max_autonomy: A1
+  planes:
+  - autonomous_mobility
+  prohibited:
+  - odd.override
+  - mission.authorize_without_provider
+- id: vehicle-facility-compatibility-agent
+  max_autonomy: A2
+  planes:
+  - autonomous_mobility
+  - facility_operator
+  prohibited:
+  - facility_restriction.override
+- id: remote-assistance-coordinator
+  max_autonomy: A3
+  planes:
+  - autonomous_mobility
+  prohibited:
+  - remote_drive
+  - vehicle.control
+- id: autonomous-maintenance-coordinator
+  max_autonomy: A3
+  planes:
+  - autonomous_mobility
+  - carrier_agent
+  prohibited:
+  - safety_hold.override
+  - return_to_service.fabricate
+- id: autonomous-mission-exception-agent
+  max_autonomy: A3
+  planes:
+  - autonomous_mobility
+  prohibited:
+  - minimal_risk.override
+  - vehicle.control
+- id: mission-reconciliation-agent
+  max_autonomy: A2
+  planes:
+  - autonomous_mobility
+  prohibited:
+  - mission_event.fabricate
+  - billing.change

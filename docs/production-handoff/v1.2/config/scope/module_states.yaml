@@ -1,0 +1,103 @@
+version: 1.2.0
+horizon_authorized: 1
+stop_after_horizon: 1
+promotion_requires:
+  - owner_approved_adr
+  - predecessor_exit_evidence
+  - applicable_gate
+  - machine_readable_state_update
+  - reviewed_pull_request
+states:
+  ACTIVE_BUILD:
+    production_code_allowed: true
+    production_workers_allowed: true
+    customer_routes_allowed: true
+    live_external_writes_allowed: true
+  FOUNDATION_ONLY:
+    production_code_allowed: true
+    standalone_product_allowed: false
+    live_external_writes_allowed: limited_to_active_product_workflow
+  INTERFACE_AND_SIMULATION_ONLY:
+    production_code_allowed: false
+    schemas_allowed: true
+    contracts_allowed: true
+    fixtures_allowed: true
+    simulation_allowed: true
+    live_external_writes_allowed: false
+  PROMOTION_GATED:
+    implementation_allowed: false
+  CUSTOMER_GATED:
+    implementation_allowed: false
+  LEGAL_AND_MARKET_GATED:
+    implementation_allowed: false
+  PARTNER_AND_SAFETY_GATED:
+    implementation_allowed: false
+  LIQUIDITY_GATED:
+    implementation_allowed: false
+  DORMANT:
+    implementation_allowed: false
+modules:
+  freightos_shared_core:
+    state: ACTIVE_BUILD
+    horizon: 1
+  road_ftl_carrier_operations:
+    state: ACTIVE_BUILD
+    horizon: 1
+  carrier_core:
+    state: ACTIVE_BUILD
+    horizon: 1
+  carrier_copilot:
+    state: ACTIVE_BUILD
+    horizon: 1
+    autonomy_max: A3
+  rigreceipts_economics_boundary:
+    state: ACTIVE_BUILD
+    horizon: 1
+  rigdesk_maintenance_hooks:
+    state: ACTIVE_BUILD
+    horizon: 1
+  minimum_facility_primitives:
+    state: FOUNDATION_ONLY
+    horizon: 1
+  carrier_autonomous_a4_a5:
+    state: PROMOTION_GATED
+    earliest_horizon: 2
+  shipper_control_tower:
+    state: PROMOTION_GATED
+    earliest_horizon: 2
+  facilityos_lite:
+    state: PROMOTION_GATED
+    earliest_horizon: 2
+  facilityos_full:
+    state: CUSTOMER_GATED
+    earliest_horizon: 3
+  digital_brokerage:
+    state: LEGAL_AND_MARKET_GATED
+    earliest_horizon: 3
+  freight_exchange:
+    state: LIQUIDITY_GATED
+    earliest_horizon: 4
+  autonomous_vehicle_gateway:
+    state: INTERFACE_AND_SIMULATION_ONLY
+    earliest_horizon: 3
+  live_autonomous_vehicle_missions:
+    state: PARTNER_AND_SAFETY_GATED
+    earliest_horizon: 3
+  rail_adapter:
+    state: INTERFACE_AND_SIMULATION_ONLY
+    earliest_horizon: 3
+  ocean_adapter:
+    state: INTERFACE_AND_SIMULATION_ONLY
+    earliest_horizon: 3
+  air_adapter:
+    state: DORMANT
+    earliest_horizon: 4
+mandatory_defaults:
+  FACILITYOS_STANDALONE_ENABLED: false
+  AUTONOMOUS_DISPATCH_A4_ENABLED: false
+  BROKERAGE_EXECUTION_ENABLED: false
+  FREIGHT_EXCHANGE_ENABLED: false
+  AUTONOMOUS_VEHICLE_LIVE_MISSIONS_ENABLED: false
+  RAIL_OPERATIONS_ENABLED: false
+  OCEAN_OPERATIONS_ENABLED: false
+  AIR_OPERATIONS_ENABLED: false

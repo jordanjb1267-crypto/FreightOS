@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/custody-event.schema.json",
+  "type": "object",
+  "required": [
+    "id",
+    "tenant_id",
+    "shipment_id",
+    "event_type",
+    "occurred_at",
+    "releasing_party_id",
+    "accepting_party_id",
+    "facility_id",
+    "evidence"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "shipment_id": {
+      "type": "string"
+    },
+    "consignment_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "event_type": {
+      "enum": [
+        "release_authorized",
+        "loading_verified",
+        "carrier_custody_accepted",
+        "delivery_presented",
+        "receiver_inspection_started",
+        "receiver_accepted",
+        "partially_accepted",
+        "rejected",
+        "seal_exception",
+        "damage_exception"
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "releasing_party_id": {
+      "type": "string"
+    },
+    "accepting_party_id": {
+      "type": "string"
+    },
+    "facility_id": {
+      "type": "string"
+    },
+    "handling_unit_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "condition": {
+      "type": "object"
+    },
+    "quantity": {
+      "type": "object"
+    },
+    "seal": {
+      "type": "object"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "type",
+          "reference"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "credential_actor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "minItems": 1
+    },
+    "authority_mode": {
+      "enum": [
+        "carrier_agent",
+        "brokerage",
+        "shipper_owned",
+        "facility_operator",
+        "autonomous_mobility"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

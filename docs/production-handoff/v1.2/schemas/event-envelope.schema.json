@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/event-envelope.schema.json",
+  "type": "object",
+  "required": [
+    "specversion",
+    "id",
+    "type",
+    "source",
+    "time",
+    "tenantid",
+    "legalentityid",
+    "authoritymode",
+    "correlationid",
+    "data"
+  ],
+  "properties": {
+    "specversion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^rig\\.freight\\.[a-z0-9_.-]+\\.v[0-9]+$"
+    },
+    "source": {
+      "type": "string"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "tenantid": {
+      "type": "string"
+    },
+    "legalentityid": {
+      "type": "string"
+    },
+    "authoritymode": {
+      "enum": [
+        "carrier_agent",
+        "brokerage",
+        "shipper_owned"
+      ]
+    },
+    "correlationid": {
+      "type": "string"
+    },
+    "causationid": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}
