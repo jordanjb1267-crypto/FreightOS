@@ -1619,11 +1619,14 @@ derived from the handoff.
 | 18  | **Autonomy ceiling**             | Every agent resolves ≤ A3; deferred-module agents resolve A0; monotonicity over the full input cross-product; **plus a new Phase 1 assertion that no execution path exceeds A2**                      | **100% of registry entries**; A2 assertion for Phase 1 handlers           |
 | 19  | **Handoff preservation**         | 90/90 checksums; `FILES=91`; provenance PASS; overrides unchanged unless a new ADR is cited                                                                                                           | **Zero** unreviewed drift                                                 |
 
-**Cross-cutting recommended thresholds** (all require owner adoption, R-12):
+**Cross-cutting thresholds.** These were the figures proposed to the owner. The **adopted** set is
+in `docs/governance/ACCEPTANCE_THRESHOLDS.md` §2 — line **90%**, branch **85%**, function **90%** —
+and it governs where the two differ. The per-area floors and the qualitative rules below stand:
 
-- **Line coverage** ≥ 85% overall; ≥ 95% on money, state-transition, RLS-predicate, and
+- ~~Line coverage ≥ 85% overall~~ **superseded — 90%**; ≥ 95% on money, state-transition,
+  RLS-predicate, and
   legal-context code.
-- **Branch coverage** ≥ 80% overall; **100% on every fail-closed branch** — a fail-closed path that
+- ~~Branch coverage ≥ 80% overall~~ **superseded — 85%**; **100% on every fail-closed branch** — a fail-closed path that
   is never exercised is not a control.
 - **Mutation testing** on the money and state-transition modules, ≥ 75% mutation score. Rationale:
   line coverage does not prove a rounding rule is correct.
@@ -1865,9 +1868,11 @@ exercise, and it removes licensing from the Phase 1 critical path entirely.
 
 Delivered in Specification 10. Three points worth restating at the plan level:
 
-1. **The thresholds are recommendations, not derived facts.** R-12 records that the handoff sets
-   none. Adopting them is an owner ruling; until then CI cannot fail a build on a quantitative bar,
-   and every "N%" above is inert.
+1. **The thresholds are now owner-approved and binding.** R-12 recorded that the handoff sets
+   none. `docs/governance/ACCEPTANCE_THRESHOLDS.md` is the adopted, binding set and **supersedes
+   the recommended figures in Specification 10 where they differ** — adopted line coverage is
+   **90%**, branch **85%**, function **90%**, against Specification 10's earlier proposal of 85%
+   and 80%. CI may now fail a build on a quantitative bar.
 
 2. **Coverage is not the interesting number.** The two that matter are _100% branch coverage on
    fail-closed paths_ and _mutation score on money and state transitions_. A fail-closed branch
@@ -1943,28 +1948,28 @@ New and updated risks for Phase 1. Existing Phase 0 risks R-01…R-15 remain in
 
 ### 13.4 Phase 1 risk register
 
-| ID   | Risk                                                                                          | Severity | Probability | Owner           | Mitigation                                                                                                                                        | Blocking?                      | Latest resolution point |
-| ---- | --------------------------------------------------------------------------------------------- | -------- | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ----------------------- |
-| P-01 | Control-plane pattern set wrong in PR 2 and copied into 62 tables                             | Critical | Medium      | Owner + Eng     | Decision D before PR 2; CI asserts no `BYPASSRLS`, every table has a policy                                                                       | **Yes**                        | Before PR 2             |
-| P-02 | `software_only` becomes a permission wildcard                                                 | Critical | Medium      | Owner           | Decision A; 18-pairing cross-product test                                                                                                         | **Yes** for PR 7               | Before PR 2             |
-| P-03 | Facility primitives drift into FacilityOS (R-09)                                              | High     | Medium      | Eng             | Facility allow-list check in `validate-scope.mjs`; no outbound command surface (C7); no inventory ledger (C11)                                    | No                             | PR 7                    |
-| P-04 | Cross-tenant leakage through a missing policy on a new table                                  | Critical | Low         | Eng             | Extend `rls.test.ts:192` to enumerate every tenant-owned table and fail on any without a policy                                                   | No                             | Every PR                |
-| P-05 | `TENANT_ECONOMICS` reaching a model provider or a dev copy                                    | Critical | Low         | Eng             | Second permission gate on economics tables; classification register updated in the same PR; no model gateway in Phase 1                           | No                             | PR 9                    |
-| P-06 | Simulated economics mistaken for authoritative                                                | High     | Medium      | Eng             | Non-null `provenance` with `authoritative: false`; consumers must check it; tested                                                                | No                             | PR 9                    |
-| P-07 | Active-powered-unit calculation drifts toward billing                                         | High     | Low         | Eng             | No meter/billing/entitlement/invoice table; test asserts zero metering rows; `BILLING_DISABLED=PASS`                                              | No                             | PR 4                    |
-| P-08 | Detention clock built on an invented free-time default                                        | High     | **High**    | Owner           | Fail-closed: no rule → clock cannot start. **Do not ship a default**                                                                              | **Yes** for detention behavior | PR 7                    |
-| P-09 | Licensed X12 content entering the repository                                                  | High     | Low         | Eng             | Decision E; CI regex on X12 envelope markers                                                                                                      | No                             | PR 8                    |
-| P-10 | Migration without a working down path                                                         | High     | Low         | Eng             | Runner rejects a migration lacking a down file (R-13); up/down/re-apply tested                                                                    | No                             | Every migration PR      |
-| P-11 | A Phase 1 handler creating an A3 execution path                                               | Critical | Low         | Eng             | A2 assertion in CI; no outbound connector; `send` always refuses                                                                                  | No                             | PR 6, PR 8              |
-| P-12 | Brokerage reachable through a Phase 1 code path                                               | Critical | Very low    | Owner + Counsel | Three independent refusals already in place (R-05); Phase 1 adds no fourth surface                                                                | No                             | Every PR                |
-| P-13 | Custody schema override (C1) skipped, leaving events unemittable                              | High     | Medium      | Eng             | Declare the override with its ADR citation in PR 7; provenance check fails otherwise                                                              | **Yes** for PR 7               | PR 7                    |
-| P-14 | 62 tables of hand-written SQL accumulating inconsistency                                      | Medium   | High        | Eng             | A single canonical table template; a CI check that every tenant-owned table has the full common-field set, `FORCE`, a policy, and explicit grants | No                             | PR 2 sets the template  |
-| P-15 | Naming drift re-entering through a later PR                                                   | Medium   | Medium      | Eng             | Specification 4's canonical-name table becomes a glossary entry under `docs/governance/`; review checks it                                        | No                             | PR 5                    |
-| P-16 | Hidden Phase 2 dependency — a Phase 1 table shaped for a scoring runtime nobody has specified | Medium   | Medium      | Eng             | Phase 1 stores facts, not scores. `profitability_results` stores a contract response, not a rank                                                  | No                             | PR 9, PR 10             |
-| P-17 | Hidden Phase 3 dependency — kill-switch enforcement assumed but absent (C12)                  | Medium   | Medium      | Eng             | Phase 1 states plainly that it reads but does not enforce; no Phase 1 claim of kill-switch protection                                             | No                             | PR 6                    |
-| P-18 | Organization hierarchy cycle or unbounded depth degrading inheritance                         | Medium   | Low         | Eng             | Closure table + cycle `CHECK` + depth bound (16), tested                                                                                          | No                             | PR 2                    |
-| P-19 | Party/location dedup merging silently and rewriting counterparty history                      | Medium   | Low         | Eng             | Candidates only, never automatic merge                                                                                                            | No                             | PR 3                    |
-| P-20 | Effective-dated queries defaulting to implicit `now()`, making calculations irreproducible    | Medium   | Medium      | Eng             | Explicit as-of parameter on every effective-dated read; no implicit default                                                                       | No                             | PR 4                    |
+| ID   | Risk                                                                                          | Severity | Probability | Owner           | Mitigation                                                                                                                                        | Blocking?                             | Latest resolution point |
+| ---- | --------------------------------------------------------------------------------------------- | -------- | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ----------------------- |
+| P-01 | Control-plane pattern set wrong in PR 2 and copied into 62 tables                             | Critical | Medium      | Owner + Eng     | Decision D before PR 2; CI asserts no `BYPASSRLS`, every table has a policy                                                                       | **Yes**                               | Before PR 2             |
+| P-02 | `software_only` becomes a permission wildcard                                                 | Critical | Medium      | Owner           | Decision A; 18-pairing cross-product test                                                                                                         | **Yes** for PR 7                      | Before PR 2             |
+| P-03 | Facility primitives drift into FacilityOS (R-09)                                              | High     | Medium      | Eng             | Facility allow-list check in `validate-scope.mjs`; no outbound command surface (C7); no inventory ledger (C11)                                    | No                                    | PR 7                    |
+| P-04 | Cross-tenant leakage through a missing policy on a new table                                  | Critical | Low         | Eng             | Extend `rls.test.ts:192` to enumerate every tenant-owned table and fail on any without a policy                                                   | No                                    | Every PR                |
+| P-05 | `TENANT_ECONOMICS` reaching a model provider or a dev copy                                    | Critical | Low         | Eng             | Second permission gate on economics tables; classification register updated in the same PR; no model gateway in Phase 1                           | No                                    | PR 9                    |
+| P-06 | Simulated economics mistaken for authoritative                                                | High     | Medium      | Eng             | Non-null `provenance` with `authoritative: false`; consumers must check it; tested                                                                | No                                    | PR 9                    |
+| P-07 | Active-powered-unit calculation drifts toward billing                                         | High     | Low         | Eng             | No meter/billing/entitlement/invoice table; test asserts zero metering rows; `BILLING_DISABLED=PASS`                                              | No                                    | PR 4                    |
+| P-08 | Detention clock built on an invented free-time default                                        | High     | **High**    | Owner           | Fail-closed: no rule → clock cannot start, `POLICY_REQUIRED`. **No code-level default permitted** (ADR-0025).                                     | No — ADR-0025 unblocked the mechanism | PR 7                    |
+| P-09 | Licensed X12 content entering the repository                                                  | High     | Low         | Eng             | Decision E; CI regex on X12 envelope markers                                                                                                      | No                                    | PR 8                    |
+| P-10 | Migration without a working down path                                                         | High     | Low         | Eng             | Runner rejects a migration lacking a down file (R-13); up/down/re-apply tested                                                                    | No                                    | Every migration PR      |
+| P-11 | A Phase 1 handler creating an A3 execution path                                               | Critical | Low         | Eng             | A2 assertion in CI; no outbound connector; `send` always refuses                                                                                  | No                                    | PR 6, PR 8              |
+| P-12 | Brokerage reachable through a Phase 1 code path                                               | Critical | Very low    | Owner + Counsel | Three independent refusals already in place (R-05); Phase 1 adds no fourth surface                                                                | No                                    | Every PR                |
+| P-13 | Custody schema override (C1) skipped, leaving events unemittable                              | High     | Medium      | Eng             | Declare the override with its ADR citation in PR 7; provenance check fails otherwise                                                              | **Yes** for PR 7                      | PR 7                    |
+| P-14 | 62 tables of hand-written SQL accumulating inconsistency                                      | Medium   | High        | Eng             | A single canonical table template; a CI check that every tenant-owned table has the full common-field set, `FORCE`, a policy, and explicit grants | No                                    | PR 2 sets the template  |
+| P-15 | Naming drift re-entering through a later PR                                                   | Medium   | Medium      | Eng             | Specification 4's canonical-name table becomes a glossary entry under `docs/governance/`; review checks it                                        | No                                    | PR 5                    |
+| P-16 | Hidden Phase 2 dependency — a Phase 1 table shaped for a scoring runtime nobody has specified | Medium   | Medium      | Eng             | Phase 1 stores facts, not scores. `profitability_results` stores a contract response, not a rank                                                  | No                                    | PR 9, PR 10             |
+| P-17 | Hidden Phase 3 dependency — kill-switch enforcement assumed but absent (C12)                  | Medium   | Medium      | Eng             | Phase 1 states plainly that it reads but does not enforce; no Phase 1 claim of kill-switch protection                                             | No                                    | PR 6                    |
+| P-18 | Organization hierarchy cycle or unbounded depth degrading inheritance                         | Medium   | Low         | Eng             | Closure table + cycle `CHECK` + depth bound (16), tested                                                                                          | No                                    | PR 2                    |
+| P-19 | Party/location dedup merging silently and rewriting counterparty history                      | Medium   | Low         | Eng             | Candidates only, never automatic merge                                                                                                            | No                                    | PR 3                    |
+| P-20 | Effective-dated queries defaulting to implicit `now()`, making calculations irreproducible    | Medium   | Medium      | Eng             | Explicit as-of parameter on every effective-dated read; no implicit default                                                                       | No                                    | PR 4                    |
 
 ---
 
@@ -2017,15 +2022,17 @@ must be green before the next opens.
 
 **PR 1 — Phase 1 specifications and owner decisions**
 
-- **Scope.** This document, plus ADR-0019 (Decision A), ADR-0020 (Decision D), the ADR-0017
-  amendment (Ruling F), a geospatial ADR (Ruling G), risk-register updates for P-01…P-20 and
-  M-1…M-10, and the canonical-name glossary from Specification 4.
+- **Scope.** This document, plus **seven ADRs** — ADR-0019 (Ruling A), ADR-0020 (Ruling D),
+  ADR-0021 (Ruling F, amending ADR-0017), ADR-0022 (Ruling G), ADR-0023 (Ruling E), ADR-0024
+  (Ruling H), ADR-0025 (detention) — the owner-rulings record `docs/decisions/0002-…`, the
+  canonical domain glossary, the quantitative acceptance thresholds, the open-question register,
+  and risk-register updates for P-01…P-22 and M-1…M-10.
 - **Dependencies.** None.
 - **Migrations.** None.
 - **Tests.** Validators only — the handoff must remain byte-identical.
 - **Rollback.** Revert the merge; documentation only.
 - **Excludes.** All code, all schema.
-- **Review gate.** Owner approval of Decisions A–E and Rulings F–H.
+- **Review gate.** Owner approval of Decisions A–E and Rulings F–H. **Obtained 2026-08-04.**
 - **Owner decision required before starting?** **No** — this PR _is_ the decision request.
 
 ---
@@ -2073,8 +2080,8 @@ must be green before the next opens.
 - **Excludes.** Facilities beyond the `location_type` value (PR 7), geocoding, PostGIS, any shared
   cross-tenant registry.
 - **Review gate.** Standard, plus a privacy review for the `PERSONAL` contact data.
-- **Owner decision required before starting?** No — Ruling G should be confirmed, but the
-  recommendation is safe to proceed on.
+- **Owner decision required before starting?** **Ruling G — obtained.** No PostGIS in Phase 1
+  (ADR-0022).
 
 ---
 
