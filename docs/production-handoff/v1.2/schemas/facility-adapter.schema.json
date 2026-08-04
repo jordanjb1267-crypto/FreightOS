@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/facility-adapter.schema.json",
+  "type": "object",
+  "required": [
+    "provider",
+    "version",
+    "facility_capabilities",
+    "events",
+    "commands",
+    "safety_authority"
+  ],
+  "properties": {
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string"
+    },
+    "facility_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "appointment.propose",
+          "appointment.confirm",
+          "appointment.reschedule",
+          "credential.issue",
+          "vehicle_visit.check_in",
+          "vehicle_visit.check_out",
+          "yard_target.assign",
+          "dock_target.assign",
+          "facility_task.create",
+          "custody.record",
+          "goods_receipt.record",
+          "exception.open"
+        ]
+      }
+    },
+    "safety_authority": {
+      "const": "external_certified_or_human_controller"
+    },
+    "prohibited_controls": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "robot.move",
+          "forklift.move",
+          "yard_tractor.move",
+          "conveyor.control",
+          "crane.control",
+          "dock_restraint.control",
+          "door.control",
+          "plc.write",
+          "safety_interlock.override"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/agent-manifest.schema.json",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "purpose",
+    "owner",
+    "planes",
+    "tenant_scope",
+    "maximum_autonomy",
+    "allowed_tools",
+    "prohibited_actions",
+    "evaluation_suite"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "version": {
+      "type": "string"
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 10
+    },
+    "owner": {
+      "type": "string"
+    },
+    "planes": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "carrier_agent",
+          "brokerage",
+          "shipper_owned",
+          "facility_operator",
+          "autonomous_mobility"
+        ]
+      },
+      "minItems": 1
+    },
+    "tenant_scope": {
+      "enum": [
+        "isolated",
+        "organization_scoped",
+        "global_control_only"
+      ]
+    },
+    "maximum_autonomy": {
+      "enum": [
+        "A0",
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5"
+      ]
+    },
+    "allowed_tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "prohibited_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evaluation_suite": {
+      "type": "string"
+    },
+    "confidence_threshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "additionalProperties": true
+}

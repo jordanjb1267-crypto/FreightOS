@@ -1,0 +1,20 @@
+status: provisional_counsel_review_required
+currency: USD
+bands:
+- monthly_spend_max: 100000
+  minimum_per_shipment: 125
+  percent: 10
+- monthly_spend_min: 100000
+  monthly_spend_max: 1000000
+  minimum_per_shipment: 95
+  percent: 7
+- monthly_spend_min: 1000000
+  monthly_spend_max: 10000000
+  minimum_per_shipment: 75
+  percent: 5
+- monthly_spend_min: 10000000
+  percent_min: 2.5
+  percent_max: 4.0
+commercial_status: PRE_LAUNCH_TARGET
+billing_enabled: false
+customer_sale_allowed: false

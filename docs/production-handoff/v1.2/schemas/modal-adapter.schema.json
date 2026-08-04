@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigfreightos.local/schemas/modal-adapter.schema.json",
+  "type": "object",
+  "required": [
+    "mode",
+    "version",
+    "entities",
+    "states",
+    "documents",
+    "events",
+    "billing_meters"
+  ],
+  "properties": {
+    "mode": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "states": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "billing_meters": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "standards": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "policy_packs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "agent_tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}
