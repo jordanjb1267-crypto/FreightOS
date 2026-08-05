@@ -20,10 +20,18 @@ import { withLegalContext } from '../../src/session.ts';
  *   1. the organization tree, under tenant scope, which is all `organization_nodes` policies ask;
  *   2. the legal entity, from a context holding the enterprise node — the closure makes every node
  *      in the tree a descendant of it;
- *   3. everything below, from a context holding that node AND the legal entity it just created.
+ *   3. an administrator user, still under the bootstrap actor, because `users` carries no
+ *      self-elevation guard and somebody has to exist first;
+ *   4. everything below, acting AS that administrator.
  *
  * That is the same sequence a real tenant provisioning flow has to follow, so a policy that would
  * reject real provisioning now rejects the fixture too.
+ *
+ * Phase 4 acts as a named person because the self-elevation guards require one — F-01. Writes to
+ * memberships, membership_roles and role_permissions are changes to who may do what, and a session
+ * that declines to say which user is making them is refused. The bootstrap actor `test:admin` used
+ * to sail through all three guards for exactly that reason, which meant the fixture never
+ * exercised them at all.
  *
  * The tree is four levels deep — enterprise > legal_entity > region > terminal — which is the
  * minimum that makes hierarchy traversal, inheritance and the depth of a governing legal entity
@@ -32,6 +40,8 @@ import { withLegalContext } from '../../src/session.ts';
 
 export interface IdentityFixture {
   readonly tenantId: string;
+  /** The user the fixture acts AS for every guarded write — see seedIdentity. */
+  readonly adminUserId: string;
   readonly enterpriseNodeId: string;
   readonly legalEntityNodeId: string;
   readonly regionNodeId: string;
@@ -177,10 +187,31 @@ export async function seedIdentity(app: Client, tenantId: string): Promise<Ident
     );
   });
 
-  // Phase 3 — everything scoped to both a node and a legal entity.
-  return withLegalContext(
+  // Phase 3 — the administrator. `users` has no self-elevation guard, which is what makes the
+  // first person creatable: a guard requiring a named user would have nobody to name.
+  const adminUserId = await withLegalContext(
     app,
     systemContextAt(tenantId, enterpriseNodeId, legalEntityId),
+    async (c) => {
+      const r = await (c as Client).query<{ id: string }>(
+        `INSERT INTO users
+           (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
+            authentication_subject, display_name, status, created_by)
+         VALUES ($1, $2, $3, 'oidc:example', $4, 'Tenant Administrator', 'active', 'test:seed')
+         RETURNING id`,
+        // At the legal-entity node, not the enterprise root: `users` requires a node the stated
+        // legal entity governs, and the root sits above that boundary.
+        [tenantId, legalEntityNodeId, legalEntityId, `admin-${tenantId}`],
+      );
+      return r.rows[0]!.id;
+    },
+  );
+
+  // Phase 4 — everything else, acting as that administrator. The guards let this through because
+  // the administrator is granting authority to somebody else, which is the whole distinction.
+  return withLegalContext(
+    app,
+    systemContextAt(tenantId, enterpriseNodeId, legalEntityId, `user:${adminUserId}`),
     async (c) => {
       const client = c as Client;
 
@@ -273,6 +304,7 @@ export async function seedIdentity(app: Client, tenantId: string): Promise<Ident
 
       return {
         tenantId,
+        adminUserId,
         enterpriseNodeId,
         legalEntityNodeId,
         regionNodeId,

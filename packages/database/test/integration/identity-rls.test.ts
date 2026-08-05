@@ -162,7 +162,7 @@ describe('every PR 2 table is RLS-protected', () => {
  * security so that the constraint or trigger under test is what refuses it.
  */
 function adminContext() {
-  return systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId);
+  return systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`);
 }
 
 describe('cross-tenant isolation', () => {
@@ -275,6 +275,12 @@ describe('cross-tenant isolation', () => {
     const admin = db.connectAs('postgres');
     await admin.connect();
     try {
+      await admin.query('BEGIN');
+      // A named user actor, because the self-elevation guard refuses an unattributed change to the
+      // authorization graph before any constraint is reached — F-01. It is a superuser connection,
+      // so row-level security is out of the picture and the foreign key is genuinely what has to
+      // hold, which is what this test is for.
+      await admin.query(`SELECT set_config('app.actor_id', $1, true)`, [`user:${a.userId}`]);
       await expect(
         admin.query(
           `INSERT INTO role_permissions (tenant_id, role_id, permission_id, created_by)
@@ -283,6 +289,7 @@ describe('cross-tenant isolation', () => {
         ),
       ).rejects.toThrow(/role_permissions_role_fk|violates foreign key/i);
     } finally {
+      await admin.query('ROLLBACK').catch(() => undefined);
       await admin.end();
     }
   });

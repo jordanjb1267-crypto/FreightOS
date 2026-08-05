@@ -62,7 +62,7 @@ afterAll(async () => {
  * because the hierarchy says so, which is the property these tests are about.
  */
 function adminContext() {
-  return systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId);
+  return systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`);
 }
 
 describe('four-level traversal', () => {

@@ -88,12 +88,23 @@ describe('the shape ADR-0020 requires', () => {
     expect(r.rows.map((x) => x.rolname)).toEqual([]);
   });
 
-  it('gives none of the four FreightOS roles BYPASSRLS or SUPERUSER', async () => {
+  it('gives no FreightOS role BYPASSRLS or SUPERUSER, and names every one of them', async () => {
     const r = await admin.query<{ rolname: string; rolbypassrls: boolean; rolsuper: boolean }>(
       `SELECT rolname, rolbypassrls, rolsuper FROM pg_roles
         WHERE rolname LIKE 'freightos_%' ORDER BY rolname`,
     );
-    expect(r.rows).toHaveLength(5);
+    // The list is exhaustive on purpose. A new freightos_* role is a new thing that can hold
+    // privilege, and it should have to be added here — next to the assertion that it holds
+    // neither of the two attributes that would make every RLS proof in the suite vacuous.
+    expect(r.rows.map((x) => x.rolname)).toEqual([
+      'freightos_admin',
+      'freightos_admin_owner',
+      'freightos_app',
+      'freightos_control_plane',
+      // F-01. The self-elevation guards' definer owner: NOLOGIN, SELECT on three tables.
+      'freightos_identity_guard',
+      'freightos_migrator',
+    ]);
     for (const role of r.rows) {
       expect(role.rolbypassrls, `${role.rolname} BYPASSRLS`).toBe(false);
       expect(role.rolsuper, `${role.rolname} SUPERUSER`).toBe(false);
@@ -332,7 +343,9 @@ describe('the administrative connection reaches tables only through functions', 
       [TENANT_A, 'user:reviewer', 'human', 'access_review', randomUUID()],
     );
     expect(result.outcome).toBe('succeeded');
-    expect(result.payload!['users']).toBe(1);
+    // Two users: the operator the fixture works through and the administrator that seeded it.
+    // A tenant's first administrator is a user like any other, and an access review has to see it.
+    expect(result.payload!['users']).toBe(2);
     expect(result.payload!['memberships']).toBe(1);
     expect(result.payload!['service_accounts']).toBe(1);
   });
