@@ -28,6 +28,12 @@ const baseSchema = z.object({
   DATABASE_MIGRATOR_URL: optionalUrl,
   DATABASE_APP_URL: optionalUrl,
   DATABASE_CONTROL_PLANE_URL: optionalUrl.optional(),
+  /**
+   * The ADR-0020 administrative connection — F-18. A human operator's connection for a named
+   * privileged operation, optional because no service needs one. It must name `freightos_admin`;
+   * `freightos_admin_owner` is the NOLOGIN definer and cannot authenticate at all.
+   */
+  DATABASE_ADMIN_URL: optionalUrl.optional(),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().max(200).default(10),
   DATABASE_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
 

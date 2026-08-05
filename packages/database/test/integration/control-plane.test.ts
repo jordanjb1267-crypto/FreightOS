@@ -139,7 +139,9 @@ describe('the shape ADR-0020 requires', () => {
     }
   });
 
-  it('exposes only the four approved operations plus their two internal helpers', async () => {
+  it('exposes only the four approved operations plus their three internal helpers', async () => {
+    // Three, not two — F-21. `deny`, `record` and `refusal_reason` are all internal, and the list
+    // asserted below has always had seven entries; only the sentence describing it was wrong.
     const r = await admin.query<{ proname: string }>(
       `SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'admin' ORDER BY p.proname`,

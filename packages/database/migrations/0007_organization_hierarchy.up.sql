@@ -1114,3 +1114,20 @@ CREATE POLICY carrier_appointments_update ON carrier_appointments FOR UPDATE
     AND app.organization_node_scope_ok(organization_node_id));
 GRANT SELECT, INSERT, UPDATE ON carrier_appointments TO freightos_app;
 REVOKE DELETE, TRUNCATE ON carrier_appointments FROM freightos_app;
+
+-- Referencing-side indexes for every composite foreign key — F-20.
+--
+-- PostgreSQL indexes the REFERENCED side automatically, because that side is a primary key or a
+-- unique constraint. It indexes the referencing side not at all, and two things then go wrong
+-- quietly: a referential check on delete or update of the parent scans the child table, and every
+-- join along the key does the same.
+--
+-- The miss is easy to make here because every composite key is `(tenant_id, something_id)`. A
+-- single-column index on tenant_id looks like coverage and is not, and an index on
+-- `(something_id, tenant_id)` cannot answer a leading-column lookup on tenant_id either. The key's
+-- columns have to be a PREFIX of some index, in order, and identity-rls.test.ts asserts exactly
+-- that for the whole schema so a later table arrives with the requirement rather than the oversight.
+
+CREATE INDEX operating_authorities_node_fk_idx ON operating_authorities (tenant_id, organization_node_id);
+CREATE INDEX carrier_appointments_node_fk_idx ON carrier_appointments (tenant_id, organization_node_id);
+CREATE INDEX carrier_appointments_authority_fk_idx ON carrier_appointments (tenant_id, operating_authority_id);

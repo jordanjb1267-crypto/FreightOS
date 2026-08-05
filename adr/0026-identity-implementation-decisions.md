@@ -141,8 +141,15 @@ is the fact. What was *offered* is in the denial payload.
 
 `audit_events_privileged_actor_is_human_or_system` takes no such exemption: a privileged row may
 never claim an agent actor, denied or not. An agent's attempt is recorded with the platform as the
-recording actor and `payload.offered_actor_type = 'agent'`, so the attempt is evidenced without the
-ledger asserting it was authorised.
+recording actor, so the attempt is evidenced without the ledger asserting it was authorised.
+
+What the attempt actually was is kept verbatim, and in two places, because the coercion that keeps
+`actor_type` to `human | system` would otherwise be the only record and would read as though a
+system actor had made the call. `payload.offered_actor_type` carries it on the denial path, and
+`payload.claimed_actor_type` — written by `admin.record` for every privileged row, denied or not —
+carries it unconditionally. Neither is derived: both are the parameter as supplied, so "an agent
+tried this" and "the platform did this" are distinguishable in the ledger rather than only in the
+mind of whoever remembers the coercion rule.
 
 ### 7. `carrier_appointments.carrier_reference` is opaque text, not a foreign key
 

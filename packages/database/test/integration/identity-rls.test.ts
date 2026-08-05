@@ -904,3 +904,64 @@ describe('operating context is not a credential — F-05', () => {
     }
   });
 });
+
+/**
+ * F-20 — every composite foreign key needs an index its own columns can serve.
+ *
+ * PostgreSQL indexes the REFERENCED side of a foreign key automatically, because that side is a
+ * primary key or a unique constraint. It indexes the referencing side not at all. Two things then
+ * go wrong quietly: a referential check on delete or update of the parent scans the child table,
+ * and every join along the key does the same.
+ *
+ * The composite keys in PR 2 are all `(tenant_id, something_id)`, which makes the miss easy: a
+ * single-column index on `tenant_id` looks like coverage and is not, and an index on
+ * `(something_id, tenant_id)` cannot serve a leading-column lookup on `tenant_id` either.
+ *
+ * Asserted for the whole schema rather than checked once by hand, so a PR 3 table arrives with the
+ * same requirement rather than the same oversight.
+ */
+describe('every composite foreign key is indexed on the referencing side — F-20', () => {
+  it('finds no unindexed referencing side anywhere in the schema', async () => {
+    const admin = db.connectAs('postgres');
+    await admin.connect();
+    try {
+      const r = await admin.query<{ table_name: string; constraint_name: string; columns: string }>(
+        `WITH fk AS (
+           SELECT c.conrelid,
+                  c.conname,
+                  c.conkey,
+                  cl.relname AS table_name
+             FROM pg_constraint c
+             JOIN pg_class cl ON cl.oid = c.conrelid
+             JOIN pg_namespace n ON n.oid = cl.relnamespace
+            WHERE c.contype = 'f' AND n.nspname = 'public'
+              AND array_length(c.conkey, 1) > 1
+         )
+         SELECT fk.table_name,
+                fk.conname AS constraint_name,
+                (SELECT string_agg(a.attname, ', ' ORDER BY k.ord)
+                   FROM unnest(fk.conkey) WITH ORDINALITY AS k(attnum, ord)
+                   JOIN pg_attribute a
+                     ON a.attrelid = fk.conrelid AND a.attnum = k.attnum) AS columns
+           FROM fk
+          WHERE NOT EXISTS (
+            -- An index serves the key when the key's columns are a PREFIX of the index's columns,
+            -- in order. Anything less cannot answer a lookup on the key alone.
+            SELECT 1 FROM pg_index i
+             WHERE i.indrelid = fk.conrelid
+               AND i.indisvalid
+               AND (SELECT array_agg(k ORDER BY o)
+                      FROM unnest(i.indkey::smallint[]) WITH ORDINALITY AS t(k, o)
+                     WHERE o <= array_length(fk.conkey, 1))
+                   = fk.conkey
+          )
+          ORDER BY fk.table_name, fk.conname`,
+      );
+
+      // Reported by name rather than as a bare count: a failure here should say which key to index.
+      expect(r.rows.map((x) => `${x.table_name}.${x.constraint_name} (${x.columns})`)).toEqual([]);
+    } finally {
+      await admin.end();
+    }
+  });
+});
