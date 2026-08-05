@@ -26,16 +26,107 @@ const db = new TestDatabase('freightos_test_identity_migrations');
 /** The Phase 0 accepted baseline: migrations 0001 to 0004. */
 const PHASE_0_BASELINE = 4;
 
+/**
+ * The migration authority — F-04.
+ *
+ * The lifecycle here was previously driven by `postgres`. A superuser bypasses row-level security
+ * unconditionally, so "the migrations apply" meant only that they parse; two of them could not in
+ * fact run under `freightos_migrator`, which is the role every runbook and every connection URI
+ * names. Every apply, revert and reapply below now runs as the migrator, so the evidence is about
+ * the deployment that will actually happen.
+ */
+let migrator: Client;
+
+/**
+ * A superuser, used only where a fixture has to be written past FORCE row-level security — the
+ * pre-upgrade `tenants` and `audit_events` rows below. It drives no migration.
+ */
 let admin: Client;
 
 beforeAll(async () => {
   await db.reset();
+  migrator = db.connectAsMigrator();
+  await migrator.connect();
   admin = db.connectAs('postgres');
   await admin.connect();
 }, 60_000);
 
 afterAll(async () => {
+  await migrator?.end();
   await admin?.end();
+});
+
+describe('migration authority', () => {
+  // F-04. If this profile ever drifts, every lifecycle assertion in this file silently becomes a
+  // superuser proof again, which is the exact failure being remediated. The same four attributes
+  // are asserted by scripts/bootstrap-migration-authority.sql §4, which is the production path.
+  it('runs migrations as a role holding neither SUPERUSER nor BYPASSRLS', async () => {
+    const r = await migrator.query<{
+      rolname: string;
+      rolsuper: boolean;
+      rolbypassrls: boolean;
+      rolcreaterole: boolean;
+      rolcanlogin: boolean;
+    }>(
+      `SELECT rolname, rolsuper, rolbypassrls, rolcreaterole, rolcanlogin
+         FROM pg_roles WHERE rolname = current_user`,
+    );
+    const role = r.rows[0]!;
+    expect(role.rolname).toBe('freightos_migrator');
+    expect(role.rolsuper).toBe(false);
+    expect(role.rolbypassrls).toBe(false);
+    // The two it does need: it connects, and it provisions the runtime roles in 0001 and 0013.
+    expect(role.rolcanlogin).toBe(true);
+    expect(role.rolcreaterole).toBe(true);
+  });
+
+  it('is not reachable from any runtime role', async () => {
+    // Deployment authority must not be one SET ROLE away from an application connection. Checked
+    // in the direction that matters: no runtime role is a member of the migrator.
+    const r = await migrator.query<{ rolname: string }>(
+      `SELECT m.rolname FROM pg_auth_members am
+         JOIN pg_roles m ON m.oid = am.member
+         JOIN pg_roles g ON g.oid = am.roleid
+        WHERE g.rolname = 'freightos_migrator'`,
+    );
+    expect(r.rows.map((x) => x.rolname)).toEqual([]);
+  });
+
+  it('does not satisfy app.is_control_plane()', async () => {
+    // The escalation this catches is transitive and silent. freightos_admin_owner is a member of
+    // freightos_control_plane, so any grant of the definer owner to the migrator that inherits —
+    // the default form of `GRANT ... WITH SET TRUE` — makes the deployment connection pass the
+    // control-plane branch of every policy in the schema, with no error anywhere. 0013 takes that
+    // grant deliberately, and must take it WITH INHERIT FALSE.
+    const r = await migrator.query<{ cp: boolean; usage: boolean; set_role: boolean }>(
+      `SELECT app.is_control_plane() AS cp,
+              pg_has_role(current_user, 'freightos_admin_owner', 'USAGE') AS usage,
+              pg_has_role(current_user, 'freightos_admin_owner', 'SET') AS set_role`,
+    );
+    expect(r.rows[0]!.cp).toBe(false);
+    expect(r.rows[0]!.usage).toBe(false);
+    // SET is the part 0013 legitimately needs: `ALTER ... OWNER TO` requires it. Reaching the
+    // definer's rights therefore takes an explicit SET ROLE that no migration issues.
+    expect(r.rows[0]!.set_role).toBe(true);
+  });
+
+  it('is bound by FORCE row-level security on the tables it owns', async () => {
+    // This is the property a superuser connection cannot have, and its absence is what let the
+    // 0008 seed and the 0016 revert look correct while being broken. FORCE binds the owner, the
+    // migrator matches no policy, so it writes nothing and sees nothing.
+    await expect(
+      migrator.query(
+        `INSERT INTO tenants (id, tenant_id, name, created_by)
+         VALUES ($1, $1, 'written by the migrator', 'test:f04')`,
+        [randomUUID()],
+      ),
+    ).rejects.toThrow(/row-level security/i);
+
+    const r = await migrator.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM tenants',
+    );
+    expect(r.rows[0]!.count).toBe('0');
+  });
 });
 
 describe('the migration set', () => {
@@ -141,14 +232,28 @@ describe('the migration set', () => {
     }
   });
 
-  it('grants BYPASSRLS or SUPERUSER nowhere in any migration', () => {
+  it('grants BYPASSRLS or SUPERUSER nowhere in any migration, up or down', () => {
     // ADR-0020 prohibits both outright. Comments are stripped first: several migrations discuss
     // why BYPASSRLS is not used, and a check that cannot tell an explanation from a grant would
     // push authors toward saying less rather than granting less.
+    //
+    // Both directions are scanned. A down migration that handed a role SUPERUSER on the way back
+    // is exactly as fatal as an up migration doing it, and a rollback is the moment a deployment
+    // is least likely to be watched.
+    //
+    // The keyword is matched as a whole word, which is the same argument one step further.
+    // NOSUPERUSER and NOBYPASSRLS are the attributes this test wants to see, and
+    // `pg_roles.rolbypassrls` is the column a migration reads to ASSERT the attribute is absent —
+    // 0013 does precisely that, and a substring match forbids writing the assertion at all.
+    // Every form that actually confers an attribute writes the keyword standalone —
+    // `CREATE ROLE x BYPASSRLS`, `ALTER ROLE x WITH SUPERUSER`, the same text inside EXECUTE'd
+    // dynamic SQL — so nothing that grants escapes.
+    const confers = /\b(?:BYPASSRLS|SUPERUSER)\b/i;
     for (const migration of loadMigrations(MIGRATIONS_DIR)) {
-      const code = migration.upSql.replace(/--[^\n]*/g, '');
-      expect(/(?<!NO)BYPASSRLS/i.test(code), `${migration.name} BYPASSRLS`).toBe(false);
-      expect(/(?<!NO)SUPERUSER/i.test(code), `${migration.name} SUPERUSER`).toBe(false);
+      for (const direction of ['upSql', 'downSql'] as const) {
+        const code = migration[direction].replace(/--[^\n]*/g, '');
+        expect(confers.test(code), `${migration.name} ${direction}`).toBe(false);
+      }
     }
   });
 });
@@ -156,12 +261,12 @@ describe('the migration set', () => {
 describe('apply from empty', () => {
   it('applied every migration in order', async () => {
     const migrations = loadMigrations(MIGRATIONS_DIR);
-    const applied = await appliedMigrations(admin);
+    const applied = await appliedMigrations(migrator);
     expect(applied.map((m) => m.version)).toEqual(migrations.map((m) => m.version));
   });
 
   it('created all fifteen PR 2 tables', async () => {
-    const r = await admin.query<{ tablename: string }>(
+    const r = await migrator.query<{ tablename: string }>(
       `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY($1)
         ORDER BY tablename`,
       [[...PR2_TABLES]],
@@ -170,7 +275,7 @@ describe('apply from empty', () => {
   });
 
   it('is idempotent — a second up applies nothing', async () => {
-    const result = await migrateUp(admin, loadMigrations(MIGRATIONS_DIR));
+    const result = await migrateUp(migrator, loadMigrations(MIGRATIONS_DIR));
     expect(result.applied).toEqual([]);
   });
 
@@ -179,26 +284,33 @@ describe('apply from empty', () => {
     const tampered = migrations.map((m, i) =>
       i === migrations.length - 1 ? { ...m, checksum: 'f'.repeat(64) } : m,
     );
-    const problems = await verifyChecksums(admin, tampered);
+    const problems = await verifyChecksums(migrator, tampered);
     expect(problems.join(' ')).toMatch(/was edited after being applied/);
-    await expect(migrateUp(admin, tampered)).rejects.toThrow(/checksum verification failed/);
+    await expect(migrateUp(migrator, tampered)).rejects.toThrow(/checksum verification failed/);
   });
 });
 
 describe('apply from the accepted Phase 0 baseline', () => {
   const baseline = new TestDatabase('freightos_test_identity_from_baseline');
+  /** Drives the upgrade — F-04. The migration authority, not a superuser. */
   let client: Client;
+  /** Writes the pre-upgrade fixture rows, which FORCE row-level security puts out of the
+   * migrator's reach. It runs no migration. */
+  let fixtures: Client;
 
   beforeAll(async () => {
     await baseline.reset();
-    client = baseline.connectAs('postgres');
+    client = baseline.connectAsMigrator();
     await client.connect();
+    fixtures = baseline.connectAs('postgres');
+    await fixtures.connect();
     const migrations = loadMigrations(MIGRATIONS_DIR);
     await migrateDown(client, migrations, PHASE_0_BASELINE);
   }, 60_000);
 
   afterAll(async () => {
     await client?.end();
+    await fixtures?.end();
   });
 
   it('stands at the Phase 0 baseline with none of the PR 2 tables', async () => {
@@ -213,11 +325,11 @@ describe('apply from the accepted Phase 0 baseline', () => {
   });
 
   it('carries Phase 0 data across the upgrade unchanged', async () => {
-    await client.query(
+    await fixtures.query(
       `INSERT INTO tenants (id, tenant_id, name, created_by) VALUES ($1, $1, 'Pre-upgrade', 'op')`,
       [TENANT_A],
     );
-    const auditId = await client.query<{ id: string }>(
+    const auditId = await fixtures.query<{ id: string }>(
       `INSERT INTO audit_events
          (tenant_id, legal_entity_id, legal_authority_class, operating_context, actor_type,
           actor_id, event_type, resource_type, correlation_id, created_by)
@@ -230,10 +342,11 @@ describe('apply from the accepted Phase 0 baseline', () => {
     const result = await migrateUp(client, loadMigrations(MIGRATIONS_DIR));
     expect(result.applied).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 
-    const tenant = await client.query<{ name: string; record_version: string; updated_by: string }>(
-      'SELECT name, record_version, updated_by FROM tenants WHERE id = $1',
-      [TENANT_A],
-    );
+    const tenant = await fixtures.query<{
+      name: string;
+      record_version: string;
+      updated_by: string;
+    }>('SELECT name, record_version, updated_by FROM tenants WHERE id = $1', [TENANT_A]);
     expect(tenant.rows[0]!.name).toBe('Pre-upgrade');
     // ADR-0021: `version` became `record_version` and `updated_by` was backfilled from created_by
     // rather than from a placeholder that names nobody. record_version is unchanged at 1 — the
@@ -241,7 +354,7 @@ describe('apply from the accepted Phase 0 baseline', () => {
     expect(Number(tenant.rows[0]!.record_version)).toBe(1);
     expect(tenant.rows[0]!.updated_by).toBe('op');
 
-    const audit = await client.query<{
+    const audit = await fixtures.query<{
       operation_class: string;
       purpose: string | null;
       outcome: string | null;
@@ -273,7 +386,7 @@ describe('revert and reapply', () => {
 
   beforeAll(async () => {
     await cycle.reset();
-    client = cycle.connectAs('postgres');
+    client = cycle.connectAsMigrator();
     await client.connect();
   }, 60_000);
 

@@ -21,6 +21,29 @@ revisited at the Horizon 1 production release gate.
 A human operator connected as the migrator role. Not the application connection: `freightos_app` is
 RLS-subject by design and has no business owning schema.
 
+## Before the first migration, once per cluster
+
+The migrator role must exist and own the database before anything below will run. That is the only
+step in the whole lifecycle that needs a superuser:
+
+```bash
+psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+     -v migrator_password="'<from your secret manager>'" \
+     -v db_name=freightos \
+     -f scripts/bootstrap-migration-authority.sql
+```
+
+It creates `freightos_migrator` with `LOGIN CREATEROLE`, makes it the database owner, and gives it
+admin option on any runtime role a Phase 0 cluster already carries. It refuses to finish if the
+result would hold `SUPERUSER` or `BYPASSRLS`.
+
+**Do not run migrations as a superuser, even once, even to unstick a deployment.** A superuser
+bypasses row-level security outright, so a migration that cannot write through its own policies
+succeeds anyway and the fault surfaces later, on somebody else's cluster. Four migrations in this
+set were broken that way and looked green: the 0005 `updated_by` backfill, the 0008 permissions
+seed, the 0013 admin schema, and the 0016 kill-switch seed and its revert. If a migration fails
+under `freightos_migrator`, that is the finding — fix the migration.
+
 ## The rules that make recovery possible
 
 1. **Every migration ships a down file.** The runner rejects a migration without one at load time,

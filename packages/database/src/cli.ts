@@ -13,6 +13,7 @@ import {
   loadMigrations,
   migrateDown,
   migrateUp,
+  oneStepDownTarget,
   verifyChecksums,
 } from './migrator.ts';
 import { MIGRATIONS_DIR } from './paths.ts';
@@ -40,7 +41,7 @@ try {
 
     case 'down': {
       // Default to one step. Unwinding everything must be deliberate, not a typo.
-      const target = process.argv[3] === 'all' ? 0 : Math.max(0, migrations.length - 1);
+      const target = process.argv[3] === 'all' ? 0 : await oneStepDownTarget(client);
       const result = await migrateDown(client, migrations, target);
       if (result.reverted.length === 0) console.log('nothing to revert');
       else console.log(`reverted: ${result.reverted.join(', ')}`);

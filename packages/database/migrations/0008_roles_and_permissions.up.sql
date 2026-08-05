@@ -65,31 +65,24 @@ CREATE TRIGGER permissions_bump_version
   BEFORE UPDATE ON permissions
   FOR EACH ROW EXECUTE FUNCTION app.bump_version();
 
-ALTER TABLE permissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE permissions FORCE ROW LEVEL SECURITY;
-
--- Read is unconditional because the catalog is a vocabulary, not tenant data: a tenant cannot
--- learn anything about another tenant from it. Write is control-plane only, which is what keeps a
--- tenant from inventing a permission and then granting it to itself.
-CREATE POLICY permissions_read ON permissions FOR SELECT
-  USING (true);
-CREATE POLICY permissions_insert ON permissions FOR INSERT
-  WITH CHECK (app.is_control_plane());
-CREATE POLICY permissions_update ON permissions FOR UPDATE
-  USING (app.is_control_plane())
-  WITH CHECK (app.is_control_plane());
-
-GRANT SELECT ON permissions TO freightos_app;
-GRANT SELECT, INSERT, UPDATE ON permissions TO freightos_control_plane;
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON permissions FROM freightos_app;
-REVOKE DELETE, TRUNCATE ON permissions FROM freightos_control_plane;
-
 -- ---------------------------------------------------------------------------
 -- The Phase 1 permission vocabulary.
 --
 -- Exactly the actions PR 2's tables support, and nothing forward-looking. A permission naming a
 -- resource that does not exist would be a placeholder implying a capability that has not been
 -- built, which 21_SEQUENCING_DOCTRINE forbids. Phase 2 extends this set — OQ-16.
+--
+-- SEEDED BEFORE RLS IS ENABLED — F-04.
+--
+-- `FORCE ROW LEVEL SECURITY` binds the table owner too, and the migrator owns this table. The
+-- write policy is `app.is_control_plane()`, which a migration connection is not and must not be.
+-- Seeding after FORCE therefore only ever succeeded because the migration ran as a superuser,
+-- which bypasses RLS entirely — so superuser success was hiding a migration that could not run
+-- under the documented `freightos_migrator` authority.
+--
+-- Seeding first is the fix rather than granting the migrator a policy exemption: reference data
+-- belongs to the schema, and a policy that admits the migrator at runtime would widen the write
+-- surface permanently to remove a one-time ordering problem.
 -- ---------------------------------------------------------------------------
 
 INSERT INTO permissions (tenant_id, key, resource, action, description, created_by)
@@ -141,6 +134,27 @@ VALUES
    'Release a kill switch. Constitution Art. V.1 reserves this to humans.', 'migration:0008'),
   ('00000000-0000-0000-0000-000000000000', 'governance.audit.read',
    'audit_event', 'read', 'Read the tenant''s own audit ledger.', 'migration:0008');
+
+-- Enforcement is established immediately after the seed and before any other statement, so the
+-- window in which the table is unprotected does not outlive this migration.
+ALTER TABLE permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE permissions FORCE ROW LEVEL SECURITY;
+
+-- Read is unconditional because the catalog is a vocabulary, not tenant data: a tenant cannot
+-- learn anything about another tenant from it. Write is control-plane only, which is what keeps a
+-- tenant from inventing a permission and then granting it to itself.
+CREATE POLICY permissions_read ON permissions FOR SELECT
+  USING (true);
+CREATE POLICY permissions_insert ON permissions FOR INSERT
+  WITH CHECK (app.is_control_plane());
+CREATE POLICY permissions_update ON permissions FOR UPDATE
+  USING (app.is_control_plane())
+  WITH CHECK (app.is_control_plane());
+
+GRANT SELECT ON permissions TO freightos_app;
+GRANT SELECT, INSERT, UPDATE ON permissions TO freightos_control_plane;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON permissions FROM freightos_app;
+REVOKE DELETE, TRUNCATE ON permissions FROM freightos_control_plane;
 
 -- ---------------------------------------------------------------------------
 -- roles — tenant-owned.

@@ -50,9 +50,24 @@ COMMENT ON FUNCTION app.bump_version IS
 -- mutation, and letting it bump record_version and stamp updated_at would misattribute a migration
 -- as an edit somebody made. DISABLE TRIGGER USER requires table ownership, which the migrator has
 -- and neither freightos_app nor freightos_control_plane does.
+--
+-- FORCE row-level security is lifted across the backfill too — F-04.
+--
+-- `tenants_isolation` is `app.is_control_plane() OR id = app.current_tenant_id()`, and FORCE binds
+-- the owner. The migrator is neither, so the UPDATE below matched no rows: on an empty database
+-- that is invisible, and on a database with tenants in it the SET NOT NULL that follows failed
+-- with "contains null values" — a rollback-and-reapply of an existing deployment, which is the
+-- exact case a recovery path exists for. It passed only because migrations ran as a superuser.
+--
+-- Both protections are restored before the constraint is applied, so nothing outside these two
+-- statements sees a weakened table, and the NOT NULL is proved against the enforced shape.
 ALTER TABLE tenants ADD COLUMN updated_by text;
 ALTER TABLE tenants DISABLE TRIGGER USER;
+ALTER TABLE tenants NO FORCE ROW LEVEL SECURITY;
+
 UPDATE tenants SET updated_by = created_by WHERE updated_by IS NULL;
+
+ALTER TABLE tenants FORCE ROW LEVEL SECURITY;
 ALTER TABLE tenants ENABLE TRIGGER USER;
 ALTER TABLE tenants ALTER COLUMN updated_by SET NOT NULL;
 

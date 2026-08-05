@@ -40,21 +40,100 @@
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'freightos_admin_owner') THEN
-    CREATE ROLE freightos_admin_owner NOLOGIN;
+    CREATE ROLE freightos_admin_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'freightos_admin') THEN
-    CREATE ROLE freightos_admin;
+    CREATE ROLE freightos_admin NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
   END IF;
 END
 $$;
 
--- Idempotent even on a cluster where a previous run left them set, and explicit about the
--- attributes that matter. NOBYPASSRLS is stated rather than assumed: it is the default, and this
--- is the one place where relying on a default would undermine the whole ADR.
-ALTER ROLE freightos_admin_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-ALTER ROLE freightos_admin NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+-- Deployment-time SET membership on the definer owner — F-04.
+--
+-- `ALTER ... OWNER TO freightos_admin_owner` requires the current owner to be able to SET ROLE to
+-- it. A CREATEROLE role receives ADMIN OPTION on roles it creates but not SET, so assigning
+-- ownership fails under the documented migrator without this. Superuser never hit it.
+--
+-- This is deployment authority, not runtime authority: freightos_admin_owner is NOLOGIN, and the
+-- grant lets the migrator hand ownership over during a migration. It does not give any runtime
+-- connection a path to the definer — nothing grants freightos_migrator to a runtime role, and the
+-- migration suite asserts that in both directions.
+--
+-- INHERIT FALSE is load-bearing, not decoration. freightos_admin_owner is a member of
+-- freightos_control_plane (below), and app.is_control_plane() is `pg_has_role(current_user,
+-- 'freightos_control_plane', 'USAGE')` — which follows inherited membership transitively. Granting
+-- this without INHERIT FALSE would make every subsequent migration statement, and every ordinary
+-- query on the deployment connection, silently pass the control-plane branch of every policy in
+-- the schema. SET TRUE alone is what is needed and all that is taken: ownership can be assigned,
+-- and reaching the definer's rights takes an explicit SET ROLE that no migration issues.
+--
+-- The membership is probed with 'SET' rather than 'USAGE' for the same reason: 'USAGE' asks
+-- whether the rights are inherited, which is exactly what must stay false, so it would re-grant
+-- on every run.
+DO $$
+BEGIN
+  IF NOT pg_has_role(current_user, 'freightos_admin_owner', 'SET') THEN
+    EXECUTE format('GRANT freightos_admin_owner TO %I WITH SET TRUE, INHERIT FALSE', current_user);
+  END IF;
+END
+$$;
+
+-- The attributes that matter are ASSERTED, not re-applied — F-04.
+--
+-- `ALTER ROLE ... NOSUPERUSER NOBYPASSRLS` requires superuser, so re-applying them here made the
+-- migration runnable only as a superuser and silently coupled the whole deployment to one. The
+-- previous comment said NOBYPASSRLS was "stated rather than assumed"; stating it via ALTER is
+-- what forced the superuser dependency this finding is about.
+--
+-- Asserting is strictly stronger than re-applying. Re-applying would quietly correct a role a
+-- superuser had already made privileged; this refuses to proceed and says which attribute is
+-- wrong, which is the outcome ADR-0020 actually wants.
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT rolname, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolcanlogin
+      FROM pg_roles
+     WHERE rolname IN ('freightos_admin_owner', 'freightos_admin')
+  LOOP
+    IF r.rolsuper OR r.rolbypassrls OR r.rolcreatedb OR r.rolcreaterole THEN
+      RAISE EXCEPTION
+        'role % must be NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE (super=% rls_bypass=% createdb=% createrole=%)',
+        r.rolname, r.rolsuper, r.rolbypassrls, r.rolcreatedb, r.rolcreaterole
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF r.rolname = 'freightos_admin_owner' AND r.rolcanlogin THEN
+      RAISE EXCEPTION 'freightos_admin_owner must be NOLOGIN — ADR-0020 §4'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END LOOP;
+END
+$$;
 
 GRANT freightos_control_plane TO freightos_admin_owner;
+
+-- The deployment connection must not BE the control plane — F-04.
+--
+-- freightos_admin_owner is now a member of freightos_control_plane, and app.is_control_plane() is
+-- transitive over inherited membership. If the migrator inherits the definer owner — a stale grant
+-- from an earlier bootstrap, a well-meaning `GRANT ... TO freightos_migrator`, a developer's
+-- shortcut — then from this statement onward every policy in the schema takes its control-plane
+-- branch for the deployment connection, and every RLS proof in the suite is describing a database
+-- nobody runs.
+--
+-- Asserted here rather than trusted, because the failure is silent by construction: nothing errors,
+-- the migrations simply start seeing everything.
+DO $$
+BEGIN
+  IF app.is_control_plane() THEN
+    RAISE EXCEPTION
+      'deployment authority % inherits control-plane rights; revoke the inherited membership '
+      '(GRANT ... WITH INHERIT FALSE is the supported form) before migrating', current_user
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+END
+$$;
 
 -- ---------------------------------------------------------------------------
 -- Default-deny.
@@ -74,30 +153,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO freightos_app, freightos_control_plane;
 GRANT USAGE ON SCHEMA public, app TO freightos_admin_owner;
 
--- ---------------------------------------------------------------------------
--- The administrative schema.
--- ---------------------------------------------------------------------------
-
-CREATE SCHEMA admin AUTHORIZATION freightos_admin_owner;
-COMMENT ON SCHEMA admin IS
-  'ADR-0020 §3. Cross-tenant operations, exposed only as named functions with explicit arguments '
-  '— never as ad-hoc SQL.';
-
-REVOKE ALL ON SCHEMA admin FROM PUBLIC;
-GRANT USAGE ON SCHEMA admin TO freightos_admin;
-
-CREATE TYPE admin.privileged_result AS (
-  outcome        text,
-  audit_event_id uuid,
-  message        text,
-  payload        jsonb
-);
-COMMENT ON TYPE admin.privileged_result IS
-  'outcome is succeeded | denied | failed, matching app.is_permitted_outcome. A denied result '
-  'means no privileged work was performed.';
-
-ALTER TYPE admin.privileged_result OWNER TO freightos_admin_owner;
-
 -- The narrow table grants the definer needs, one table and one verb at a time. ADR-0020 §7 makes
 -- "no grant" the default for every Phase 1 domain table; each line below is the named
 -- justification that section requires.
@@ -115,6 +170,47 @@ GRANT SELECT ON organization_node_closure TO freightos_admin_owner;
 -- carrier_appointments, roles, role_permissions, membership_roles, service_account_credentials,
 -- service_account_permissions and policy_bindings are NOT reachable from the admin schema, which
 -- is the ADR-0020 §7 default and is asserted by a test rather than left to review.
+
+-- ---------------------------------------------------------------------------
+-- The administrative schema.
+-- ---------------------------------------------------------------------------
+
+CREATE SCHEMA admin AUTHORIZATION freightos_admin_owner;
+
+-- Everything in this schema is created BY its owner — F-04.
+--
+-- The migrator does not own schema admin and holds no CREATE on it, so it cannot author objects
+-- here; it previously appeared to only because it inherited freightos_admin_owner, which is the
+-- escalation the assertion above now refuses. The supported way to create an object owned by
+-- another role is to become that role for the duration, which is exactly what the deployment-time
+-- SET membership taken at the top of this file is for.
+--
+-- Creating as the owner also removes a whole class of mistake: an `ALTER ... OWNER TO` forgotten
+-- after a new function leaves a SECURITY DEFINER function running as the DEPLOYMENT role instead
+-- of the definer. Here that cannot happen, and the assertion after RESET ROLE proves it did not.
+--
+-- SET LOCAL, not SET: it is undone by the COMMIT or ROLLBACK that ends this migration regardless
+-- of what happens in between, so a failure part-way cannot leave the connection wearing the
+-- definer's identity.
+SET LOCAL ROLE freightos_admin_owner;
+
+COMMENT ON SCHEMA admin IS
+  'ADR-0020 §3. Cross-tenant operations, exposed only as named functions with explicit arguments '
+  '— never as ad-hoc SQL.';
+
+REVOKE ALL ON SCHEMA admin FROM PUBLIC;
+GRANT USAGE ON SCHEMA admin TO freightos_admin;
+
+CREATE TYPE admin.privileged_result AS (
+  outcome        text,
+  audit_event_id uuid,
+  message        text,
+  payload        jsonb
+);
+COMMENT ON TYPE admin.privileged_result IS
+  'outcome is succeeded | denied | failed, matching app.is_permitted_outcome. A denied result '
+  'means no privileged work was performed.';
+
 
 -- ---------------------------------------------------------------------------
 -- admin.refusal_reason — the fail-closed gate, in one place.
@@ -162,7 +258,6 @@ BEGIN
 END
 $$;
 
-ALTER FUNCTION admin.refusal_reason(text, text, text, uuid, uuid) OWNER TO freightos_admin_owner;
 REVOKE ALL ON FUNCTION admin.refusal_reason(text, text, text, uuid, uuid) FROM PUBLIC;
 
 -- ---------------------------------------------------------------------------
@@ -228,8 +323,6 @@ BEGIN
 END
 $$;
 
-ALTER FUNCTION admin.record(uuid, uuid, text, text, text, uuid, text, text, text, text, text, jsonb)
-  OWNER TO freightos_admin_owner;
 REVOKE ALL ON FUNCTION
   admin.record(uuid, uuid, text, text, text, uuid, text, text, text, text, text, jsonb)
   FROM PUBLIC;
@@ -269,8 +362,6 @@ BEGIN
 END
 $$;
 
-ALTER FUNCTION admin.deny(text, uuid, text, text, text, uuid, text, text, text, text)
-  OWNER TO freightos_admin_owner;
 REVOKE ALL ON FUNCTION admin.deny(text, uuid, text, text, text, uuid, text, text, text, text)
   FROM PUBLIC;
 
@@ -486,17 +577,9 @@ END
 $$;
 
 -- ---------------------------------------------------------------------------
--- Ownership and execute-only grants — ADR-0020 §4 and §6.
+-- Execute-only grants — ADR-0020 §4 and §6. Ownership needs no statement here: every object above
+-- was created by freightos_admin_owner, and the assertion at the end of the file proves it.
 -- ---------------------------------------------------------------------------
-
-ALTER FUNCTION admin.provision_tenant(uuid, text, text, text, text, uuid)
-  OWNER TO freightos_admin_owner;
-ALTER FUNCTION admin.set_tenant_status(uuid, text, text, text, text, uuid)
-  OWNER TO freightos_admin_owner;
-ALTER FUNCTION admin.export_tenant_audit(uuid, timestamptz, timestamptz, text, text, text, uuid)
-  OWNER TO freightos_admin_owner;
-ALTER FUNCTION admin.tenant_identity_summary(uuid, text, text, text, uuid)
-  OWNER TO freightos_admin_owner;
 
 REVOKE ALL ON FUNCTION admin.provision_tenant(uuid, text, text, text, text, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION admin.set_tenant_status(uuid, text, text, text, text, uuid) FROM PUBLIC;
@@ -513,3 +596,35 @@ GRANT EXECUTE ON FUNCTION
   TO freightos_admin;
 GRANT EXECUTE ON FUNCTION admin.tenant_identity_summary(uuid, text, text, text, uuid)
   TO freightos_admin;
+
+RESET ROLE;
+
+-- ADR-0020 §4 — every admin object belongs to the definer owner, asserted rather than reviewed.
+--
+-- A SECURITY DEFINER function owned by the deployment role would run with the migrator's rights,
+-- which include ownership of every table in the schema and therefore a way past the policies this
+-- design exists to enforce. That is a silent outcome of one forgotten statement, so it is checked
+-- here instead of at review time.
+DO $$
+DECLARE
+  v_stray text;
+BEGIN
+  SELECT string_agg(name, ', ' ORDER BY name) INTO v_stray FROM (
+    SELECT n.nspname || '.' || p.proname AS name
+      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'admin' AND p.proowner <> 'freightos_admin_owner'::regrole
+    UNION ALL
+    SELECT n.nspname || '.' || t.typname
+      FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+     WHERE n.nspname = 'admin' AND t.typowner <> 'freightos_admin_owner'::regrole
+    UNION ALL
+    SELECT 'schema ' || nspname FROM pg_namespace
+     WHERE nspname = 'admin' AND nspowner <> 'freightos_admin_owner'::regrole
+  ) AS stray;
+
+  IF v_stray IS NOT NULL THEN
+    RAISE EXCEPTION 'admin objects not owned by freightos_admin_owner: %', v_stray
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+END
+$$;
