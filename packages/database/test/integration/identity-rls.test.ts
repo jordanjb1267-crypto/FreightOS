@@ -36,8 +36,8 @@ beforeAll(async () => {
   await db.seedTenants();
   app = db.connectAs('freightos_app');
   await app.connect();
-  a = await seedIdentity(app, TENANT_A);
-  b = await seedIdentity(app, TENANT_B);
+  a = await seedIdentity(db, TENANT_A);
+  b = await seedIdentity(db, TENANT_B);
 }, 60_000);
 
 afterAll(async () => {
@@ -265,13 +265,15 @@ describe('cross-tenant isolation', () => {
     await expect(
       withLegalContext(app, systemContext(TENANT_A), async (c) => {
         await c.query(
-          `INSERT INTO roles
-             (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-           VALUES ($1, $2, $3, 'smuggled', 'Smuggled', 'test')`,
+          `INSERT INTO service_accounts
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
+           VALUES ($1, $2, $3, 'smuggled', 'Smuggled', 'integration', 'test')`,
           [TENANT_A, a.legalEntityNodeId, b.legalEntityId],
         );
       }),
-    ).rejects.toThrow(/is governed by legal entity|roles_legal_entity_fk|violates foreign key/i);
+    ).rejects.toThrow(
+      /is governed by legal entity|service_accounts_legal_entity_fk|violates foreign key/i,
+    );
   });
 
   it('still refuses the cross-tenant reference when the node agreement cannot mask it', async () => {
@@ -350,9 +352,10 @@ describe('missing context fails closed', () => {
         },
         async (c) => {
           await c.query(
-            `INSERT INTO roles
-               (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-             VALUES ($1, $2, $3, 'no_node_context', 'No node', 'test')`,
+            `INSERT INTO service_accounts
+               (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
+                created_by)
+             VALUES ($1, $2, $3, 'no_node_context', 'No node', 'integration', 'test')`,
             [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
           );
         },
@@ -409,9 +412,10 @@ describe('legal-entity scope', () => {
         carrierContextAt(TENANT_A, b.legalEntityId, a.legalEntityNodeId),
         async (c) => {
           await c.query(
-            `INSERT INTO roles
-               (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-             VALUES ($1, $2, $3, 'wrong_entity', 'Wrong entity', 'test')`,
+            `INSERT INTO service_accounts
+               (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
+                created_by)
+             VALUES ($1, $2, $3, 'wrong_entity', 'Wrong entity', 'integration', 'test')`,
             [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
           );
         },
@@ -425,9 +429,9 @@ describe('legal-entity scope', () => {
       carrierContextAt(TENANT_A, a.legalEntityId, a.legalEntityNodeId),
       async (c) => {
         const r = await c.query<{ id: string }>(
-          `INSERT INTO roles
-             (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-           VALUES ($1, $2, $3, 'right_entity', 'Right entity', 'test')
+          `INSERT INTO service_accounts
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
+           VALUES ($1, $2, $3, 'right_entity', 'Right entity', 'integration', 'test')
            RETURNING id`,
           [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
         );
@@ -439,14 +443,17 @@ describe('legal-entity scope', () => {
 });
 
 describe('organization-node and legal-entity must agree', () => {
-  it('rejects a role naming a node the stated legal entity does not govern', async () => {
+  // Stated against service_accounts rather than roles — R2-01 put roles behind the administrative
+  // boundary, and these tests are about the node/legal-entity agreement rule, which applies
+  // identically to every table carrying both columns.
+  it('rejects a row naming a node the stated legal entity does not govern', async () => {
     // The enterprise root sits above the legal-entity boundary, so nothing governs it.
     await expect(
       withLegalContext(app, systemContext(TENANT_A), async (c) => {
         await c.query(
-          `INSERT INTO roles
-             (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-           VALUES ($1, $2, $3, 'above_boundary', 'Above boundary', 'test')`,
+          `INSERT INTO service_accounts
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
+           VALUES ($1, $2, $3, 'above_boundary', 'Above boundary', 'integration', 'test')`,
           [TENANT_A, a.enterpriseNodeId, a.legalEntityId],
         );
       }),
@@ -596,9 +603,10 @@ describe('the capability matrix agrees with the database', () => {
         facilityContextAt(TENANT_A, a.legalEntityId, a.terminalNodeId),
         async (c) => {
           await c.query(
-            `INSERT INTO roles
-               (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-             VALUES ($1, $2, $3, 'facility_written', 'Facility written', 'test')`,
+            `INSERT INTO service_accounts
+               (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
+                created_by)
+             VALUES ($1, $2, $3, 'facility_written', 'Facility written', 'integration', 'test')`,
             [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
           );
         },
@@ -906,7 +914,7 @@ describe('operating context is not a credential — F-05', () => {
 });
 
 /**
- * F-20 — every composite foreign key needs an index its own columns can serve.
+ * F-20, R2-04 — every composite foreign key needs a FULL index its own columns can serve.
  *
  * PostgreSQL indexes the REFERENCED side of a foreign key automatically, because that side is a
  * primary key or a unique constraint. It indexes the referencing side not at all. Two things then
@@ -950,6 +958,12 @@ describe('every composite foreign key is indexed on the referencing side — F-2
             SELECT 1 FROM pg_index i
              WHERE i.indrelid = fk.conrelid
                AND i.indisvalid
+               -- A PARTIAL index does not count — R2-04. It answers only a lookup the planner can
+               -- prove falls inside its predicate, and a foreign-key check cannot: it looks up the
+               -- referencing rows for a parent row whether or not they are revoked. Four keys were
+               -- covered by a revoked_at IS NULL unique index alone and passed this audit
+               -- while every revoked row remained unindexed.
+               AND i.indpred IS NULL
                AND (SELECT array_agg(k ORDER BY o)
                       FROM unnest(i.indkey::smallint[]) WITH ORDINALITY AS t(k, o)
                      WHERE o <= array_length(fk.conkey, 1))
@@ -960,6 +974,113 @@ describe('every composite foreign key is indexed on the referencing side — F-2
 
       // Reported by name rather than as a bare count: a failure here should say which key to index.
       expect(r.rows.map((x) => `${x.table_name}.${x.constraint_name} (${x.columns})`)).toEqual([]);
+    } finally {
+      await admin.end();
+    }
+  });
+});
+
+/**
+ * R2-04 — the four foreign keys whose only cover was a partial unique index.
+ *
+ * `role_permissions_one_active_per_pair` and its three siblings have the right leading columns and
+ * a `revoked_at IS NULL` predicate. A partial index answers only a lookup the planner can prove
+ * falls inside that predicate, and a foreign-key check cannot: it looks up the referencing rows for
+ * a parent row whether or not they are revoked. Every revoked row was therefore unindexed for the
+ * purpose the audit exists to check, and the audit passed anyway.
+ */
+describe('a partial index is not FK-support evidence — R2-04', () => {
+  const NAMED = [
+    ['carrier_appointments', 'carrier_appointments_legal_entity_fk'],
+    ['role_permissions', 'role_permissions_role_fk'],
+    ['membership_roles', 'membership_roles_membership_fk'],
+    ['service_account_permissions', 'service_account_permissions_account_fk'],
+  ] as const;
+
+  it('gives each of the four named keys a full supporting index', async () => {
+    const admin = db.connectAs('postgres');
+    await admin.connect();
+    try {
+      for (const [table, constraint] of NAMED) {
+        const r = await admin.query<{ indexname: string; partial: boolean }>(
+          `WITH fk AS (
+             SELECT c.conrelid, c.conkey FROM pg_constraint c
+              WHERE c.conname = $1 AND c.conrelid = $2::regclass)
+           SELECT i.relname AS indexname, x.indpred IS NOT NULL AS partial
+             FROM fk
+             JOIN pg_index x ON x.indrelid = fk.conrelid AND x.indisvalid
+             JOIN pg_class i ON i.oid = x.indexrelid
+            WHERE (SELECT array_agg(k ORDER BY o)
+                     FROM unnest(x.indkey::smallint[]) WITH ORDINALITY AS t(k, o)
+                    WHERE o <= array_length(fk.conkey, 1)) = fk.conkey
+            ORDER BY partial, i.relname`,
+          [constraint, table],
+        );
+
+        // Both: the partial unique index enforces "one active per pair", which a full index cannot
+        // do, and the full index supports the key, which a partial one cannot. Neither replaces the
+        // other, and the retained partial index is documented rather than removed.
+        expect(
+          r.rows.filter((x) => !x.partial).map((x) => x.indexname),
+          `${constraint} full index`,
+        ).not.toEqual([]);
+        expect(
+          r.rows.filter((x) => x.partial).map((x) => x.indexname),
+          `${constraint} partial unique index retained`,
+        ).not.toEqual([]);
+      }
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it('would have reported all four before the indexes were added', async () => {
+    // The tightening is load-bearing, shown rather than asserted: the audit query with the
+    // `indpred IS NULL` clause removed accepts a partial index, and with it restored these four are
+    // exactly the keys whose cover was partial-only. Run against the LIVE schema, so it also proves
+    // the four new indexes are the ones closing the gap.
+    const admin = db.connectAs('postgres');
+    await admin.connect();
+    try {
+      const partialOnly = await admin.query<{ conname: string }>(
+        `WITH fk AS (
+           SELECT c.conrelid, c.conname, c.conkey FROM pg_constraint c
+             JOIN pg_class cl ON cl.oid = c.conrelid
+             JOIN pg_namespace n ON n.oid = cl.relnamespace
+            WHERE c.contype = 'f' AND n.nspname = 'public'
+              AND array_length(c.conkey, 1) > 1),
+         covering AS (
+           SELECT fk.conname, bool_or(x.indpred IS NULL) AS has_full
+             FROM fk
+             JOIN pg_index x ON x.indrelid = fk.conrelid AND x.indisvalid
+            WHERE (SELECT array_agg(k ORDER BY o)
+                     FROM unnest(x.indkey::smallint[]) WITH ORDINALITY AS t(k, o)
+                    WHERE o <= array_length(fk.conkey, 1)) = fk.conkey
+            GROUP BY fk.conname)
+         SELECT conname FROM covering WHERE NOT has_full ORDER BY conname`,
+      );
+      // Empty now. Before the four indexes, this returned exactly the four named above — which is
+      // what the audit's `indpred IS NULL` clause is there to notice.
+      expect(partialOnly.rows.map((x) => x.conname)).toEqual([]);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it('uses the full index for a foreign-key style lookup', async () => {
+    // A plan rather than a catalog assertion: the point of the index is that a lookup on the key's
+    // columns alone can use it, which is exactly what a referential check does.
+    const admin = db.connectAs('postgres');
+    await admin.connect();
+    try {
+      await admin.query('SET LOCAL enable_seqscan = off');
+      const plan = await admin.query<{ 'QUERY PLAN': string }>(
+        `EXPLAIN (COSTS OFF)
+         SELECT 1 FROM role_permissions WHERE tenant_id = $1 AND role_id = $2`,
+        [TENANT_A, a.roleId],
+      );
+      const text = plan.rows.map((x) => x['QUERY PLAN']).join('\n');
+      expect(text).toMatch(/role_permissions_role_fk_idx/);
     } finally {
       await admin.end();
     }

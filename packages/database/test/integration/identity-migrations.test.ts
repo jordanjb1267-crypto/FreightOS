@@ -401,7 +401,7 @@ describe('apply from the accepted Phase 0 baseline', () => {
     );
 
     const result = await migrateUp(client, loadMigrations(MIGRATIONS_DIR));
-    expect(result.applied).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(result.applied).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
 
     const tenant = await fixtures.query<{
       name: string;
@@ -433,7 +433,7 @@ describe('apply from the accepted Phase 0 baseline', () => {
     const app = baseline.connectAs('freightos_app');
     await app.connect();
     try {
-      const fixture = await seedIdentity(app, TENANT_A);
+      const fixture = await seedIdentity(baseline, TENANT_A);
       expect(fixture.terminalNodeId).toBeTruthy();
     } finally {
       await app.end();
@@ -490,7 +490,7 @@ describe('revert and reapply', () => {
     const app = cycle.connectAs('freightos_app');
     await app.connect();
     try {
-      const fixture = await seedIdentity(app, TENANT_A);
+      const fixture = await seedIdentity(cycle, TENANT_A);
       expect(fixture.legalEntityId).toBeTruthy();
     } finally {
       await app.end();

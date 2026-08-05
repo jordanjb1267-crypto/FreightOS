@@ -47,9 +47,14 @@ const ROLE_SETUP_LOCK = 8_140_267;
 const MIGRATOR = 'freightos_migrator';
 
 /**
- * Runtime roles the migrator may administer but must never become, and administrative roles it
- * must additionally be able to SET ROLE to because `ALTER ... OWNER TO` requires it. Both lists
- * mirror `scripts/bootstrap-migration-authority.sql` §2.
+ * Roles the migrator administers without inheriting, split by whether it also needs SET ROLE.
+ *
+ * Neither list is inherited — that is the property that keeps a deployment session from picking up
+ * privileges it did not ask for. The second list additionally carries SET, because
+ * `ALTER ... OWNER TO` requires the assigning role to be able to become the target, and the
+ * migrations hand objects to NOLOGIN definer owners. "Administer", "inherit" and "can become" are
+ * three different powers — R2-05. Both lists mirror
+ * `scripts/bootstrap-migration-authority.sql` §2.
  */
 const ADMINISTERED_ROLES = ['freightos_app', 'freightos_control_plane'] as const;
 const OWNERSHIP_TARGET_ROLES = ['freightos_admin_owner', 'freightos_admin'] as const;
@@ -152,7 +157,7 @@ export class TestDatabase {
     //
     // So a membership is revoked only when it confers something forbidden, and then by its own
     // grantor: INHERIT on any of these roles, or SET on a role the migrator must be able to
-    // administer without ever becoming. Inheriting freightos_admin_owner makes the migrator a
+    // administer without needing to become. Inheriting freightos_admin_owner makes the migrator a
     // member of freightos_control_plane, which makes app.is_control_plane() true for the
     // deployment connection — migration 0013 refuses to run in that state, and this is what keeps
     // a cluster from drifting into it between runs.
@@ -206,7 +211,10 @@ export class TestDatabase {
   }
 
   private async grantRoles(client: Client): Promise<void> {
-    for (const role of ['freightos_app', 'freightos_control_plane']) {
+    // freightos_admin joins the list because R2-01 routes every authorization mutation through the
+    // admin boundary, so the fixture needs that connection too. Without a password here it works
+    // under local trust auth and fails only under the password auth CI uses.
+    for (const role of ['freightos_app', 'freightos_control_plane', 'freightos_admin']) {
       await client.query(
         NEEDS_PASSWORD
           ? `ALTER ROLE ${role} LOGIN PASSWORD '${ROLE_PASSWORD}'`

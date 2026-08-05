@@ -46,8 +46,46 @@ holds `BYPASSRLS`**, and a test asserts it on every CI run.
 | `admin.export_tenant_audit`     | `audit_export`, `regulatory_request`, `security_investigation`, `incident_response`         | Returns audit rows in a bounded window |
 | `admin.tenant_identity_summary` | `access_review`, `identity_administration`, `security_investigation`, `platform_operations` | Returns identity counts                |
 
-Adding a fifth requires a migration that justifies it, an entry in this table, and review at the
+Adding another requires a migration that justifies it, an entry in a table here, and review at the
 next phase exit gate — ADR-0020 §Consequences.
+
+## The authorization mutation operations
+
+Ten more, added by migration 0017. They exist because a tenant session may no longer change the
+authorization graph at all: `app.actor_id` is a session variable, so a caller could name any user it
+liked and every self-elevation guard compared the row against somebody else. ADR-0026 §6a has the
+reasoning.
+
+| Function                                  | Effect                                            |
+| ----------------------------------------- | ------------------------------------------------- |
+| `admin.create_role`                       | Creates a role at a node its legal entity governs |
+| `admin.grant_membership`                  | Attaches a user to an organization node           |
+| `admin.set_membership_status`             | Sets `active` or `suspended`                      |
+| `admin.revoke_membership`                 | Revokes a membership, effective-dated             |
+| `admin.assign_membership_role`            | Gives a membership a role                         |
+| `admin.revoke_membership_role`            | Takes one back                                    |
+| `admin.grant_role_permission`             | Adds a permission to a role                       |
+| `admin.revoke_role_permission`            | Removes one                                       |
+| `admin.grant_service_account_permission`  | Grants a service account a permission directly    |
+| `admin.revoke_service_account_permission` | Removes one                                       |
+
+All ten take `identity_administration` as their purpose and refuse any other. All ten require an
+actor that is a real, active user of the tenant — or a `system:` platform actor — and refuse a
+revoked principal, a user of another tenant, a service account named as a user, and anything that is
+not `user:<uuid>`.
+
+**What a tenant session can still do.** Read. Everything ADR-0019's matrix gives it, unchanged. What
+it cannot do is write `roles`, `role_permissions`, `memberships`, `membership_roles` or
+`service_account_permissions` — those return `permission denied`, and the fix is to make the change
+through the operation above rather than to grant the privilege back.
+
+**Retries are safe.** A repeat under the same correlation id returns the original audit record and
+applies nothing, with `payload.idempotent_replay = true` on the result. Use a fresh correlation id
+when you mean a second change.
+
+**Self-elevation is still refused here.** Being entitled to use this boundary does not entitle an
+administrator to widen its own authority through it: adding a permission to a role the actor holds,
+or assigning a role to the actor's own membership, comes back `failed` with the guard's reason.
 
 ## Performing an operation
 

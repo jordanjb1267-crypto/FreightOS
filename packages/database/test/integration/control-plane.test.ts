@@ -65,7 +65,7 @@ beforeAll(async () => {
   await app.connect();
   admin = db.connectAs('postgres');
   await admin.connect();
-  a = await seedIdentity(app, TENANT_A);
+  a = await seedIdentity(db, TENANT_A);
 
   await admin.query(
     process.env['PGPASSWORD'] !== undefined
@@ -139,22 +139,45 @@ describe('the shape ADR-0020 requires', () => {
     }
   });
 
-  it('exposes only the four approved operations plus their three internal helpers', async () => {
-    // Three, not two — F-21. `deny`, `record` and `refusal_reason` are all internal, and the list
-    // asserted below has always had seven entries; only the sentence describing it was wrong.
+  it('exposes an enumerated surface and nothing else', async () => {
+    // Enumerated rather than counted, because ADR-0020 §Consequences requires each admin.* function
+    // to be justified in a migration and reviewed at every phase exit gate. A new one has to be
+    // added here, next to the reviewers who will ask why.
+    //
+    // Three internal helpers, not two — F-21; the list has always had seven entries and only the
+    // sentence describing it was wrong. Ten authorization mutations and three more helpers joined
+    // in 0017 — R2-01 — because a tenant session may no longer change the authorization graph at
+    // all and every one of those changes has to have a governed way to happen.
     const r = await admin.query<{ proname: string }>(
       `SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'admin' ORDER BY p.proname`,
     );
-    expect(r.rows.map((x) => x.proname)).toEqual([
-      'deny',
-      'export_tenant_audit',
-      'provision_tenant',
-      'record',
-      'refusal_reason',
-      'set_tenant_status',
-      'tenant_identity_summary',
-    ]);
+    expect(r.rows.map((x) => x.proname)).toEqual(
+      [
+        // ADR-0020's original four, and the three helpers behind them.
+        'deny',
+        'export_tenant_audit',
+        'provision_tenant',
+        'record',
+        'refusal_reason',
+        'set_tenant_status',
+        'tenant_identity_summary',
+        // R2-01: the authorization mutation boundary.
+        'assign_membership_role',
+        'authorization_refusal_reason',
+        'create_role',
+        'grant_membership',
+        'grant_role_permission',
+        'grant_service_account_permission',
+        'prior_success',
+        'publish_actor',
+        'revoke_membership',
+        'revoke_membership_role',
+        'revoke_role_permission',
+        'revoke_service_account_permission',
+        'set_membership_status',
+      ].sort(),
+    );
   });
 
   it('grants EXECUTE on the four operations to the administrative connection and nobody else', async () => {
@@ -936,5 +959,171 @@ describe('denial audit is transaction-bound — F-07', () => {
       [tenantId],
     );
     expect(Number(created.rows[0]!.count)).toBe(0);
+  });
+});
+
+/**
+ * R2-05 — the role graph as it actually is.
+ *
+ * Scripts, comments and one test name said the migrator "cannot SET ROLE to a runtime role". That
+ * is true of freightos_app and false of freightos_control_plane: the migrator holds
+ * `SET TRUE, INHERIT FALSE` on freightos_admin_owner, and freightos_admin_owner is a member of
+ * freightos_control_plane with SET, so a deliberate two-step SET ROLE reaches it.
+ *
+ * INHERIT FALSE prevents automatic privilege inheritance. It does not prevent SET ROLE, and
+ * conflating the two is what produced the overclaim. The security-relevant properties are the ones
+ * asserted below, and each is stated as what it is rather than as the stronger thing it resembles.
+ *
+ * Removing the reachability is possible and is not done: `ALTER ... OWNER TO` requires the assigning
+ * role to be able to SET ROLE to the target, so migrations 0007, 0010, 0013 and 0017 all need it,
+ * and taking it away would mean giving up definer-owned trusted code or handing ownership assignment
+ * to a superuser at deploy time. The finding says as much — a low documentation defect does not
+ * justify a role-graph redesign.
+ */
+describe('the role graph, described accurately — R2-05', () => {
+  interface RoleRow {
+    rolname: string;
+    rolcanlogin: boolean;
+    rolinherit: boolean;
+    rolsuper: boolean;
+    rolbypassrls: boolean;
+  }
+
+  it('reports every FreightOS role and its attributes', async () => {
+    const r = await admin.query<RoleRow>(
+      `SELECT rolname, rolcanlogin, rolinherit, rolsuper, rolbypassrls
+         FROM pg_roles WHERE rolname LIKE 'freightos%' ORDER BY rolname`,
+    );
+    expect(r.rows.map((x) => x.rolname)).toEqual([
+      'freightos_admin',
+      'freightos_admin_owner',
+      'freightos_app',
+      'freightos_control_plane',
+      'freightos_hierarchy_owner',
+      'freightos_identity_guard',
+      'freightos_migrator',
+    ]);
+
+    // No FreightOS role holds either attribute that would make every RLS proof in the suite vacuous.
+    for (const role of r.rows) {
+      expect(role.rolsuper, `${role.rolname} SUPERUSER`).toBe(false);
+      expect(role.rolbypassrls, `${role.rolname} BYPASSRLS`).toBe(false);
+    }
+
+    // The three definer owners are NOLOGIN: they are identities code runs AS, never connections.
+    const nologin = r.rows.filter((x) => !x.rolcanlogin).map((x) => x.rolname);
+    expect(nologin).toEqual([
+      'freightos_admin_owner',
+      'freightos_hierarchy_owner',
+      'freightos_identity_guard',
+    ]);
+  });
+
+  it('reports every membership with its three options', async () => {
+    const r = await admin.query<{
+      member: string;
+      granted: string;
+      admin_option: boolean;
+      inherit_option: boolean;
+      set_option: boolean;
+    }>(
+      `SELECT m.rolname AS member, g.rolname AS granted,
+              bool_or(am.admin_option)   AS admin_option,
+              bool_or(am.inherit_option) AS inherit_option,
+              bool_or(am.set_option)     AS set_option
+         FROM pg_auth_members am
+         JOIN pg_roles m ON m.oid = am.member
+         JOIN pg_roles g ON g.oid = am.roleid
+        WHERE m.rolname LIKE 'freightos%'
+        GROUP BY m.rolname, g.rolname
+        ORDER BY m.rolname, g.rolname`,
+    );
+
+    // The union across grantors is what matters; PostgreSQL 16 records the migrator's profile as
+    // two rows per role and neither carries all of it.
+    const edges = r.rows.map(
+      (x) =>
+        `${x.member} -> ${x.granted} admin=${x.admin_option} inherit=${x.inherit_option} set=${x.set_option}`,
+    );
+    expect(edges).toEqual([
+      // The three definers are control-plane members, and inherit it: that membership is what
+      // carries their reads through the policy branch, which is the whole point of them.
+      'freightos_admin_owner -> freightos_control_plane admin=false inherit=true set=true',
+      'freightos_hierarchy_owner -> freightos_control_plane admin=false inherit=true set=true',
+      'freightos_identity_guard -> freightos_control_plane admin=false inherit=true set=true',
+      // The migrator administers everything and inherits nothing. SET only where
+      // `ALTER ... OWNER TO` needs it, which is every definer owner and freightos_admin.
+      'freightos_migrator -> freightos_admin admin=true inherit=false set=true',
+      'freightos_migrator -> freightos_admin_owner admin=true inherit=false set=true',
+      'freightos_migrator -> freightos_app admin=true inherit=false set=false',
+      'freightos_migrator -> freightos_control_plane admin=true inherit=false set=false',
+      'freightos_migrator -> freightos_hierarchy_owner admin=true inherit=false set=true',
+      'freightos_migrator -> freightos_identity_guard admin=true inherit=false set=true',
+    ]);
+  });
+
+  it('distinguishes inherited authority from SET ROLE reachability', async () => {
+    const r = await admin.query<{ rolname: string; inherited: boolean; reachable: boolean }>(
+      `SELECT r.rolname,
+              pg_has_role('freightos_migrator', r.oid, 'USAGE') AS inherited,
+              pg_has_role('freightos_migrator', r.oid, 'SET')   AS reachable
+         FROM pg_roles r
+        WHERE r.rolname LIKE 'freightos%' AND r.rolname <> 'freightos_migrator'
+        ORDER BY r.rolname`,
+    );
+
+    // Nothing is INHERITED. This is the property that matters for an ordinary migrator session:
+    // no statement picks up any of these rights without asking for them.
+    for (const role of r.rows) {
+      expect(role.inherited, `${role.rolname} inherited by the migrator`).toBe(false);
+    }
+
+    // SET ROLE reachability is a different question and the answer is different. Stated as the
+    // graph has it, including the transitive path the documentation used to deny.
+    expect(r.rows.filter((x) => x.reachable).map((x) => x.rolname)).toEqual([
+      'freightos_admin',
+      'freightos_admin_owner',
+      // Reachable TRANSITIVELY, through freightos_admin_owner. Not a direct grant — the direct
+      // membership is SET FALSE — and not inherited, but reachable by a deliberate two-step
+      // SET ROLE. The documentation said "cannot"; "does not inherit" is what was proved.
+      'freightos_control_plane',
+      'freightos_hierarchy_owner',
+      'freightos_identity_guard',
+    ]);
+
+    // freightos_app is the one runtime role with no path at all, direct or transitive.
+    expect(r.rows.find((x) => x.rolname === 'freightos_app')?.reachable).toBe(false);
+  });
+
+  it('leaves app.is_control_plane() false in an ordinary migrator session', async () => {
+    // The effective default, which is what every policy in the schema actually consults. Reachable
+    // by SET ROLE and true right now are not the same claim, and only the second would be a defect.
+    const migrator = db.connectAsMigrator();
+    await migrator.connect();
+    try {
+      const r = await migrator.query<{ cp: boolean; who: string }>(
+        'SELECT app.is_control_plane() AS cp, current_user AS who',
+      );
+      expect(r.rows[0]).toEqual({ cp: false, who: 'freightos_migrator' });
+    } finally {
+      await migrator.end();
+    }
+  });
+
+  it('gives no runtime role a path to the migrator or to any owner role', async () => {
+    // The direction that would be an escalation. An application, tenant or routine control-plane
+    // connection cannot reach deployment authority or a definer owner, by inheritance or by
+    // SET ROLE, and that is what keeps the deployment-side reachability above from mattering.
+    const r = await admin.query<{ runtime: string; target: string; reachable: boolean }>(
+      `SELECT runtime.rolname AS runtime, target.rolname AS target,
+              pg_has_role(runtime.oid, target.oid, 'SET') AS reachable
+         FROM pg_roles runtime
+         CROSS JOIN pg_roles target
+        WHERE runtime.rolname IN ('freightos_app', 'freightos_control_plane', 'freightos_admin')
+          AND target.rolname IN ('freightos_migrator', 'freightos_admin_owner',
+                                 'freightos_hierarchy_owner', 'freightos_identity_guard')
+        ORDER BY runtime.rolname, target.rolname`,
+    );
+    expect(r.rows.filter((x) => x.reachable)).toEqual([]);
   });
 });

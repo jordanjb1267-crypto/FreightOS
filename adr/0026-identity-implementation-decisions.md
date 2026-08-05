@@ -151,6 +151,65 @@ carries it unconditionally. Neither is derived: both are the parameter as suppli
 tried this" and "the platform did this" are distinguishable in the ledger rather than only in the
 mind of whoever remembers the coercion rule.
 
+### 6a. A tenant session may read the authorization graph but may not mutate it
+
+`app.current_user_id()` parses `user:<uuid>` out of `app.actor_id`, which is a session variable the
+caller sets. F-01 closed the case where a caller declined to name a user; it did not close the case
+where a caller names one it is not. A regex-valid UUID is not an authenticated identity, so a
+freightos_app session could set
+
+```sql
+SET LOCAL app.actor_id = 'user:<any uuid at all>';
+```
+
+and every self-elevation guard compared the row against somebody else. The reproduction: a
+fabricated UUID created a role, granted that role a permission, and assigned the role to the
+caller's own membership. Impersonating a real colleague worked identically.
+
+**Decision.** Direct application `INSERT`, `UPDATE` and `DELETE` are removed from the five tables
+where a write can change effective authority — `roles`, `role_permissions`, `memberships`,
+`membership_roles`, `service_account_permissions`. Their write policies admit the control plane
+alone, and `freightos_app` holds `SELECT`. Every change goes through a named `admin.*` function
+reached over the `freightos_admin` connection, so authority comes from a **role**, which a session
+cannot set, rather than from a parameter or a GUC.
+
+Ten operations, enumerated the way ADR-0020 §Consequences requires. Each validates that the actor is
+a real, active user of the tenant whose authority is changing — or a platform `system:` actor —
+verifies the target belongs to that tenant and that node and legal-entity relationships agree,
+replays rather than repeats under a correlation id already used, publishes the **verified** actor so
+0010's self-elevation guards evaluate against it, and audits the outcome in the same transaction as
+the mutation.
+
+**What this is not.** It is not identity binding, and it does not claim to be. The database cannot
+know which human is behind a tenant session. Validating the actor stops the ledger attributing a
+change to somebody revoked, foreign, or nonexistent; the *authority* to make the change at all comes
+from the connection role. Checking merely that a supplied UUID exists would have been the fake
+version of this and was explicitly rejected.
+
+**Compatibility, stated for operators.** Until a trusted application authentication boundary exists,
+tenant-facing sessions may read the authorized identity information they could always read, and may
+not directly mutate the authorization graph. Authority-changing mutations use the governed
+administrative boundary. This is a fail-closed Phase 1 rule, not a Phase 2 or Phase 3 feature, and no
+end-user application or authentication provider is introduced to soften it.
+
+**Rejected:** keeping direct mutation and hardening the guards further. Every guard would still be
+asking a session variable who was acting, which is the defect rather than an instance of it.
+
+### 6b. A partial index is not foreign-key support
+
+`role_permissions_one_active_per_pair` and three siblings have the right leading columns and a
+`revoked_at IS NULL` predicate. A partial index answers only a lookup the planner can prove falls
+inside its predicate, and a referential check cannot: it looks up the referencing rows for a parent
+row whether or not they are revoked.
+
+**Decision.** Four full indexes are added — `carrier_appointments_legal_entity_fk_idx`,
+`role_permissions_role_fk_idx`, `membership_roles_membership_fk_idx`,
+`service_account_permissions_account_fk_idx` — and the schema-wide audit requires `indpred IS NULL`.
+
+The partial unique indexes are **retained deliberately and separately**: each enforces "one active
+per pair", which a full index cannot do. They are not redundant with the new indexes and neither
+replaces the other.
+
 ### 7. `carrier_appointments.carrier_reference` is opaque text, not a foreign key
 
 `carrier_profiles` is PR 4 and PR 2 may not create it. The column is `text NOT NULL` with a

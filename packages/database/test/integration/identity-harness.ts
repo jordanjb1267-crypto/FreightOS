@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import type { LegalContext } from '@freightos/context';
 import { withLegalContext } from '../../src/session.ts';
+import type { TestDatabase } from './harness.ts';
 
 /**
  * Fixture for the PR 2 identity and organization tables.
@@ -22,7 +23,9 @@ import { withLegalContext } from '../../src/session.ts';
  *      in the tree a descendant of it;
  *   3. an administrator user, still under the bootstrap actor, because `users` carries no
  *      self-elevation guard and somebody has to exist first;
- *   4. everything below, acting AS that administrator.
+ *   4. everything below, acting AS that administrator — and the five authorization-graph tables
+ *      through the governed admin boundary rather than directly, because R2-01 removed the
+ *      application role's write privilege on all of them.
  *
  * That is the same sequence a real tenant provisioning flow has to follow, so a policy that would
  * reject real provisioning now rejects the fixture too.
@@ -154,8 +157,49 @@ async function insertNode(
   return id;
 }
 
+/**
+ * A privileged call over the administrative connection, unwrapped to its outcome.
+ *
+ * Every authorization-graph mutation goes through one of these — R2-01. A denial is returned rather
+ * than raised (ADR-0026 §5), so a fixture that ignored the outcome would build a broken graph and
+ * fail somewhere unrelated; this raises instead, with the reason the boundary gave.
+ */
+async function privileged(
+  admin: Client,
+  sql: string,
+  params: readonly unknown[],
+): Promise<Record<string, unknown>> {
+  const r = await admin.query<{
+    outcome: string;
+    message: string | null;
+    payload: Record<string, unknown>;
+  }>(sql, [...params]);
+  const result = r.rows[0]!;
+  if (result.outcome !== 'succeeded') {
+    throw new Error(`privileged call ${result.outcome}: ${result.message ?? 'no reason given'}`);
+  }
+  return result.payload;
+}
+
 /** Seed one tenant's full identity graph. The tenant row itself must already exist. */
-export async function seedIdentity(app: Client, tenantId: string): Promise<IdentityFixture> {
+export async function seedIdentity(db: TestDatabase, tenantId: string): Promise<IdentityFixture> {
+  const app = db.connectAs('freightos_app');
+  await app.connect();
+  const admin = db.connectAs('freightos_admin');
+  await admin.connect();
+  try {
+    return await seedIdentityWith(app, admin, tenantId);
+  } finally {
+    await app.end();
+    await admin.end();
+  }
+}
+
+async function seedIdentityWith(
+  app: Client,
+  admin: Client,
+  tenantId: string,
+): Promise<IdentityFixture> {
   // Phase 1 — the organization tree. `organization_nodes` is scoped by tenant alone, which is what
   // makes a tenant's first node creatable at all: there is no node to be inside of yet.
   const tree = await withLegalContext(app, systemContext(tenantId), async (c) => {
@@ -207,9 +251,10 @@ export async function seedIdentity(app: Client, tenantId: string): Promise<Ident
     },
   );
 
-  // Phase 4 — everything else, acting as that administrator. The guards let this through because
-  // the administrator is granting authority to somebody else, which is the whole distinction.
-  return withLegalContext(
+  // Phase 4a — the rows that are NOT authority: operating authorities, the carrier appointment,
+  // the operator user, and the service account with its credential. These stay direct, because
+  // R2-01 removed the application role's write only where a write can change effective authority.
+  const direct = await withLegalContext(
     app,
     systemContextAt(tenantId, enterpriseNodeId, legalEntityId, `user:${adminUserId}`),
     async (c) => {
@@ -217,110 +262,133 @@ export async function seedIdentity(app: Client, tenantId: string): Promise<Ident
 
       const authority = await client.query<{ id: string }>(
         `INSERT INTO operating_authorities
-         (tenant_id, organization_node_id, legal_entity_id, legal_authority_class,
-          operating_context, authority_type, authority_number, status, created_by)
-       VALUES ($1, $2, $3, 'carrier_agent', 'carrier', 'motor_carrier', 'MC-000000', 'active',
-               'test:seed')
-       RETURNING id`,
+           (tenant_id, organization_node_id, legal_entity_id, legal_authority_class,
+            operating_context, authority_type, authority_number, status, created_by)
+         VALUES ($1, $2, $3, 'carrier_agent', 'carrier', 'motor_carrier', 'MC-000000', 'active',
+                 'test:seed')
+         RETURNING id`,
         [tenantId, legalEntityNodeId, legalEntityId],
       );
       const operatingAuthorityId = authority.rows[0]!.id;
 
       const appointment = await client.query<{ id: string }>(
         `INSERT INTO carrier_appointments
-         (tenant_id, organization_node_id, legal_entity_id, operating_authority_id,
-          carrier_reference, appointment_document_reference, status, created_by)
-       VALUES ($1, $2, $3, $4, 'carrier-1', 'documents://appointments/carrier-1', 'active',
-               'test:seed')
-       RETURNING id`,
+           (tenant_id, organization_node_id, legal_entity_id, operating_authority_id,
+            carrier_reference, appointment_document_reference, status, created_by)
+         VALUES ($1, $2, $3, $4, 'carrier-1', 'documents://appointments/carrier-1', 'active',
+                 'test:seed')
+         RETURNING id`,
         [tenantId, legalEntityNodeId, legalEntityId, operatingAuthorityId],
-      );
-
-      const role = await client.query<{ id: string }>(
-        `INSERT INTO roles
-         (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-       VALUES ($1, $2, $3, 'fleet_administrator', 'Fleet Administrator', 'test:seed')
-       RETURNING id`,
-        [tenantId, legalEntityNodeId, legalEntityId],
-      );
-      const roleId = role.rows[0]!.id;
-
-      await client.query(
-        `INSERT INTO role_permissions (tenant_id, role_id, permission_id, created_by)
-       SELECT $1, $2, id, 'test:seed' FROM permissions WHERE key = 'identity.user.read'`,
-        [tenantId, roleId],
       );
 
       const user = await client.query<{ id: string }>(
         `INSERT INTO users
-         (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
-          authentication_subject, display_name, status, created_by)
-       VALUES ($1, $2, $3, 'oidc:example', $4, 'Test Operator', 'active', 'test:seed')
-       RETURNING id`,
+           (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
+            authentication_subject, display_name, status, created_by)
+         VALUES ($1, $2, $3, 'oidc:example', $4, 'Test Operator', 'active', 'test:seed')
+         RETURNING id`,
         [tenantId, terminalNodeId, legalEntityId, `subject-${tenantId}`],
-      );
-      const userId = user.rows[0]!.id;
-
-      const membership = await client.query<{ id: string }>(
-        `INSERT INTO memberships
-         (tenant_id, organization_node_id, legal_entity_id, user_id, status, created_by)
-       VALUES ($1, $2, $3, $4, 'active', 'test:seed')
-       RETURNING id`,
-        [tenantId, terminalNodeId, legalEntityId, userId],
-      );
-      const membershipId = membership.rows[0]!.id;
-
-      const membershipRole = await client.query<{ id: string }>(
-        `INSERT INTO membership_roles (tenant_id, membership_id, role_id, created_by)
-       VALUES ($1, $2, $3, 'test:seed')
-       RETURNING id`,
-        [tenantId, membershipId, roleId],
       );
 
       const serviceAccount = await client.query<{ id: string }>(
         `INSERT INTO service_accounts
-         (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, status,
-          created_by)
-       VALUES ($1, $2, $3, 'billing_sync', 'Billing Sync', 'integration', 'active', 'test:seed')
-       RETURNING id`,
+           (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, status,
+            created_by)
+         VALUES ($1, $2, $3, 'billing_sync', 'Billing Sync', 'integration', 'active', 'test:seed')
+         RETURNING id`,
         [tenantId, regionNodeId, legalEntityId],
       );
       const serviceAccountId = serviceAccount.rows[0]!.id;
 
       const credential = await client.query<{ id: string }>(
         `INSERT INTO service_account_credentials
-         (tenant_id, service_account_id, credential_type, credential_reference, status, created_by)
-       VALUES ($1, $2, 'external_secret_reference', $3, 'active', 'test:seed')
-       RETURNING id`,
+           (tenant_id, service_account_id, credential_type, credential_reference, status, created_by)
+         VALUES ($1, $2, 'external_secret_reference', $3, 'active', 'test:seed')
+         RETURNING id`,
         [tenantId, serviceAccountId, `secretsmanager://freightos/${tenantId}/billing-sync`],
       );
 
-      await client.query(
-        `INSERT INTO service_account_permissions
-         (tenant_id, service_account_id, permission_id, created_by)
-       SELECT $1, $2, id, 'test:seed' FROM permissions WHERE key = 'identity.user.read'`,
-        [tenantId, serviceAccountId],
-      );
-
       return {
-        tenantId,
-        adminUserId,
-        enterpriseNodeId,
-        legalEntityNodeId,
-        regionNodeId,
-        terminalNodeId,
-        legalEntityId,
         operatingAuthorityId,
         carrierAppointmentId: appointment.rows[0]!.id,
-        roleId,
-        userId,
-        membershipId,
-        membershipRoleId: membershipRole.rows[0]!.id,
+        userId: user.rows[0]!.id,
         serviceAccountId,
         serviceAccountCredentialId: credential.rows[0]!.id,
       };
     },
   );
+
+  // Phase 4b — the authorization graph, through the governed boundary — R2-01.
+  //
+  // Five tables the application role can no longer write at all: roles, role_permissions,
+  // memberships, membership_roles, service_account_permissions. The administrator is named as the
+  // actor, and the boundary verifies it is a real active user of this tenant before anything is
+  // written. A fixture that could still reach these tables directly would be testing a database
+  // nobody deploys.
+  const actor = `user:${adminUserId}`;
+  const asAdmin = ['human', 'identity_administration'] as const;
+
+  const role = await privileged(
+    admin,
+    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+    [
+      tenantId,
+      legalEntityNodeId,
+      legalEntityId,
+      'fleet_administrator',
+      'Fleet Administrator',
+      actor,
+      ...asAdmin,
+      randomUUID(),
+    ],
+  );
+  const roleId = role['role_id'] as string;
+
+  await privileged(admin, 'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)', [
+    tenantId,
+    roleId,
+    'identity.user.read',
+    actor,
+    ...asAdmin,
+    randomUUID(),
+  ]);
+
+  const membership = await privileged(
+    admin,
+    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+    [tenantId, direct.userId, terminalNodeId, legalEntityId, actor, ...asAdmin, randomUUID()],
+  );
+  const membershipId = membership['membership_id'] as string;
+
+  const membershipRole = await privileged(
+    admin,
+    'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
+    [tenantId, membershipId, roleId, actor, ...asAdmin, randomUUID()],
+  );
+
+  await privileged(
+    admin,
+    'SELECT * FROM admin.grant_service_account_permission($1, $2, $3, $4, $5, $6, $7)',
+    [tenantId, direct.serviceAccountId, 'identity.user.read', actor, ...asAdmin, randomUUID()],
+  );
+
+  return {
+    tenantId,
+    adminUserId,
+    enterpriseNodeId,
+    legalEntityNodeId,
+    regionNodeId,
+    terminalNodeId,
+    legalEntityId,
+    operatingAuthorityId: direct.operatingAuthorityId,
+    carrierAppointmentId: direct.carrierAppointmentId,
+    roleId,
+    userId: direct.userId,
+    membershipId,
+    membershipRoleId: membershipRole['membership_role_id'] as string,
+    serviceAccountId: direct.serviceAccountId,
+    serviceAccountCredentialId: direct.serviceAccountCredentialId,
+  };
 }
 
 /** The twelve tenant-owned tables PR 2 adds, plus the three relationship tables. */

@@ -455,7 +455,7 @@ describe('Phase 0 records resolve identically across the migration', () => {
     // Nothing in this database uses a new scope value other than the 0016 seed, and 0016's down
     // removes exactly that row — so the enum rebuild in 0014's down has nothing blocking it.
     const reverted = await migrateDown(client, migrations, 13);
-    expect(reverted.reverted).toEqual([16, 15, 14]);
+    expect(reverted.reverted).toEqual([17, 16, 15, 14]);
 
     const scopes = await client.query<{ label: string }>(
       `SELECT unnest(enum_range(NULL::app.kill_switch_scope))::text AS label`,
@@ -468,7 +468,7 @@ describe('Phase 0 records resolve identically across the migration', () => {
     }
 
     const reapplied = await migrateUp(client, migrations);
-    expect(reapplied.applied).toEqual([14, 15, 16]);
+    expect(reapplied.applied).toEqual([14, 15, 16, 17]);
 
     for (const [label, params] of MATRIX) {
       expect(await resolveOn(client, params, true), label).toBe(before[label]);
@@ -495,6 +495,8 @@ describe('Phase 0 records resolve identically across the migration', () => {
     const applied = await client.query<{ version: number }>(
       `SELECT version FROM schema_migrations WHERE version >= 14 ORDER BY version`,
     );
+    // 0017 comes off first and cleanly — it is the authorization boundary and has nothing to do
+    // with kill-switch scopes — then 0016 and 0015, and 0014 is where the runner stops.
     expect(applied.rows.map((r) => r.version)).toEqual([14]);
 
     const values = await client.query<{ label: string }>(
@@ -510,7 +512,7 @@ describe('Phase 0 records resolve identically across the migration', () => {
     // Recovery is to re-apply once the blocking rows are dealt with, which is what the runbook
     // records. Re-applying here also leaves the database in the state the file started in.
     const recovered = await migrateUp(client, migrations);
-    expect(recovered.applied).toEqual([15, 16]);
+    expect(recovered.applied).toEqual([15, 16, 17]);
   });
 });
 

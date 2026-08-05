@@ -15,6 +15,20 @@ import { seedIdentity, systemContextAt, type IdentityFixture } from './identity-
 const db = new TestDatabase('freightos_test_identity_lifecycle');
 
 let app: Client;
+/**
+ * A superuser connection used ONLY to set up and rewind fixtures — R2-01.
+ *
+ * The five authorization-graph tables are no longer writable by freightos_app at all: every change
+ * goes through the admin boundary. This file's subject is what a permission RESOLVES to as links in
+ * the chain are revoked and re-granted, not who may make those changes, and driving each rewind
+ * through the boundary would make every test here about two things and prove neither well.
+ *
+ * The boundary itself is proved in `the authorization mutation boundary — R2-01`, which asserts
+ * that this connection is the only kind that can do what the rewinds below do.
+ */
+let fixture: Client;
+/** The administrative connection — the only way to change the authorization graph after R2-01. */
+let adminConn: Client;
 let a: IdentityFixture;
 
 /**
@@ -61,8 +75,15 @@ async function serviceAccountHolds(permission: string): Promise<boolean> {
   });
 }
 
+/**
+ * Fixture setup and rewind, on the superuser connection — see the comment on `fixture`.
+ *
+ * The legal context is still applied, so triggers that read it (created_by, updated_by, the
+ * self-elevation guards) behave as they would for the administrator this file acts as. What the
+ * superuser supplies is the table privilege the application role no longer has.
+ */
 async function asSystem<T>(work: (c: Client) => Promise<T>): Promise<T> {
-  return withLegalContext(app, adminContext(), (c) => work(c as Client));
+  return withLegalContext(fixture, adminContext(), (c) => work(c as Client));
 }
 
 beforeAll(async () => {
@@ -70,11 +91,17 @@ beforeAll(async () => {
   await db.seedTenants();
   app = db.connectAs('freightos_app');
   await app.connect();
-  a = await seedIdentity(app, TENANT_A);
+  fixture = db.connectAs('postgres');
+  await fixture.connect();
+  adminConn = db.connectAs('freightos_admin');
+  await adminConn.connect();
+  a = await seedIdentity(db, TENANT_A);
 }, 60_000);
 
 afterAll(async () => {
   await app?.end();
+  await fixture?.end();
+  await adminConn?.end();
 });
 
 describe('the seeded chain authorizes', () => {
@@ -244,10 +271,12 @@ describe('effective dating is recorded rather than deleted', () => {
   });
 
   it('denies the application role DELETE on memberships', async () => {
+    // Stated against freightos_app rather than the fixture connection: memberships are archived and
+    // revoked, never deleted, and after R2-01 the application role holds no write on them at all.
     await expect(
-      asSystem(async (c) => {
-        await c.query('DELETE FROM memberships WHERE id = $1', [a.membershipId]);
-      }),
+      withLegalContext(app, adminContext(), (c) =>
+        (c as Client).query('DELETE FROM memberships WHERE id = $1', [a.membershipId]),
+      ),
     ).rejects.toThrow(/permission denied/i);
   });
 
@@ -345,16 +374,65 @@ describe('membership roles must be governed by the membership node', () => {
 });
 
 /**
+ * A privileged call over the administrative connection, returned rather than unwrapped.
+ *
+ * After R2-01 an authorization-graph mutation cannot be attempted directly at all, so the
+ * self-elevation guards are reached the only way anything reaches them now: through the boundary,
+ * with the actor the boundary verified. That is the interesting case — the guards are what stop an
+ * ADMINISTRATOR widening its own authority through a path it is otherwise entitled to use.
+ */
+async function boundary(sql: string, params: readonly unknown[]) {
+  const r = await adminConn.query<{ outcome: string; message: string | null }>(sql, [...params]);
+  return r.rows[0]!;
+}
+
+const AS_ADMIN = ['human', 'identity_administration'] as const;
+
+/**
  * Constitution Art. I.5 — no actor grants itself authority. The same rule has to hold for a human,
  * or the identity model has a hole a person can walk through.
  */
 describe('self-elevation is refused', () => {
-  function asSelf<T>(work: (c: Client) => Promise<T>): Promise<T> {
-    return withLegalContext(app, adminContext(`user:${a.userId}`), (c) => work(c as Client));
-  }
+  /**
+   * The guards are reached through the boundary now — R2-01.
+   *
+   * A tenant session cannot attempt any of this at all: the first two tests here say so directly.
+   * What remains interesting is an ADMINISTRATOR using the path it IS entitled to use, naming
+   * itself. The boundary verifies the actor and publishes it, and 0010's guards then refuse — so
+   * "who is acting" is no longer something the attempt gets to assert.
+   */
+  it('refuses a tenant session the attempt entirely', async () => {
+    for (const [table, sql, params] of [
+      [
+        'memberships',
+        `INSERT INTO memberships (tenant_id, organization_node_id, legal_entity_id, user_id,
+           created_by) VALUES ($1, $2, $3, $4, 'test')`,
+        [TENANT_A, a.regionNodeId, a.legalEntityId, a.userId],
+      ],
+      [
+        'membership_roles',
+        `INSERT INTO membership_roles (tenant_id, membership_id, role_id, created_by)
+         VALUES ($1, $2, $3, 'test')`,
+        [TENANT_A, a.membershipId, a.roleId],
+      ],
+      [
+        'role_permissions',
+        `INSERT INTO role_permissions (tenant_id, role_id, permission_id, created_by)
+         SELECT $1, $2, id, 'test' FROM permissions WHERE key = 'identity.role.write'`,
+        [TENANT_A, a.roleId],
+      ],
+    ] as const) {
+      await expect(
+        withLegalContext(app, adminContext(`user:${a.userId}`), (c) =>
+          (c as Client).query(sql, [...params]),
+        ),
+        table,
+      ).rejects.toThrow(/permission denied/i);
+    }
+  });
 
   it('parses the acting user out of the actor id', async () => {
-    const parsed = await asSelf(async (c) => {
+    const parsed = await withLegalContext(app, adminContext(`user:${a.userId}`), async (c) => {
       const r = await c.query<{ id: string | null }>('SELECT app.current_user_id()::text AS id');
       return r.rows[0]!.id;
     });
@@ -362,7 +440,6 @@ describe('self-elevation is refused', () => {
   });
 
   it('returns no acting user for a system actor', async () => {
-    // asSystem now acts as the seeded administrator, so the non-user case is stated directly.
     const parsed = await withLegalContext(app, adminContext('system:provisioner'), async (c) => {
       const r = await c.query<{ id: string | null }>('SELECT app.current_user_id()::text AS id');
       return r.rows[0]!.id;
@@ -370,106 +447,121 @@ describe('self-elevation is refused', () => {
     expect(parsed).toBeNull();
   });
 
-  it('refuses a user granting itself a membership', async () => {
-    await expect(
-      asSelf(async (c) => {
-        await c.query(
+  it('refuses an administrator granting itself a membership', async () => {
+    const result = await boundary(
+      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+      [
+        TENANT_A,
+        a.adminUserId,
+        a.legalEntityNodeId,
+        a.legalEntityId,
+        `user:${a.adminUserId}`,
+        ...AS_ADMIN,
+        randomUUID(),
+      ],
+    );
+    expect(result.outcome).toBe('failed');
+    expect(result.message).toMatch(/may not grant itself a membership/);
+  });
+
+  it('refuses an administrator widening its own membership', async () => {
+    // The administrator needs a membership to widen, granted by somebody else first.
+    // Granted BY the operator, not by the administrator: a self-granted membership is refused, which
+    // is the next test's subject and would make this one fail for the wrong reason.
+    const membershipId = await withLegalContext(
+      fixture,
+      adminContext(`user:${a.userId}`),
+      async (c) => {
+        const r = await (c as Client).query<{ id: string }>(
           `INSERT INTO memberships
-             (tenant_id, organization_node_id, legal_entity_id, user_id, created_by)
-           VALUES ($1, $2, $3, $4, 'test')`,
-          [TENANT_A, a.regionNodeId, a.legalEntityId, a.userId],
+             (tenant_id, organization_node_id, legal_entity_id, user_id, status, created_by)
+           VALUES ($1, $2, $3, $4, 'suspended', 'test')
+           RETURNING id`,
+          [TENANT_A, a.legalEntityNodeId, a.legalEntityId, a.adminUserId],
         );
-      }),
-    ).rejects.toThrow(/may not grant itself a membership/);
+        return r.rows[0]!.id;
+      },
+    );
+
+    const result = await boundary(
+      'SELECT * FROM admin.set_membership_status($1, $2, $3, $4, $5, $6, $7)',
+      [TENANT_A, membershipId, 'active', `user:${a.adminUserId}`, ...AS_ADMIN, randomUUID()],
+    );
+    expect(result.outcome).toBe('failed');
+    expect(result.message).toMatch(/may only narrow its own membership/);
+
+    // And narrowing its own membership is still allowed, which is the distinction the guard draws.
+    const narrowing = await boundary(
+      'SELECT * FROM admin.revoke_membership($1, $2, $3, $4, $5, $6)',
+      [TENANT_A, membershipId, `user:${a.adminUserId}`, ...AS_ADMIN, randomUUID()],
+    );
+    expect(narrowing.outcome).toBe('succeeded');
   });
 
-  it('refuses a user widening its own membership', async () => {
-    await expect(
-      asSelf(async (c) => {
-        await c.query(
-          `UPDATE memberships SET effective_to = NULL, status = 'active' WHERE id = $1`,
-          [a.membershipId],
+  it('refuses an administrator granting itself a role', async () => {
+    const membershipId = await withLegalContext(
+      fixture,
+      adminContext(`user:${a.userId}`),
+      async (c) => {
+        const r = await (c as Client).query<{ id: string }>(
+          `INSERT INTO memberships
+             (tenant_id, organization_node_id, legal_entity_id, user_id, status, created_by)
+           VALUES ($1, $2, $3, $4, 'active', 'test')
+           RETURNING id`,
+          [TENANT_A, a.regionNodeId, a.legalEntityId, a.adminUserId],
         );
-      }),
-    ).rejects.toThrow(/may only narrow its own membership/);
-  });
+        return r.rows[0]!.id;
+      },
+    );
 
-  it('permits a user narrowing its own membership', async () => {
-    await asSelf(async (c) => {
-      await c.query(`UPDATE memberships SET status = 'suspended' WHERE id = $1`, [a.membershipId]);
-    });
-    const status = await asSystem(async (c) => {
-      const r = await c.query<{ status: string }>('SELECT status FROM memberships WHERE id = $1', [
-        a.membershipId,
-      ]);
-      return r.rows[0]!.status;
-    });
-    expect(status).toBe('suspended');
+    const result = await boundary(
+      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
+      [TENANT_A, membershipId, a.roleId, `user:${a.adminUserId}`, ...AS_ADMIN, randomUUID()],
+    );
+    expect(result.outcome).toBe('failed');
+    expect(result.message).toMatch(/may not grant itself a role/);
 
     await asSystem(async (c) => {
-      await c.query(`UPDATE memberships SET status = 'active' WHERE id = $1`, [a.membershipId]);
-    });
-  });
-
-  it('refuses a user granting itself a role', async () => {
-    const spareRole = await asSystem(async (c) => {
-      const r = await c.query<{ id: string }>(
-        `INSERT INTO roles
-           (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-         VALUES ($1, $2, $3, 'spare_role', 'Spare role', 'test')
-         RETURNING id`,
-        [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
-      );
-      return r.rows[0]!.id;
-    });
-
-    await expect(
-      asSelf(async (c) => {
-        await c.query(
-          `INSERT INTO membership_roles (tenant_id, membership_id, role_id, created_by)
-           VALUES ($1, $2, $3, 'test')`,
-          [TENANT_A, a.membershipId, spareRole],
-        );
-      }),
-    ).rejects.toThrow(/may not grant itself a role/);
-  });
-
-  it('refuses a user adding a permission to a role it holds', async () => {
-    await expect(
-      asSelf(async (c) => {
-        await c.query(
-          `INSERT INTO role_permissions (tenant_id, role_id, permission_id, created_by)
-           SELECT $1, $2, id, 'test' FROM permissions WHERE key = 'identity.role.write'`,
-          [TENANT_A, a.roleId],
-        );
-      }),
-    ).rejects.toThrow(/may not add a permission to a role it holds/);
-  });
-
-  it('permits a user revoking a permission from a role it holds', async () => {
-    await asSelf(async (c) => {
       await c.query(
-        `UPDATE role_permissions SET revoked_at = now(), revoked_by = 'self'
-          WHERE tenant_id = $1 AND role_id = $2`,
-        [TENANT_A, a.roleId],
+        `UPDATE memberships SET revoked_at = now(), revoked_by = 'test', status = 'revoked'
+          WHERE id = $1`,
+        [membershipId],
       );
     });
-    expect(await userHolds('identity.user.read')).toBe(false);
   });
 
-  it('permits an administrator granting the same permission to another user', async () => {
-    // The guard is about SELF-elevation, and blocking ordinary administration would be an
-    // obstacle with no security value.
-    const id = await asSystem(async (c) => {
-      const r = await c.query<{ id: string }>(
-        `INSERT INTO role_permissions (tenant_id, role_id, permission_id, created_by)
-         SELECT $1, $2, id, 'test:admin' FROM permissions WHERE key = 'identity.role.write'
-         RETURNING id`,
-        [TENANT_A, a.roleId],
-      );
-      return r.rows[0]!.id;
-    });
-    expect(id).toBeTruthy();
+  it('refuses an administrator adding a permission to a role it holds', async () => {
+    // The victim user holds a.roleId. An administrator acting AS that user cannot widen it — and
+    // after R2-01 there is no other way to reach the table at all.
+    const result = await boundary(
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
+      [TENANT_A, a.roleId, 'identity.role.write', `user:${a.userId}`, ...AS_ADMIN, randomUUID()],
+    );
+    expect(result.outcome).toBe('failed');
+    expect(result.message).toMatch(/may not add a permission to a role it holds/);
+  });
+
+  it('permits an administrator granting the same permission to somebody else', async () => {
+    const role = await adminConn.query<{ payload: Record<string, unknown> }>(
+      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      [
+        TENANT_A,
+        a.legalEntityNodeId,
+        a.legalEntityId,
+        `granted_elsewhere_${randomUUID().slice(0, 8)}`,
+        'Granted elsewhere',
+        `user:${a.adminUserId}`,
+        ...AS_ADMIN,
+        randomUUID(),
+      ],
+    );
+    const roleId = role.rows[0]!.payload['role_id'] as string;
+
+    const result = await boundary(
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
+      [TENANT_A, roleId, 'identity.role.write', `user:${a.adminUserId}`, ...AS_ADMIN, randomUUID()],
+    );
+    expect(result.outcome).toBe('succeeded');
   });
 });
 
@@ -646,23 +738,23 @@ describe('the authentication subject is a reference, not a credential', () => {
 });
 
 /**
- * F-01 — the self-elevation guards are trusted code, and cannot be stood down.
+ * F-01, superseded in reach by R2-01 — the self-elevation guards, and the boundary in front of them.
  *
- * Two escapes existed, and each defeated all three guards on its own.
+ * F-01's reproduction stood a tenant session at an organization node that did not contain its own
+ * membership, so the guard's RLS-filtered evidence query came back empty and read as "not about
+ * me". The guards were made trusted, which fixed the evidence.
  *
- * The first was visibility. The guards ran as the caller and asked `memberships` and
- * `membership_roles` whether the row concerned that caller, so row-level security answered the
- * question for them. `role_permissions_insert` is scoped by tenant alone; `memberships_read`
- * additionally requires organization-node scope. A caller standing at a node that does not contain
- * its own membership therefore got an empty result, and the guard read "no evidence" as
- * "somebody else's role" and allowed the write.
+ * R2-01 then found the layer above: the guard still asked app.actor_id who was acting, and that is
+ * a session variable. Naming a fabricated or borrowed user made the guard compare the row against
+ * somebody else, and it stood down for the same reason it had before.
  *
- * The second was the actor id. Every guard began by returning early when app.current_user_id()
- * was NULL, and current_user_id() parses `user:<uuid>` out of a session variable the caller sets.
- * Calling yourself `system:me` switched all three off.
+ * The blind-node reproduction is no longer constructible, because a tenant session cannot attempt
+ * any of these writes at all. What replaces it is the stronger statement: not "the guard sees the
+ * evidence now" but "the attempt does not reach the guard, and when a legitimate administrator
+ * makes the same attempt through the boundary, the guard still refuses it".
  */
-describe('self-elevation cannot be stood down — F-01', () => {
-  /** A node in a different branch of the tree, so a caller standing there sees no membership. */
+describe('self-elevation cannot be stood down — F-01, R2-01', () => {
+  /** A node in a different branch — the position the original reproduction was made from. */
   let blindNodeId: string;
 
   beforeAll(async () => {
@@ -678,49 +770,41 @@ describe('self-elevation cannot be stood down — F-01', () => {
     });
   }, 30_000);
 
-  /** The victim acting as itself, scoped wherever the caller chooses to stand. */
-  function asUserAt(context: {
-    legalAuthorityClass: 'software_only' | 'carrier_agent';
-    operatingContext: 'system' | 'carrier' | 'shipper_owned' | 'facility_operator';
-    organizationNodeId?: string;
-    legalEntityId?: string;
-  }) {
+  function contextAt(
+    legalAuthorityClass: 'software_only' | 'carrier_agent',
+    operatingContext: 'system' | 'carrier' | 'shipper_owned' | 'facility_operator',
+    organizationNodeId?: string,
+    legalEntityId?: string,
+    actorId = `user:${a.userId}`,
+  ) {
     return {
       tenantId: TENANT_A,
-      actorId: `user:${a.userId}`,
-      legalAuthorityClass: context.legalAuthorityClass,
-      operatingContext: context.operatingContext,
-      ...(context.organizationNodeId === undefined
-        ? {}
-        : { organizationNodeId: context.organizationNodeId }),
-      ...(context.legalEntityId === undefined ? {} : { legalEntityId: context.legalEntityId }),
-      ...(context.operatingContext === 'carrier'
+      actorId,
+      legalAuthorityClass,
+      operatingContext,
+      ...(organizationNodeId === undefined ? {} : { organizationNodeId }),
+      ...(legalEntityId === undefined ? {} : { legalEntityId }),
+      ...(operatingContext === 'carrier'
         ? { carrierId: 'carrier-1', carrierAppointmentId: 'appointment-1' }
         : {}),
     } as const;
   }
 
-  async function addPermissionToOwnRole(context: ReturnType<typeof asUserAt>, key: string) {
-    return withLegalContext(app, context, async (c) => {
-      await (c as Client).query(
+  const widenOwnRole = (context: ReturnType<typeof contextAt>) =>
+    withLegalContext(app, context, (c) =>
+      (c as Client).query(
         `INSERT INTO role_permissions (tenant_id, role_id, permission_id, created_by)
-         SELECT $1, $2, id, $3 FROM permissions WHERE key = $4`,
-        [TENANT_A, a.roleId, `user:${a.userId}`, key],
-      );
-    });
-  }
+         SELECT $1, $2, id, 'test' FROM permissions WHERE key = 'identity.role.write'`,
+        [TENANT_A, a.roleId],
+      ),
+    );
 
-  it('confirms the caller genuinely cannot see its own membership from the blind node', async () => {
-    // The precondition the whole finding rests on. If this ever stops being true the tests below
-    // would pass for the wrong reason, so it is asserted rather than assumed.
+  it('confirms the caller still cannot see its own membership from the blind node', async () => {
+    // The precondition the original finding rested on, kept because it is what made the guard's
+    // evidence query empty. It is no longer load-bearing, and asserting it says so.
     const visible = await withLegalContext(
       app,
-      asUserAt({
-        legalAuthorityClass: 'software_only',
-        operatingContext: 'system',
-        organizationNodeId: blindNodeId,
-        legalEntityId: a.legalEntityId,
-      }),
+      contextAt('software_only', 'system', blindNodeId, a.legalEntityId),
       async (c) => {
         const r = await c.query('SELECT 1 FROM memberships WHERE id = $1', [a.membershipId]);
         return r.rowCount;
@@ -729,125 +813,74 @@ describe('self-elevation cannot be stood down — F-01', () => {
     expect(visible).toBe(0);
   });
 
-  it('refuses the widening from the blind node — the reproduction', async () => {
-    // Before the fix this INSERT succeeded: the guard queried memberships as the caller, saw
-    // nothing, and concluded the role belonged to someone else.
+  it('refuses the widening from the blind node before any guard is consulted', async () => {
     await expect(
-      addPermissionToOwnRole(
-        asUserAt({
-          legalAuthorityClass: 'software_only',
-          operatingContext: 'system',
-          organizationNodeId: blindNodeId,
-          legalEntityId: a.legalEntityId,
-        }),
-        'identity.role.read',
-      ),
-    ).rejects.toThrow(/may not add a permission to a role it holds/);
+      widenOwnRole(contextAt('software_only', 'system', blindNodeId, a.legalEntityId)),
+    ).rejects.toThrow(/permission denied/i);
   });
 
   it('refuses it from every operating context, with and without scope in context', async () => {
-    // No legal authority class and no operating context widens node scope, so none of them can
-    // change whether the membership was visible — which is precisely why the old guard failed
-    // identically under all of them, and why the new one must refuse under all of them.
+    // No legal authority class, operating context, node or legal entity changes the answer, and now
+    // none of them can: the refusal is a missing table privilege, which no session state affects.
     const contexts = [
-      { legalAuthorityClass: 'carrier_agent', operatingContext: 'carrier' },
-      { legalAuthorityClass: 'software_only', operatingContext: 'shipper_owned' },
-      { legalAuthorityClass: 'software_only', operatingContext: 'facility_operator' },
-      { legalAuthorityClass: 'software_only', operatingContext: 'system' },
+      ['carrier_agent', 'carrier'],
+      ['software_only', 'shipper_owned'],
+      ['software_only', 'facility_operator'],
+      ['software_only', 'system'],
     ] as const;
     const scopes = [
-      {
-        label: 'blind node, with legal entity',
-        organizationNodeId: blindNodeId,
-        legalEntityId: a.legalEntityId,
-      },
-      { label: 'blind node, no legal entity', organizationNodeId: blindNodeId },
-      { label: 'no node, with legal entity', legalEntityId: a.legalEntityId },
-      { label: 'no node, no legal entity' },
+      { label: 'blind node, with legal entity', node: blindNodeId, legal: a.legalEntityId },
+      { label: 'blind node, no legal entity', node: blindNodeId, legal: undefined },
+      { label: 'no node, with legal entity', node: undefined, legal: a.legalEntityId },
+      { label: 'no node, no legal entity', node: undefined, legal: undefined },
     ];
 
-    for (const context of contexts) {
+    for (const [authority, operating] of contexts) {
       for (const scope of scopes) {
-        // carrier and facility_operator contexts require a legal entity to be well-formed at all,
-        // so the combinations that cannot be constructed are skipped rather than faked.
-        if (scope.legalEntityId === undefined && context.operatingContext !== 'system') continue;
-        const label = `${context.operatingContext} / ${scope.label}`;
+        // carrier and facility_operator contexts are not well-formed without a legal entity, so
+        // the combinations that cannot be constructed are skipped rather than faked.
+        if (scope.legal === undefined && operating !== 'system') continue;
         await expect(
-          addPermissionToOwnRole(
-            asUserAt({
-              legalAuthorityClass: context.legalAuthorityClass,
-              operatingContext: context.operatingContext,
-              ...(scope.organizationNodeId === undefined
-                ? {}
-                : { organizationNodeId: scope.organizationNodeId }),
-              ...(scope.legalEntityId === undefined ? {} : { legalEntityId: scope.legalEntityId }),
-            }),
-            'identity.role.read',
-          ),
-          label,
-        ).rejects.toThrow(/may not add a permission to a role it holds|row-level security/);
+          widenOwnRole(contextAt(authority, operating, scope.node, scope.legal)),
+          `${operating} / ${scope.label}`,
+        ).rejects.toThrow(/permission denied/i);
       }
     }
   });
 
-  it('refuses a membership-role grant from the blind node', async () => {
-    const spare = await asSystem(async (c) => {
-      const r = await c.query<{ id: string }>(
-        `INSERT INTO roles (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-         VALUES ($1, $2, $3, 'f01_spare', 'F-01 spare', 'test')
-         RETURNING id`,
-        [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
-      );
-      return r.rows[0]!.id;
-    });
-
+  it('refuses a membership-role grant and a self-granted membership the same way', async () => {
     await expect(
       withLegalContext(
         app,
-        asUserAt({
-          legalAuthorityClass: 'software_only',
-          operatingContext: 'system',
-          organizationNodeId: blindNodeId,
-          legalEntityId: a.legalEntityId,
-        }),
+        contextAt('software_only', 'system', blindNodeId, a.legalEntityId),
         (c) =>
           (c as Client).query(
             `INSERT INTO membership_roles (tenant_id, membership_id, role_id, created_by)
-             VALUES ($1, $2, $3, $4)`,
-            [TENANT_A, a.membershipId, spare, `user:${a.userId}`],
+           VALUES ($1, $2, $3, 'test')`,
+            [TENANT_A, a.membershipId, a.roleId],
           ),
       ),
-      // `membership_roles_before_write` fires first — trigger order is alphabetical — and from the
-      // blind node it cannot see the membership either. Unlike the old self-elevation guard it
-      // already failed CLOSED on that: no membership means refuse, not "somebody else's". So the
-      // write is refused twice over, and the message that surfaces is its integrity complaint.
-    ).rejects.toThrow(/may not grant itself a role|does not exist in tenant/);
-  });
+    ).rejects.toThrow(/permission denied/i);
 
-  it('refuses a membership grant to itself from the blind node', async () => {
     await expect(
       withLegalContext(
         app,
-        asUserAt({
-          legalAuthorityClass: 'software_only',
-          operatingContext: 'system',
-          organizationNodeId: blindNodeId,
-          legalEntityId: a.legalEntityId,
-        }),
+        contextAt('software_only', 'system', blindNodeId, a.legalEntityId),
         (c) =>
           (c as Client).query(
             `INSERT INTO memberships
-               (tenant_id, organization_node_id, legal_entity_id, user_id, created_by)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [TENANT_A, a.terminalNodeId, a.legalEntityId, a.userId, `user:${a.userId}`],
+             (tenant_id, organization_node_id, legal_entity_id, user_id, created_by)
+           VALUES ($1, $2, $3, $4, 'test')`,
+            [TENANT_A, a.terminalNodeId, a.legalEntityId, a.userId],
           ),
       ),
-    ).rejects.toThrow(/may not grant itself a membership|row-level security/);
+    ).rejects.toThrow(/permission denied/i);
   });
 
-  it('refuses expanding a role the caller once held and no longer does', async () => {
+  it('refuses expanding a role the actor once held and no longer does', async () => {
     // "Any membership at all, live or revoked" — widening a role you could be reassigned to is the
-    // same manoeuvre one step removed, and the guard has to see revoked rows to know that.
+    // same manoeuvre one step removed, and the guard has to see revoked rows to know that. Reached
+    // through the boundary, since that is now the only way to reach it.
     await asSystem(async (c) => {
       await c.query(
         `UPDATE membership_roles SET revoked_at = now(), revoked_by = 'test' WHERE id = $1`,
@@ -855,17 +888,12 @@ describe('self-elevation cannot be stood down — F-01', () => {
       );
     });
     try {
-      await expect(
-        addPermissionToOwnRole(
-          asUserAt({
-            legalAuthorityClass: 'software_only',
-            operatingContext: 'system',
-            organizationNodeId: blindNodeId,
-            legalEntityId: a.legalEntityId,
-          }),
-          'identity.role.read',
-        ),
-      ).rejects.toThrow(/may not add a permission to a role it holds/);
+      const result = await boundary(
+        'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
+        [TENANT_A, a.roleId, 'identity.role.write', `user:${a.userId}`, ...AS_ADMIN, randomUUID()],
+      );
+      expect(result.outcome).toBe('failed');
+      expect(result.message).toMatch(/may not add a permission to a role it holds/);
     } finally {
       await asSystem(async (c) => {
         await c.query(
@@ -877,87 +905,64 @@ describe('self-elevation cannot be stood down — F-01', () => {
   });
 
   it('refuses an unattributed change however the session names itself', async () => {
-    // The second escape. Every one of these used to switch all three guards off outright.
-    for (const actorId of [
-      'system:me',
-      'integration:billing_sync',
-      'agent:dispatch-agent',
-      `service_account:${a.serviceAccountId}`,
-      'user:not-a-uuid',
-      '',
-    ]) {
+    // Both halves at once. A tenant session cannot reach the table whatever it calls itself, and
+    // the boundary refuses the same actor ids outright rather than recording an unattributable
+    // change — so neither layer depends on the other to hold.
+    for (const actorId of ['system:me', 'integration:billing_sync', 'agent:dispatch-agent', 'x']) {
       await expect(
-        withLegalContext(
-          app,
-          {
-            tenantId: TENANT_A,
-            actorId: actorId === '' ? 'x' : actorId,
-            legalAuthorityClass: 'software_only',
-            operatingContext: 'system',
-            organizationNodeId: a.enterpriseNodeId,
-            legalEntityId: a.legalEntityId,
-          },
-          (c) =>
-            (c as Client).query(
-              `INSERT INTO role_permissions (tenant_id, role_id, permission_id, created_by)
-               SELECT $1, $2, id, 'test' FROM permissions WHERE key = 'identity.role.read'`,
-              [TENANT_A, a.roleId],
-            ),
+        widenOwnRole(
+          contextAt('software_only', 'system', a.enterpriseNodeId, a.legalEntityId, actorId),
         ),
-        actorId,
-      ).rejects.toThrow(/is not a user, and a change to who holds authority/);
+        `direct: ${actorId}`,
+      ).rejects.toThrow(/permission denied/i);
+
+      const result = await boundary(
+        'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
+        [
+          TENANT_A,
+          a.roleId,
+          'identity.role.write',
+          actorId,
+          'human',
+          'identity_administration',
+          randomUUID(),
+        ],
+      );
+      expect(result.outcome, `boundary: ${actorId}`).toBe('denied');
+      expect(result.message, `boundary: ${actorId}`).toMatch(
+        /must be of the form user:<uuid>|is not a user of tenant/,
+      );
     }
   });
 
-  it('refuses a service account laundering the grant', async () => {
-    // A service account is not a user, so it cannot make itself the author of an authorization
-    // change and it cannot be borrowed to make one on somebody's behalf. Art. I.5.
-    await expect(
-      withLegalContext(
-        app,
-        {
-          tenantId: TENANT_A,
-          actorId: `integration:${a.serviceAccountId}`,
-          legalAuthorityClass: 'software_only',
-          operatingContext: 'system',
-          organizationNodeId: a.enterpriseNodeId,
-          legalEntityId: a.legalEntityId,
-        },
-        (c) =>
-          (c as Client).query(
-            `INSERT INTO membership_roles (tenant_id, membership_id, role_id, created_by)
-             VALUES ($1, $2, $3, 'test')`,
-            [TENANT_A, a.membershipId, a.roleId],
-          ),
-      ),
-    ).rejects.toThrow(/is not a user, and a change to who holds authority/);
+  it('refuses a service account impersonating a user', async () => {
+    // A service account is not a user and cannot become one by being named like one. Art. I.5.
+    const result = await boundary(
+      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
+      [TENANT_A, a.membershipId, a.roleId, `user:${a.serviceAccountId}`, ...AS_ADMIN, randomUUID()],
+    );
+    expect(result.outcome).toBe('denied');
+    expect(result.message).toMatch(/is not a user of tenant/);
+
+    // And an integration actor_type is refused before the actor is even looked at.
+    const asIntegration = await boundary(
+      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
+      [
+        TENANT_A,
+        a.membershipId,
+        a.roleId,
+        `integration:${a.serviceAccountId}`,
+        'integration',
+        'identity_administration',
+        randomUUID(),
+      ],
+    );
+    expect(asIntegration.outcome).toBe('denied');
+    expect(asIntegration.message).toMatch(/may not perform a privileged operation/);
   });
 
   it('still lets an administrator grant authority to somebody else', async () => {
-    // The guards have to keep letting real administration through, or "fails closed" just means
-    // "fails". Every link is built here rather than reused, so the assertion is about the guards
-    // and not about what earlier tests left behind: a fresh role, a fresh permission grant, a
-    // fresh user, a fresh membership. The administrator holds none of them.
     const built = await asSystem(async (c) => {
-      const role = await c.query<{ id: string }>(
-        `INSERT INTO roles (tenant_id, organization_node_id, legal_entity_id, key, name, created_by)
-         VALUES ($1, $2, $3, $4, 'F-01 grantable', 'test')
-         RETURNING id`,
-        [
-          TENANT_A,
-          a.legalEntityNodeId,
-          a.legalEntityId,
-          `f01_grantable_${randomUUID().slice(0, 8)}`,
-        ],
-      );
-      const roleId = role.rows[0]!.id;
-
-      await c.query(
-        `INSERT INTO role_permissions (tenant_id, role_id, permission_id, created_by)
-         SELECT $1, $2, id, 'test' FROM permissions WHERE key = 'identity.role.read'`,
-        [TENANT_A, roleId],
-      );
-
       const user = await c.query<{ id: string }>(
         `INSERT INTO users
            (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
@@ -966,24 +971,55 @@ describe('self-elevation cannot be stood down — F-01', () => {
          RETURNING id`,
         [TENANT_A, a.regionNodeId, a.legalEntityId, `f01-other-${randomUUID()}`],
       );
-      const userId = user.rows[0]!.id;
-
-      const membership = await c.query<{ id: string }>(
-        `INSERT INTO memberships
-           (tenant_id, organization_node_id, legal_entity_id, user_id, status, created_by)
-         VALUES ($1, $2, $3, $4, 'active', 'test')
-         RETURNING id`,
-        [TENANT_A, a.regionNodeId, a.legalEntityId, userId],
-      );
-
-      await c.query(
-        `INSERT INTO membership_roles (tenant_id, membership_id, role_id, created_by)
-         VALUES ($1, $2, $3, 'test')`,
-        [TENANT_A, membership.rows[0]!.id, roleId],
-      );
-
-      return { userId };
+      return { userId: user.rows[0]!.id };
     });
+
+    const actor = `user:${a.adminUserId}`;
+    const role = await adminConn.query<{ payload: Record<string, unknown>; outcome: string }>(
+      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      [
+        TENANT_A,
+        a.legalEntityNodeId,
+        a.legalEntityId,
+        `f01_grantable_${randomUUID().slice(0, 8)}`,
+        'F-01 grantable',
+        actor,
+        ...AS_ADMIN,
+        randomUUID(),
+      ],
+    );
+    expect(role.rows[0]!.outcome).toBe('succeeded');
+    const roleId = role.rows[0]!.payload['role_id'] as string;
+
+    expect(
+      (
+        await boundary('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)', [
+          TENANT_A,
+          roleId,
+          'identity.role.read',
+          actor,
+          ...AS_ADMIN,
+          randomUUID(),
+        ])
+      ).outcome,
+    ).toBe('succeeded');
+
+    const membership = await adminConn.query<{ payload: Record<string, unknown> }>(
+      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+      [TENANT_A, built.userId, a.regionNodeId, a.legalEntityId, actor, ...AS_ADMIN, randomUUID()],
+    );
+    expect(
+      (
+        await boundary('SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)', [
+          TENANT_A,
+          membership.rows[0]!.payload['membership_id'],
+          roleId,
+          actor,
+          ...AS_ADMIN,
+          randomUUID(),
+        ])
+      ).outcome,
+    ).toBe('succeeded');
 
     const holds = await withLegalContext(app, adminContext(), async (c) => {
       const r = await c.query<{ ok: boolean }>(
