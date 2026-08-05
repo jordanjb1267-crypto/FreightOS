@@ -54,6 +54,14 @@ const MIGRATOR = 'freightos_migrator';
 const ADMINISTERED_ROLES = ['freightos_app', 'freightos_control_plane'] as const;
 const OWNERSHIP_TARGET_ROLES = ['freightos_admin_owner', 'freightos_admin'] as const;
 
+/** One `pg_auth_members` row: a single grant of a role to the migrator, by one grantor. */
+interface Membership {
+  admin_option: boolean;
+  inherit_option: boolean;
+  set_option: boolean;
+  grantor: string;
+}
+
 export const TENANT_A = '11111111-1111-4111-8111-111111111111';
 export const TENANT_B = '22222222-2222-4222-8222-222222222222';
 export const LEGAL_ENTITY = '33333333-3333-4333-8333-333333333333';
@@ -133,16 +141,29 @@ export class TestDatabase {
     // already exist and were created by someone else. That is the same situation a cluster
     // carrying the Phase 0 baseline is in, and the reason the production script has this loop.
     //
-    // A membership that is already there is CONVERGED, not re-granted. A GRANT never narrows an
-    // existing membership, so `GRANT ... WITH INHERIT FALSE` issued over an INHERIT TRUE grant
-    // leaves the inheriting one in place — and inheriting freightos_admin_owner makes the migrator
-    // a member of freightos_control_plane, which makes app.is_control_plane() true for the
-    // deployment connection. Migration 0013 refuses to run in that state; this is what keeps a
-    // cluster from drifting into it between runs.
+    // Convergence is judged on the memberships TAKEN TOGETHER, never on any single catalog row.
+    // PostgreSQL 16 splits them in two: creating a role as a CREATEROLE user leaves an implicit
+    // `ADMIN TRUE, INHERIT FALSE, SET FALSE` membership whose grantor is the bootstrap superuser,
+    // and migration 0013 then takes its own `SET TRUE, INHERIT FALSE` on top so that
+    // `ALTER FUNCTION ... OWNER TO` can run. Neither row carries the whole profile; their union is
+    // exactly the wanted one. Demanding that one row carry all three revoked the implicit grant
+    // that the second row had been made under, and PostgreSQL rightly rejected it with "dependent
+    // privileges exist" — the dependency was real, the revoke was not warranted.
     //
-    // Only wrong memberships are revoked, and each by its own grantor. A blanket revoke would take
-    // down correct grants the migrator has since used to grant onward, which PostgreSQL rejects
-    // with "dependent privileges exist".
+    // So a membership is revoked only when it confers something forbidden, and then by its own
+    // grantor: INHERIT on any of these roles, or SET on a role the migrator must be able to
+    // administer without ever becoming. Inheriting freightos_admin_owner makes the migrator a
+    // member of freightos_control_plane, which makes app.is_control_plane() true for the
+    // deployment connection — migration 0013 refuses to run in that state, and this is what keeps
+    // a cluster from drifting into it between runs.
+    //
+    // What survives must then still supply ADMIN OPTION, and SET where the role is an ownership
+    // target. One corrective GRANT adds whatever is missing; re-granting from the same grantor
+    // updates that row in place rather than adding a second one.
+    //
+    // The effective form of this invariant is asserted by `migration authority` in
+    // identity-migrations.test.ts, which reads pg_has_role rather than pg_auth_members: USAGE
+    // false, SET true, app.is_control_plane() false.
     for (const [roles, setWanted] of [
       [ADMINISTERED_ROLES, false],
       [OWNERSHIP_TARGET_ROLES, true],
@@ -153,12 +174,7 @@ export class TestDatabase {
         ]);
         if (present.rowCount === 0) continue;
 
-        const held = await maintenance.query<{
-          admin_option: boolean;
-          inherit_option: boolean;
-          set_option: boolean;
-          grantor: string;
-        }>(
+        const held = await maintenance.query<Membership>(
           `SELECT am.admin_option, am.inherit_option, am.set_option, g.rolname AS grantor
              FROM pg_auth_members am
              JOIN pg_roles r ON r.oid = am.roleid
@@ -167,18 +183,15 @@ export class TestDatabase {
             WHERE r.rolname = $1 AND m.rolname = $2`,
           [role, MIGRATOR],
         );
-        const wanted = (m: {
-          admin_option: boolean;
-          inherit_option: boolean;
-          set_option: boolean;
-        }) => m.admin_option && !m.inherit_option && m.set_option === setWanted;
+        const forbidden = (m: Membership) => m.inherit_option || (m.set_option && !setWanted);
 
-        for (const membership of held.rows.filter((m) => !wanted(m))) {
+        for (const membership of held.rows.filter(forbidden)) {
           await maintenance.query(
             `REVOKE ${role} FROM ${MIGRATOR} GRANTED BY ${membership.grantor}`,
           );
         }
-        if (!held.rows.some(wanted)) {
+        const kept = held.rows.filter((m) => !forbidden(m));
+        if (!kept.some((m) => m.admin_option) || (setWanted && !kept.some((m) => m.set_option))) {
           await maintenance.query(
             `GRANT ${role} TO ${MIGRATOR}
                WITH ADMIN OPTION, INHERIT FALSE, SET ${setWanted ? 'TRUE' : 'FALSE'}`,
@@ -232,6 +245,19 @@ export class TestDatabase {
       }
       await this.grantRoles(m);
     });
+  }
+
+  /**
+   * Re-run the migration-authority convergence on its own, touching no database.
+   *
+   * Exposed for the idempotence regression in identity-migrations.test.ts. Convergence has to be
+   * safe against a cluster that has ALREADY been migrated — the state every test file after the
+   * first one meets, and the state a re-run of `scripts/bootstrap-migration-authority.sql` meets
+   * on a deployed cluster. It takes the role lock, so it serialises against any concurrent
+   * `reset()`, and on a healthy cluster it revokes nothing.
+   */
+  async convergeMigrationAuthority(): Promise<void> {
+    await this.withRoleLock((m) => this.bootstrapMigrator(m));
   }
 
   /**

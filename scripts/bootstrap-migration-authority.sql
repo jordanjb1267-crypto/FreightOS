@@ -85,9 +85,21 @@ ALTER ROLE freightos_migrator PASSWORD :migrator_password;
 -- finds that state, so a cluster this file failed to converge fails the deployment rather than
 -- silently weakening it.
 --
--- Only a wrong membership is revoked, and each by its own grantor. A blanket revoke would take
--- down correct grants the migrator has since used to grant onward, which PostgreSQL rejects with
--- "dependent privileges exist".
+-- Convergence is judged on the memberships TAKEN TOGETHER, never on any single catalog row.
+-- PostgreSQL 16 splits them in two: creating a role as a CREATEROLE user leaves an implicit
+-- `ADMIN TRUE, INHERIT FALSE, SET FALSE` membership whose grantor is the bootstrap superuser, and
+-- migration 0013 then takes its own `SET TRUE, INHERIT FALSE` on top so that
+-- `ALTER FUNCTION ... OWNER TO` can run. Neither row carries the whole profile; their union is
+-- exactly the wanted one. Demanding that one row carry all three revoked the implicit grant that
+-- the second row had been made under, and PostgreSQL rightly rejected it with "dependent
+-- privileges exist" — which is what re-running this script against an already-migrated cluster
+-- did, so the idempotence claimed above did not hold.
+--
+-- A membership is therefore revoked only when it confers something forbidden, and then by its own
+-- grantor: INHERIT on any of these roles, or SET on a role the migrator must be able to administer
+-- without ever becoming. What survives must still supply ADMIN OPTION, and SET where the role is
+-- an ownership target; the corrective GRANT below adds whatever is missing, and re-granting from
+-- the same grantor updates that row in place rather than adding a second one.
 
 DO $bootstrap$
 DECLARE
@@ -120,21 +132,28 @@ BEGIN
         JOIN pg_roles g ON g.oid = am.grantor
        WHERE r.rolname = spec.role_name AND m.rolname = 'freightos_migrator'
     LOOP
-      IF held.admin_option AND NOT held.inherit_option AND held.set_option = spec.set_option THEN
-        CONTINUE;
-      END IF;
+      CONTINUE WHEN NOT held.inherit_option
+                AND NOT (held.set_option AND NOT spec.set_option);
       EXECUTE format('REVOKE %I FROM freightos_migrator GRANTED BY %I',
                      spec.role_name, held.grantor);
     END LOOP;
 
+    -- Re-read: the revocations above have already run, so this sees only what survived.
     IF NOT EXISTS (
       SELECT 1
         FROM pg_auth_members am
         JOIN pg_roles r ON r.oid = am.roleid
         JOIN pg_roles m ON m.oid = am.member
        WHERE r.rolname = spec.role_name AND m.rolname = 'freightos_migrator'
-         AND am.admin_option AND NOT am.inherit_option AND am.set_option = spec.set_option
-    ) THEN
+         AND am.admin_option AND NOT am.inherit_option
+    ) OR (spec.set_option AND NOT EXISTS (
+      SELECT 1
+        FROM pg_auth_members am
+        JOIN pg_roles r ON r.oid = am.roleid
+        JOIN pg_roles m ON m.oid = am.member
+       WHERE r.rolname = spec.role_name AND m.rolname = 'freightos_migrator'
+         AND am.set_option AND NOT am.inherit_option
+    )) THEN
       EXECUTE format(
         'GRANT %I TO freightos_migrator WITH ADMIN OPTION, INHERIT FALSE, SET %s',
         spec.role_name, CASE WHEN spec.set_option THEN 'TRUE' ELSE 'FALSE' END);

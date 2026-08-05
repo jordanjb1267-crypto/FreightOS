@@ -110,6 +110,67 @@ describe('migration authority', () => {
     expect(r.rows[0]!.set_role).toBe(true);
   });
 
+  // The wanted profile is carried by the memberships TAKEN TOGETHER, and PostgreSQL 16 records it
+  // as two rows rather than one: creating a role as a CREATEROLE user leaves an implicit
+  // `ADMIN TRUE, INHERIT FALSE, SET FALSE` grant whose grantor is the bootstrap superuser, and
+  // 0013 takes its own `SET TRUE, INHERIT FALSE` on top so `ALTER FUNCTION ... OWNER TO` can run.
+  //
+  // Judging convergence one row at a time accepted neither, and tried to revoke the implicit grant
+  // that the second row had been made under. PostgreSQL refused with "dependent privileges exist",
+  // and every integration file but the first failed before its first assertion. The two tests
+  // below pin the rule that replaced it: the union is what must be right, and re-converging an
+  // already-migrated cluster must be a no-op rather than an error.
+  it('holds admin option on every managed role without inheriting any of them', async () => {
+    const managed = {
+      freightos_app: false,
+      freightos_control_plane: false,
+      freightos_admin_owner: true,
+      freightos_admin: true,
+    };
+    const r = await migrator.query<{
+      rolname: string;
+      admin: boolean;
+      inherit: boolean;
+      set_role: boolean;
+    }>(
+      `SELECT r.rolname,
+              bool_or(am.admin_option)   AS admin,
+              bool_or(am.inherit_option) AS inherit,
+              bool_or(am.set_option)     AS set_role
+         FROM pg_auth_members am
+         JOIN pg_roles r ON r.oid = am.roleid
+         JOIN pg_roles m ON m.oid = am.member
+        WHERE m.rolname = 'freightos_migrator' AND r.rolname = ANY($1)
+        GROUP BY r.rolname`,
+      [Object.keys(managed)],
+    );
+
+    expect(r.rows.map((x) => x.rolname).sort()).toEqual(Object.keys(managed).sort());
+    for (const row of r.rows) {
+      // Administer, do not become. INHERIT on any of these is the escalation ADR-0020 forbids.
+      expect([row.rolname, row.admin], `${row.rolname} admin option`).toEqual([row.rolname, true]);
+      expect([row.rolname, row.inherit], `${row.rolname} inherits`).toEqual([row.rolname, false]);
+      // SET only where `ALTER ... OWNER TO` needs it, and never on a runtime role.
+      expect([row.rolname, row.set_role], `${row.rolname} SET`).toEqual([
+        row.rolname,
+        managed[row.rolname as keyof typeof managed],
+      ]);
+    }
+  });
+
+  it('converges again on an already-migrated cluster', async () => {
+    await expect(db.convergeMigrationAuthority()).resolves.toBeUndefined();
+    await expect(db.convergeMigrationAuthority()).resolves.toBeUndefined();
+
+    // Still exactly the profile above — convergence corrects drift, it does not introduce any.
+    const r = await migrator.query<{ cp: boolean; usage: boolean; set_role: boolean }>(
+      `SELECT app.is_control_plane() AS cp,
+              pg_has_role(current_user, 'freightos_admin_owner', 'USAGE') AS usage,
+              pg_has_role(current_user, 'freightos_admin_owner', 'SET') AS set_role`,
+    );
+    expect(r.rows[0]).toEqual({ cp: false, usage: false, set_role: true });
+  });
+
   it('is bound by FORCE row-level security on the tables it owns', async () => {
     // This is the property a superuser connection cannot have, and its absence is what let the
     // 0008 seed and the 0016 revert look correct while being broken. FORCE binds the owner, the
