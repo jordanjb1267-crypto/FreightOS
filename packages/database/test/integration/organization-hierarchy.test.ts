@@ -45,7 +45,7 @@ beforeAll(async () => {
   await app.connect();
   admin = db.connectAs('postgres');
   await admin.connect();
-  a = await seedIdentity(app, TENANT_A);
+  a = await seedIdentity(db, TENANT_A);
 }, 60_000);
 
 afterAll(async () => {
@@ -1282,5 +1282,242 @@ describe('a node cannot be archived above live descendants — F-13', () => {
         ]),
       ),
     ).resolves.toBeTruthy();
+  });
+});
+
+/**
+ * R2-02 — the archive guard applied to every node type, the root included.
+ *
+ * `organization_node_before_write` returned early for `parent_id IS NULL` before anything looked
+ * below the node. A root has no parent, so archiving the enterprise root of a tenant always
+ * succeeded, whatever was underneath: the legal entities, regions and terminals stayed active while
+ * the node that governs them stopped claiming to exist. That is precisely the state F-13 exists to
+ * prevent, reached at the one node where it matters most — and reachable only at the root, which is
+ * why a test on a region passed while the invariant did not hold.
+ */
+describe('archive invariants hold for every node type, root included — R2-02', () => {
+  /** A private tenant tree per test, so one test's archiving cannot satisfy another's precondition. */
+  async function tree() {
+    const tenantId = randomUUID();
+    await withLegalContext(admin, { ...adminContext(), tenantId }, async () => undefined).catch(
+      () => undefined,
+    );
+    await admin.query(
+      'INSERT INTO tenants (id, tenant_id, name, created_by) VALUES ($1, $1, $2, $3)',
+      [tenantId, `R2-02 ${tenantId.slice(0, 8)}`, 'test'],
+    );
+
+    const make = async (parent: string | null, type: string) => {
+      const id = randomUUID();
+      await admin.query(
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, $3, $4, $5, 'test')`,
+        [id, tenantId, parent, type, `R2-02 ${type}`],
+      );
+      return id;
+    };
+    const root = await make(null, 'enterprise');
+    const legalEntity = await make(root, 'legal_entity');
+    const region = await make(legalEntity, 'region');
+    const terminal = await make(region, 'terminal');
+    return { tenantId, root, legalEntity, region, terminal };
+  }
+
+  const archive = (nodeId: string) =>
+    admin.query(`UPDATE organization_nodes SET status = 'archived' WHERE id = $1`, [nodeId]);
+
+  const REFUSAL = /descendant node\(s\) below it are still active/i;
+
+  it('refuses an enterprise root with an active legal-entity child', async () => {
+    // The reproduction. Before the fix this succeeded and left three active nodes under an archived
+    // root, silently.
+    const t = await tree();
+    await expect(archive(t.root)).rejects.toThrow(REFUSAL);
+  });
+
+  it('refuses an enterprise root with an active grandchild but an archived direct child', async () => {
+    // The early return meant the root was never examined at all, so depth made no difference. This
+    // is the case a check that only looked one level down would still miss.
+    const t = await tree();
+    await archive(t.terminal);
+    await archive(t.region);
+    await archive(t.legalEntity);
+    await expect(archive(t.root)).resolves.toBeTruthy();
+
+    const second = await tree();
+    await archive(second.terminal);
+    await archive(second.region);
+    // legalEntity is left active, so the root still has a live descendant two levels down.
+    await expect(archive(second.root)).rejects.toThrow(REFUSAL);
+  });
+
+  it('permits an enterprise root once every descendant is archived', async () => {
+    const t = await tree();
+    for (const node of [t.terminal, t.region, t.legalEntity]) await archive(node);
+    await expect(archive(t.root)).resolves.toBeTruthy();
+  });
+
+  it('refuses a legal entity with an active business unit and a region with an active terminal', async () => {
+    const t = await tree();
+    await expect(archive(t.legalEntity)).rejects.toThrow(REFUSAL);
+    await expect(archive(t.region)).rejects.toThrow(REFUSAL);
+  });
+
+  it('raises the documented SQLSTATE', async () => {
+    const t = await tree();
+    const error = await archive(t.root).then(
+      () => null,
+      (e: Error & { code?: string }) => e,
+    );
+    expect(error?.code).toBe('23000');
+  });
+
+  it('serialises an archive against a concurrent child creation', async () => {
+    // Both take the tenant hierarchy lock, so the two cannot interleave. Whichever runs second sees
+    // the other's committed state, and an archive that would orphan a newly created child is
+    // refused rather than racing it.
+    const t = await tree();
+    for (const node of [t.terminal, t.region, t.legalEntity]) await archive(node);
+
+    const one = db.connectAs('postgres');
+    const two = db.connectAs('postgres');
+    await one.connect();
+    await two.connect();
+    try {
+      await one.query('BEGIN');
+      await one.query(
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, $3, 'legal_entity', 'R2-02 late child', 'test')`,
+        [randomUUID(), t.tenantId, t.root],
+      );
+
+      await two.query('BEGIN');
+      const blocked = two.query(`UPDATE organization_nodes SET status = 'archived' WHERE id = $1`, [
+        t.root,
+      ]);
+      let settled = false;
+      void blocked.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(settled, 'the archive was not serialised behind the insert').toBe(false);
+
+      await one.query('COMMIT');
+      const outcome = await blocked.then(
+        () => 'succeeded',
+        (e: Error) => e,
+      );
+      if (outcome === 'succeeded') await two.query('COMMIT');
+      expect(outcome, 'the archive orphaned a node created concurrently').not.toBe('succeeded');
+      expect((outcome as Error).message).toMatch(REFUSAL);
+    } finally {
+      await one.query('ROLLBACK').catch(() => undefined);
+      await two.query('ROLLBACK').catch(() => undefined);
+      await one.end();
+      await two.end();
+    }
+  });
+
+  it('serialises an archive against a concurrent subtree move', async () => {
+    const t = await tree();
+    const spare = await tree();
+
+    const one = db.connectAs('postgres');
+    const two = db.connectAs('postgres');
+    await one.connect();
+    await two.connect();
+    try {
+      // Archive the subtree from the leaves up so the region becomes archivable...
+      await archive(t.terminal);
+
+      await one.query('BEGIN');
+      // ...while another session moves a live terminal back under it.
+      await one.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [
+        t.region,
+        t.terminal,
+      ]);
+      await one.query(`UPDATE organization_nodes SET status = 'active' WHERE id = $1`, [
+        t.terminal,
+      ]);
+
+      await two.query('BEGIN');
+      const blocked = two.query(`UPDATE organization_nodes SET status = 'archived' WHERE id = $1`, [
+        t.region,
+      ]);
+      await one.query('COMMIT');
+      const outcome = await blocked.then(
+        () => 'succeeded',
+        (e: Error) => e,
+      );
+      if (outcome === 'succeeded') await two.query('COMMIT');
+      expect(outcome, 'the archive orphaned a subtree moved concurrently').not.toBe('succeeded');
+    } finally {
+      await one.query('ROLLBACK').catch(() => undefined);
+      await two.query('ROLLBACK').catch(() => undefined);
+      await one.end();
+      await two.end();
+      expect(spare.root).toBeTruthy();
+    }
+  });
+
+  it('leaves the closure and record_version correct across archive and rollback', async () => {
+    const t = await tree();
+    const before = await admin.query<{ record_version: string }>(
+      'SELECT record_version FROM organization_nodes WHERE id = $1',
+      [t.terminal],
+    );
+
+    // A refused archive is a rolled-back statement: nothing moved, nothing versioned.
+    await archive(t.region).catch(() => undefined);
+    const after = await admin.query<{ record_version: string; status: string }>(
+      'SELECT record_version, status FROM organization_nodes WHERE id = $1',
+      [t.terminal],
+    );
+    expect(after.rows[0]!.status).toBe('active');
+    expect(after.rows[0]!.record_version).toBe(before.rows[0]!.record_version);
+
+    // A successful archive bumps only the node it names.
+    await archive(t.terminal);
+    const archived = await admin.query<{ record_version: string; status: string }>(
+      'SELECT record_version, status FROM organization_nodes WHERE id = $1',
+      [t.terminal],
+    );
+    expect(archived.rows[0]!.status).toBe('archived');
+    expect(Number(archived.rows[0]!.record_version)).toBe(
+      Number(before.rows[0]!.record_version) + 1,
+    );
+
+    // The closure is structural and carries no status, so it is unchanged either way.
+    const closure = await admin.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM organization_node_closure
+        WHERE tenant_id = $1 AND descendant_id = $2`,
+      [t.tenantId, t.terminal],
+    );
+    expect(Number(closure.rows[0]!.count)).toBe(4);
+  });
+
+  it('re-activates deterministically, leaves first', async () => {
+    const t = await tree();
+    for (const node of [t.terminal, t.region, t.legalEntity, t.root]) await archive(node);
+
+    // Re-activation is not gated on descendants — a live node above archived ones is coherent,
+    // where the reverse is not — so the tree comes back top-down and every step succeeds.
+    for (const node of [t.root, t.legalEntity, t.region, t.terminal]) {
+      await expect(
+        admin.query(`UPDATE organization_nodes SET status = 'active' WHERE id = $1`, [node]),
+      ).resolves.toBeTruthy();
+    }
+    const statuses = await admin.query<{ status: string }>(
+      'SELECT status FROM organization_nodes WHERE tenant_id = $1 ORDER BY depth',
+      [t.tenantId],
+    );
+    expect(statuses.rows.map((x) => x.status)).toEqual(['active', 'active', 'active', 'active']);
   });
 });

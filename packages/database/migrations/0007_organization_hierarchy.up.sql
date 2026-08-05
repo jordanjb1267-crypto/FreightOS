@@ -318,35 +318,11 @@ BEGIN
   -- read-then-write shape, and serialising it turns a race into a queue.
   PERFORM app.lock_organization_hierarchy(NEW.tenant_id);
 
-  IF NEW.parent_id IS NULL THEN
-    NEW.depth := 0;
-    RETURN NEW;
-  END IF;
-
-  SELECT node_type, depth, tenant_id
-    INTO v_parent_type, v_parent_depth, v_parent_tenant
-    FROM organization_nodes
-   WHERE id = NEW.parent_id;
-
-  -- This trigger is a definer, so every tenant IS visible to it and a cross-tenant parent reaches
-  -- the explicit comparison below rather than being reported as a row that does not exist. That is
-  -- the honest answer, and it was always the comparison that mattered: the control-plane path came
-  -- through here too, and row-level security never refused it.
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'organization node parent % does not exist', NEW.parent_id
-      USING ERRCODE = 'foreign_key_violation';
-  END IF;
-  IF v_parent_tenant <> NEW.tenant_id THEN
-    RAISE EXCEPTION 'organization node parent % belongs to a different tenant', NEW.parent_id
-      USING ERRCODE = 'integrity_constraint_violation';
-  END IF;
-  IF NOT app.is_permitted_node_parent(NEW.node_type, v_parent_type) THEN
-    RAISE EXCEPTION 'organization node type % may not be a child of %',
-      NEW.node_type, v_parent_type
-      USING ERRCODE = 'integrity_constraint_violation';
-  END IF;
-
-  -- Archiving is refused while the subtree below is still live — F-13.
+  -- Archiving is refused while the subtree below is still live — F-13, R2-02.
+  --
+  -- Evaluated before any node-type branch, so it applies to every organization node type there is:
+  -- enterprise root, legal entity, business unit, region, terminal, fleet, cost centre, and
+  -- anything a later migration adds. There is no node the rule steps around.
   --
   -- Nothing stopped a node being archived with active descendants under it, and the result is a
   -- subtree that is live by its own status and orphaned by its parent's. Every scope predicate in
@@ -380,6 +356,46 @@ BEGIN
           USING ERRCODE = 'integrity_constraint_violation';
       END IF;
     END;
+  END IF;
+
+
+  -- The root early return comes AFTER the archive check, not before it — R2-02.
+  --
+  -- It used to come first, and a root has no parent, so an enterprise root took this return before
+  -- anything looked below it. Archiving the root of a tenant therefore always succeeded, whatever
+  -- was underneath: the legal entities, regions and terminals stayed active while the node that
+  -- governs them stopped claiming to exist. That is the exact state F-13 exists to prevent, reached
+  -- by the one node where it matters most — and it was reachable only at the root, which is why a
+  -- test on a region passed while the invariant did not hold.
+  --
+  -- Nothing below this line concerns a root: depth is 0, there is no parent to type-check against,
+  -- and there is no move to test for a cycle.
+  IF NEW.parent_id IS NULL THEN
+    NEW.depth := 0;
+    RETURN NEW;
+  END IF;
+
+  SELECT node_type, depth, tenant_id
+    INTO v_parent_type, v_parent_depth, v_parent_tenant
+    FROM organization_nodes
+   WHERE id = NEW.parent_id;
+
+  -- This trigger is a definer, so every tenant IS visible to it and a cross-tenant parent reaches
+  -- the explicit comparison below rather than being reported as a row that does not exist. That is
+  -- the honest answer, and it was always the comparison that mattered: the control-plane path came
+  -- through here too, and row-level security never refused it.
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'organization node parent % does not exist', NEW.parent_id
+      USING ERRCODE = 'foreign_key_violation';
+  END IF;
+  IF v_parent_tenant <> NEW.tenant_id THEN
+    RAISE EXCEPTION 'organization node parent % belongs to a different tenant', NEW.parent_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NOT app.is_permitted_node_parent(NEW.node_type, v_parent_type) THEN
+    RAISE EXCEPTION 'organization node type % may not be a child of %',
+      NEW.node_type, v_parent_type
+      USING ERRCODE = 'integrity_constraint_violation';
   END IF;
 
   -- Cycle prevention. A move is a cycle exactly when the proposed parent already sits inside the
@@ -1131,3 +1147,14 @@ REVOKE DELETE, TRUNCATE ON carrier_appointments FROM freightos_app;
 CREATE INDEX operating_authorities_node_fk_idx ON operating_authorities (tenant_id, organization_node_id);
 CREATE INDEX carrier_appointments_node_fk_idx ON carrier_appointments (tenant_id, organization_node_id);
 CREATE INDEX carrier_appointments_authority_fk_idx ON carrier_appointments (tenant_id, operating_authority_id);
+
+-- Full referencing-side index for a composite FK whose only cover was PARTIAL — R2-04.
+--
+-- `carrier_appointments_one_active_per_carrier` has the right leading columns, and a partial index only
+-- answers a lookup the planner can prove falls inside its predicate. A foreign-key check does not:
+-- it looks up the referencing rows for a parent row regardless of whether they are revoked, so
+-- every row outside `revoked_at IS NULL` is invisible to that index and the check falls back to a scan.
+--
+-- The partial unique index stays — it enforces "one active per pair", which is a different job that
+-- a full index cannot do. This is the FK support beside it, not a replacement for it.
+CREATE INDEX carrier_appointments_legal_entity_fk_idx ON carrier_appointments (tenant_id, legal_entity_id);
