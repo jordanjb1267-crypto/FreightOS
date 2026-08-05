@@ -269,6 +269,40 @@ $hierarchy$;
 GRANT freightos_control_plane TO freightos_hierarchy_owner;
 GRANT USAGE ON SCHEMA app, public TO freightos_hierarchy_owner;
 
+-- One writer at a time, per tenant — F-03.
+--
+-- Every hierarchy rule below is a read followed by a write, and READ COMMITTED gives each
+-- transaction a snapshot taken when its statement began. Two concurrent moves therefore each
+-- consulted a closure that did not yet contain the other's change, each concluded it was safe, and
+-- both committed. The specific outcome is a cycle: move A under B and B under A at the same time
+-- and neither cycle check can see the other's edge, so the tree stops being a tree. There is then
+-- no root for app.organization_node_scope_ok to reach, and the closure maintenance that runs on
+-- the next move walks a graph with no top.
+--
+-- The depth bound goes the same way — two moves each within 16 that together are not — and so does
+-- one_root_per_tenant, which is a unique index and does at least refuse rather than corrupt.
+--
+-- A tenant-scoped advisory lock is what serialises them. Transaction-scoped, so it is released by
+-- the commit or the rollback and never leaks onto a pooled connection; derived from the tenant id
+-- alone, so it is the same key for every session touching that tenant and a different one for
+-- every other tenant; and taken here, before the first read, so no transaction ever reads a
+-- hierarchy another transaction is midway through changing.
+--
+-- One lock, always taken first, means no lock-ordering deadlock is constructible: there is no
+-- second hierarchy lock to take out of order.
+--
+-- The namespace prefix keeps the key from colliding with an advisory lock some other subsystem
+-- derives from the same tenant id.
+CREATE FUNCTION app.lock_organization_hierarchy(p_tenant_id uuid) RETURNS void
+LANGUAGE sql
+AS $$
+  SELECT pg_advisory_xact_lock(
+    hashtextextended('freightos.organization_hierarchy:' || p_tenant_id::text, 0))
+$$;
+COMMENT ON FUNCTION app.lock_organization_hierarchy IS
+  'Serialises hierarchy mutation within one tenant — F-03. Transaction-scoped, so it ends with '
+  'the transaction; tenant-derived, so tenants never block each other.';
+
 CREATE FUNCTION app.organization_node_before_write() RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -280,6 +314,10 @@ DECLARE
   v_parent_tenant uuid;
   v_subtree_height integer;
 BEGIN
+  -- Before anything is read. A root insert takes it too: one_root_per_tenant is the same
+  -- read-then-write shape, and serialising it turns a race into a queue.
+  PERFORM app.lock_organization_hierarchy(NEW.tenant_id);
+
   IF NEW.parent_id IS NULL THEN
     NEW.depth := 0;
     RETURN NEW;
@@ -346,6 +384,9 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
 BEGIN
+  -- Already held, as above — F-03.
+  PERFORM app.lock_organization_hierarchy(NEW.tenant_id);
+
   INSERT INTO organization_node_closure
     (tenant_id, ancestor_id, descendant_id, depth, created_by, updated_by)
   VALUES (NEW.tenant_id, NEW.id, NEW.id, 0, NEW.created_by, NEW.updated_by);
@@ -371,6 +412,11 @@ AS $$
 DECLARE
   v_level integer;
 BEGIN
+  -- Already held: the BEFORE trigger on this same row took it in this same transaction, and an
+  -- advisory lock is re-entrant within a transaction. Restated because this function's correctness
+  -- depends on it and the dependency is otherwise invisible from here — F-03.
+  PERFORM app.lock_organization_hierarchy(NEW.tenant_id);
+
   -- Detach: drop every closure row linking the moving subtree to an ancestor outside it.
   DELETE FROM organization_node_closure
    WHERE tenant_id = NEW.tenant_id

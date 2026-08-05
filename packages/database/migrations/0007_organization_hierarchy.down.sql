@@ -24,6 +24,7 @@ DROP FUNCTION IF EXISTS app.legal_entity_before_write();
 DROP FUNCTION IF EXISTS app.organization_node_after_move();
 DROP FUNCTION IF EXISTS app.organization_node_after_insert();
 DROP FUNCTION IF EXISTS app.organization_node_before_write();
+DROP FUNCTION IF EXISTS app.lock_organization_hierarchy(uuid);
 DROP FUNCTION IF EXISTS app.is_permitted_node_parent(
   app.organization_node_type, app.organization_node_type);
 

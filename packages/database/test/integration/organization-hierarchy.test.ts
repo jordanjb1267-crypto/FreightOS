@@ -7,7 +7,7 @@ import {
   isPermittedNodeParent,
 } from '../../../identity/src/organization.ts';
 import { withLegalContext } from '../../src/session.ts';
-import { TENANT_A, TestDatabase } from './harness.ts';
+import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
 import { seedIdentity, systemContextAt, type IdentityFixture } from './identity-harness.ts';
 
 /**
@@ -808,6 +808,288 @@ describe('the closure cannot be written by what it authorizes — F-02', () => {
       // the table that decides what your tenant's shape is.
       expect(`${policy.qual}${policy.withcheck}`, policy.polname).not.toMatch(/current_tenant_id/);
       expect(`${policy.qual}${policy.withcheck}`, policy.polname).toMatch(/is_control_plane/);
+    }
+  });
+});
+
+/**
+ * F-03 — concurrent hierarchy mutation.
+ *
+ * Every hierarchy rule is a read followed by a write, and READ COMMITTED gives each transaction a
+ * snapshot taken when its statement began. Two concurrent moves each consulted a closure that did
+ * not contain the other's change, each concluded it was safe, and both committed. Move A under B
+ * and B under A at the same time and the tree stops being a tree.
+ *
+ * These are real connections doing real concurrent work: two sessions, both inside transactions,
+ * with the second issued while the first is still open. They are not simulations of contention.
+ */
+describe('concurrent hierarchy mutation — F-03', () => {
+  /** A fresh two-branch tree per test, so one test's wreckage cannot pass another. */
+  async function branchPair() {
+    return withLegalContext(app, adminContext(), async (c) => {
+      const client = c as Client;
+      const make = async (parent: string, name: string) => {
+        const id = randomUUID();
+        await client.query(
+          `INSERT INTO organization_nodes
+             (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+           VALUES ($1, $2, $1, $3, 'region', $4, 'test')`,
+          [id, TENANT_A, parent, name],
+        );
+        return id;
+      };
+      const left = await make(a.enterpriseNodeId, `F-03 left ${randomUUID().slice(0, 8)}`);
+      const right = await make(a.enterpriseNodeId, `F-03 right ${randomUUID().slice(0, 8)}`);
+      return { left, right };
+    });
+  }
+
+  /** An independent connection carrying the tenant administrator's context, left in a transaction. */
+  async function openSession() {
+    const client = db.connectAs('freightos_app');
+    await client.connect();
+    await client.query('BEGIN');
+    const context = adminContext();
+    await client.query(
+      `SELECT set_config('app.tenant_id', $1, true),
+              set_config('app.actor_id', $2, true),
+              set_config('app.legal_authority_class', $3, true),
+              set_config('app.operating_context', $4, true),
+              set_config('app.legal_entity_id', $5, true),
+              set_config('app.organization_node_id', $6, true)`,
+      [
+        context.tenantId,
+        context.actorId,
+        context.legalAuthorityClass,
+        context.operatingContext,
+        context.legalEntityId ?? '',
+        context.organizationNodeId ?? '',
+      ],
+    );
+    return client;
+  }
+
+  const move = (client: Client, nodeId: string, parentId: string) =>
+    client.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [parentId, nodeId]);
+
+  it('refuses the second of two moves that would together form a cycle', async () => {
+    const { left, right } = await branchPair();
+    const one = await openSession();
+    const two = await openSession();
+    try {
+      // Session one moves left under right and holds its transaction open.
+      await move(one, left, right);
+
+      // Session two attempts the reciprocal move. Without the lock its cycle check consults a
+      // closure that does not yet contain session one's edge, finds nothing, and allows it —
+      // both commit and the two nodes become each other's ancestor. With the lock it blocks here.
+      const blocked = move(two, right, left);
+      let settled = false;
+      void blocked.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      // Give it real time to have completed if it were going to.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(settled, 'the second move was not serialised behind the first').toBe(false);
+
+      await one.query('COMMIT');
+
+      // If the second move somehow succeeded it is COMMITTED rather than rolled back, so the
+      // damage is left in the database for the invariant test below to find. A regression test
+      // that tidies up after the bug it is looking for only ever reports the bug once.
+      const outcome = await blocked.then(
+        () => 'succeeded',
+        (error: Error) => error,
+      );
+      if (outcome === 'succeeded') await two.query('COMMIT');
+      expect(outcome, 'the reciprocal move was allowed').not.toBe('succeeded');
+      expect((outcome as Error).message).toMatch(/cycle rejected/i);
+    } finally {
+      await one.query('ROLLBACK').catch(() => undefined);
+      await two.query('ROLLBACK').catch(() => undefined);
+      await one.end();
+      await two.end();
+    }
+  });
+
+  it('leaves no node as its own ancestor after the attempt', async () => {
+    // The outcome the previous test's error message stands for. A cycle in a closure table is
+    // silent: nothing errors afterwards, the tree simply has no root.
+    const cycles = await withLegalContext(app, adminContext(), async (c) => {
+      const r = await c.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM organization_node_closure
+          WHERE tenant_id = $1 AND ancestor_id <> descendant_id
+            AND EXISTS (
+              SELECT 1 FROM organization_node_closure back
+               WHERE back.tenant_id = organization_node_closure.tenant_id
+                 AND back.ancestor_id = organization_node_closure.descendant_id
+                 AND back.descendant_id = organization_node_closure.ancestor_id)`,
+        [TENANT_A],
+      );
+      return Number(r.rows[0]!.count);
+    });
+    expect(cycles).toBe(0);
+  });
+
+  it('serialises two moves of the same subtree and keeps the last one', async () => {
+    const { left, right } = await branchPair();
+    const target = await withLegalContext(app, adminContext(), async (c) => {
+      const id = randomUUID();
+      await (c as Client).query(
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, $3, 'terminal', $4, 'test')`,
+        [id, TENANT_A, left, `F-03 target ${randomUUID().slice(0, 8)}`],
+      );
+      return id;
+    });
+
+    const one = await openSession();
+    const two = await openSession();
+    try {
+      await move(one, target, right);
+      const second = move(two, target, left);
+      await one.query('COMMIT');
+      await second;
+      await two.query('COMMIT');
+    } finally {
+      await one.end();
+      await two.end();
+    }
+
+    const ancestry = await withLegalContext(app, adminContext(), async (c) => {
+      const r = await c.query<{ ancestor_id: string }>(
+        `SELECT ancestor_id FROM organization_node_closure
+          WHERE tenant_id = $1 AND descendant_id = $2 AND depth = 1`,
+        [TENANT_A, target],
+      );
+      return r.rows.map((x) => x.ancestor_id);
+    });
+    // Exactly one parent edge, and it is the one that committed last. Two would mean the detach
+    // pass ran against a snapshot that no longer described the tree.
+    expect(ancestry).toEqual([left]);
+  });
+
+  it('lets only one of two concurrent roots exist for a tenant', async () => {
+    const one = await openSession();
+    const two = await openSession();
+    const insertRoot = (client: Client) => {
+      const id = randomUUID();
+      return client.query(
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, NULL, 'enterprise', $3, 'test')`,
+        [id, TENANT_A, `F-03 root ${id.slice(0, 8)}`],
+      );
+    };
+    try {
+      // The tenant already has a root, so both of these must fail — the point is that they fail on
+      // the constraint rather than deadlocking or leaving one through.
+      await expect(insertRoot(one)).rejects.toThrow(/one_root_per_tenant/);
+      await one.query('ROLLBACK');
+      await expect(insertRoot(two)).rejects.toThrow(/one_root_per_tenant/);
+    } finally {
+      await one.query('ROLLBACK').catch(() => undefined);
+      await two.query('ROLLBACK').catch(() => undefined);
+      await one.end();
+      await two.end();
+    }
+  });
+
+  it('does not let two tenants block each other', async () => {
+    // The lock is derived from the tenant id, so it has to be a different lock for a different
+    // tenant. A single global hierarchy lock would pass every test above and serialise the whole
+    // platform, which is why this one exists.
+    const other = db.connectAs('freightos_app');
+    await other.connect();
+    const mine = await openSession();
+    try {
+      await move(mine, (await branchPair()).left, a.legalEntityNodeId);
+
+      await other.query('BEGIN');
+      await other.query(
+        `SELECT set_config('app.tenant_id', $1, true),
+                set_config('app.actor_id', 'test:b', true),
+                set_config('app.legal_authority_class', 'software_only', true),
+                set_config('app.operating_context', 'system', true)`,
+        [TENANT_B],
+      );
+      const id = randomUUID();
+      const insert = other.query(
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, NULL, 'enterprise', 'F-03 other tenant', 'test')`,
+        [id, TENANT_B],
+      );
+      // TENANT_B has no root in this database, so this succeeds — and it has to succeed WHILE the
+      // TENANT_A transaction is still open, which is the whole assertion.
+      await expect(insert).resolves.toBeTruthy();
+      await other.query('ROLLBACK');
+    } finally {
+      await mine.query('ROLLBACK').catch(() => undefined);
+      await other.query('ROLLBACK').catch(() => undefined);
+      await mine.end();
+      await other.end();
+    }
+  });
+
+  it('keeps the closure equal to the tree after concurrent work', async () => {
+    // The invariant, checked against an independent recomputation rather than against itself: the
+    // stored closure must equal the transitive closure of parent_id. Anything a race left behind —
+    // a stale edge, a missing one, a wrong depth — shows up as a difference here.
+    const drift = await withLegalContext(app, adminContext(), async (c) => {
+      const r = await c.query<{ count: string }>(
+        `WITH RECURSIVE walk(ancestor_id, descendant_id, depth) AS (
+           SELECT id, id, 0 FROM organization_nodes WHERE tenant_id = $1
+           UNION ALL
+           SELECT w.ancestor_id, n.id, w.depth + 1
+             FROM walk w
+             JOIN organization_nodes n ON n.parent_id = w.descendant_id AND n.tenant_id = $1
+         ),
+         stored AS (
+           SELECT ancestor_id, descendant_id, depth FROM organization_node_closure
+            WHERE tenant_id = $1
+         )
+         SELECT count(*)::text AS count FROM (
+           SELECT ancestor_id, descendant_id, depth FROM walk
+           EXCEPT SELECT ancestor_id, descendant_id, depth FROM stored
+           UNION ALL
+           SELECT ancestor_id, descendant_id, depth FROM stored
+           EXCEPT SELECT ancestor_id, descendant_id, depth FROM walk
+         ) AS difference`,
+        [TENANT_A],
+      );
+      return Number(r.rows[0]!.count);
+    });
+    expect(drift).toBe(0);
+  });
+
+  it('releases the lock with the transaction rather than with the statement', async () => {
+    // Transaction-scoped is the part that makes it safe under a connection pool: a session-scoped
+    // advisory lock left behind on a rolled-back transaction would be inherited by whoever borrows
+    // the connection next, and the hierarchy would wedge for that tenant until the process exited.
+    const one = await openSession();
+    try {
+      await move(one, (await branchPair()).left, a.legalEntityNodeId);
+      const held = await one.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM pg_locks
+          WHERE locktype = 'advisory' AND pid = pg_backend_pid()`,
+      );
+      expect(Number(held.rows[0]!.count)).toBe(1);
+      await one.query('ROLLBACK');
+
+      const after = await one.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM pg_locks
+          WHERE locktype = 'advisory' AND pid = pg_backend_pid()`,
+      );
+      expect(Number(after.rows[0]!.count)).toBe(0);
+    } finally {
+      await one.end();
     }
   });
 });
