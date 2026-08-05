@@ -3,7 +3,7 @@ import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withLegalContext } from '../../src/session.ts';
 import { TENANT_A, TestDatabase } from './harness.ts';
-import { seedIdentity, systemContext, type IdentityFixture } from './identity-harness.ts';
+import { seedIdentity, systemContextAt, type IdentityFixture } from './identity-harness.ts';
 
 /**
  * Identity, membership, role, permission and service-account lifecycles, and the self-elevation
@@ -17,9 +17,23 @@ const db = new TestDatabase('freightos_test_identity_lifecycle');
 let app: Client;
 let a: IdentityFixture;
 
+/**
+ * The tenant administrator, holding the enterprise node and the tenant's legal entity — F-05.
+ *
+ * `systemContext` alone used to be enough for anything in the tenant, because system scope
+ * short-circuited both scope predicates. It no longer does, so the administrator names what it
+ * administers: the root of the tree, which the closure makes an ancestor of every node in it. That
+ * is the authority ADR-0019's matrix intends, now expressed as scope rather than as a claim.
+ *
+ * Tests that are about the ABSENCE of scope still build their own narrower contexts.
+ */
+function adminContext(actorId?: string) {
+  return systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, actorId);
+}
+
 /** Read a permission as of an explicit instant — never an implicit now(), P-20. */
 async function userHolds(permission: string, asOf = 'now()'): Promise<boolean> {
-  return withLegalContext(app, systemContext(TENANT_A), async (c) => {
+  return withLegalContext(app, adminContext(), async (c) => {
     const r = await c.query<{ ok: boolean }>(
       `SELECT app.user_has_permission($1, $2, $3, ${asOf}) AS ok`,
       [TENANT_A, a.userId, permission],
@@ -29,7 +43,7 @@ async function userHolds(permission: string, asOf = 'now()'): Promise<boolean> {
 }
 
 async function serviceAccountHolds(permission: string): Promise<boolean> {
-  return withLegalContext(app, systemContext(TENANT_A), async (c) => {
+  return withLegalContext(app, adminContext(), async (c) => {
     const r = await c.query<{ ok: boolean }>(
       'SELECT app.service_account_has_permission($1, $2, $3, now()) AS ok',
       [TENANT_A, a.serviceAccountId, permission],
@@ -39,7 +53,7 @@ async function serviceAccountHolds(permission: string): Promise<boolean> {
 }
 
 async function asSystem<T>(work: (c: Client) => Promise<T>): Promise<T> {
-  return withLegalContext(app, systemContext(TENANT_A), (c) => work(c as Client));
+  return withLegalContext(app, adminContext(), (c) => work(c as Client));
 }
 
 beforeAll(async () => {
@@ -327,9 +341,7 @@ describe('membership roles must be governed by the membership node', () => {
  */
 describe('self-elevation is refused', () => {
   function asSelf<T>(work: (c: Client) => Promise<T>): Promise<T> {
-    return withLegalContext(app, systemContext(TENANT_A, `user:${a.userId}`), (c) =>
-      work(c as Client),
-    );
+    return withLegalContext(app, adminContext(`user:${a.userId}`), (c) => work(c as Client));
   }
 
   it('parses the acting user out of the actor id', async () => {

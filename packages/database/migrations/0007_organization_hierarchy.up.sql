@@ -754,29 +754,52 @@ COMMENT ON FUNCTION app.has_active_carrier_appointment IS
 -- NULL is NULL, never true. Neither is disjunctive with the tenant predicate — ADR-0019 property
 -- 2, operating context never widens permission.
 --
--- The `system` branch is not a loophole: software_only/system is the tenant-administration pair
--- ADR-0019's matrix gives R/W over identity and organization, and it is still confined to the
--- caller's own tenant by the tenant predicate it is ANDed with.
+-- AUTHORITY COMES FROM ROLE MEMBERSHIP, NEVER FROM A SESSION VARIABLE — F-05.
+--
+-- Both predicates used to begin `app.is_control_plane() OR app.current_operating_context() =
+-- 'system' OR ...`. The first branch is role membership, which a session cannot give itself. The
+-- second was a GUC the caller sets, so any freightos_app session could issue
+--
+--   SET LOCAL app.operating_context = 'system';
+--
+-- and both predicates returned true for every legal entity and every organization node in its
+-- tenant, including ids that do not exist. Every policy in migrations 0007 and 0009 that scopes a
+-- row below the tenant — legal_entities, operating_authorities, carrier_appointments, users,
+-- memberships, roles, service accounts, policy bindings — reduced to tenant isolation alone, on
+-- one line the caller controls. The hierarchy was decorative for anyone who read the schema.
+--
+-- The reasoning it rested on was sound and is not the part that was wrong: software_only/system IS
+-- the tenant-administration pair, and ADR-0019's matrix DOES give it read and write over identity
+-- and organization. The error was treating the caller's own description of what it is doing as
+-- proof that it is allowed to. Operating context is a legal classification of an operation, which
+-- is why it is recorded on every audit row; it is not a credential.
+--
+-- So the branch is gone, and tenant administration works the way every other caller does: it names
+-- the organization node it administers, and the closure decides. A tenant administrator holding
+-- the enterprise node reaches the whole tree, which is the authority the matrix intends, expressed
+-- as scope rather than as a claim. Genuine platform authority — the operator, not the tenant —
+-- remains reachable, through freightos_control_plane, which is role membership and cannot be set.
+--
+-- ADR-0015 rule 4 is untouched by this. It says a legal entity may be OMITTED from an audit record
+-- under system scope, which is about what a record must carry. It never said system scope may read
+-- another legal entity's rows.
 -- ---------------------------------------------------------------------------
 
 CREATE FUNCTION app.legal_entity_scope_ok(p_legal_entity_id uuid) RETURNS boolean
 LANGUAGE sql STABLE
 AS $$
   SELECT app.is_control_plane()
-      OR app.current_operating_context() = 'system'
       OR (app.current_legal_entity_id() IS NOT NULL
           AND p_legal_entity_id = app.current_legal_entity_id())
 $$;
 COMMENT ON FUNCTION app.legal_entity_scope_ok IS
-  'Fails closed when legal-entity context is required but absent. ADR-0015 rule 4 permits '
-  'omitting the legal entity only under system scope, so system scope is the only branch that '
-  'does not require one.';
+  'The caller''s own legal entity, or control-plane role membership. Fails closed when '
+  'legal-entity context is required but absent, and no operating context widens it — F-05.';
 
 CREATE FUNCTION app.organization_node_scope_ok(p_organization_node_id uuid) RETURNS boolean
 LANGUAGE sql STABLE
 AS $$
   SELECT app.is_control_plane()
-      OR app.current_operating_context() = 'system'
       OR (app.current_organization_node_id() IS NOT NULL
           AND EXISTS (
             SELECT 1 FROM organization_node_closure c
@@ -786,7 +809,7 @@ AS $$
 $$;
 COMMENT ON FUNCTION app.organization_node_scope_ok IS
   'At or below a node the caller administers — plan §9.2. Fails closed when organization-node '
-  'context is required but absent.';
+  'context is required but absent, and no operating context widens it — F-05.';
 
 -- ---------------------------------------------------------------------------
 -- Row-level security.

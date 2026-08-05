@@ -10,6 +10,7 @@ import {
   facilityContextAt,
   seedIdentity,
   systemContext,
+  systemContextAt,
   type IdentityFixture,
 } from './identity-harness.ts';
 
@@ -150,6 +151,19 @@ describe('every PR 2 table is RLS-protected', () => {
     }
   });
 });
+
+/**
+ * The tenant administrator for TENANT_A, holding the enterprise node and the tenant's legal
+ * entity — F-05.
+ *
+ * The cross-tenant tests below deliberately keep the unscoped `systemContext`: they are about
+ * tenant isolation, which does not depend on node scope, and using the narrower context keeps them
+ * proving the thing they are named for. This one is used where a write has to get PAST row-level
+ * security so that the constraint or trigger under test is what refuses it.
+ */
+function adminContext() {
+  return systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId);
+}
 
 describe('cross-tenant isolation', () => {
   it('shows a tenant only its own organization nodes', async () => {
@@ -429,7 +443,7 @@ describe('organization-node and legal-entity must agree', () => {
 
   it('rejects a user naming a node governed by a different legal entity', async () => {
     // Seed a second legal entity under a sibling branch, then point a user at the wrong one.
-    const secondEntity = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+    const secondEntity = await withLegalContext(app, adminContext(), async (c) => {
       const nodeId = randomUUID();
       await c.query(
         `INSERT INTO organization_nodes
@@ -449,7 +463,7 @@ describe('organization-node and legal-entity must agree', () => {
     });
 
     await expect(
-      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      withLegalContext(app, adminContext(), async (c) => {
         await c.query(
           `INSERT INTO users
              (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
@@ -462,7 +476,7 @@ describe('organization-node and legal-entity must agree', () => {
   });
 
   it('accepts the write when the node and the legal entity agree', async () => {
-    const id = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+    const id = await withLegalContext(app, adminContext(), async (c) => {
       const r = await c.query<{ id: string }>(
         `INSERT INTO users
            (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
@@ -649,6 +663,230 @@ describe('a carrier appointment makes carrier_agent provable', () => {
           [TENANT_A, a.legalEntityNodeId, a.legalEntityId, authority.rows[0]!.id],
         ),
       ).rejects.toThrow(/requires a carrier_agent\/carrier operating authority/);
+    } finally {
+      await admin.end();
+    }
+  });
+});
+
+describe('operating context is not a credential — F-05', () => {
+  /**
+   * `app.legal_entity_scope_ok` and `app.organization_node_scope_ok` used to begin
+   *
+   *   app.is_control_plane() OR app.current_operating_context() = 'system' OR ...
+   *
+   * The first branch is role membership, which a session cannot give itself. The second was a
+   * session variable the caller sets, so any `freightos_app` connection could issue
+   *
+   *   SET LOCAL app.operating_context = 'system';
+   *
+   * and both predicates returned true for every legal entity and every organization node in the
+   * tenant — including ids that do not exist. Every policy that scopes a row below the tenant
+   * collapsed to tenant isolation alone.
+   *
+   * These are the regression tests for that. The reproduction that found it is the third one:
+   * both predicates returned true for a freshly generated UUID.
+   */
+
+  /** Read both predicates for arbitrary ids, under whatever context is supplied. */
+  async function scope(context: Parameters<typeof withLegalContext>[1], ids: [string, string]) {
+    return withLegalContext(app, context, async (c) => {
+      const r = await c.query<{ le_ok: boolean; node_ok: boolean; is_cp: boolean }>(
+        `SELECT app.legal_entity_scope_ok($1)      AS le_ok,
+                app.organization_node_scope_ok($2) AS node_ok,
+                app.is_control_plane()             AS is_cp`,
+        ids,
+      );
+      return r.rows[0]!;
+    });
+  }
+
+  it('gives an unscoped system session no legal entity and no node', async () => {
+    const r = await scope(systemContext(TENANT_A), [a.legalEntityId, a.terminalNodeId]);
+    expect(r.le_ok).toBe(false);
+    expect(r.node_ok).toBe(false);
+  });
+
+  it('does not let a system session reach another legal entity in its own tenant', async () => {
+    // Scoped at the enterprise node and holding entity A, asking about a second entity B that the
+    // same tenant owns. Node scope covers it; legal-entity scope must not.
+    const second = await withLegalContext(app, adminContext(), async (c) => {
+      const nodeId = randomUUID();
+      await (c as Client).query(
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, $3, 'legal_entity', 'F-05 Co', 'test')`,
+        [nodeId, TENANT_A, a.enterpriseNodeId],
+      );
+      const entityId = randomUUID();
+      await (c as Client).query(
+        `INSERT INTO legal_entities
+           (id, tenant_id, organization_node_id, legal_entity_id, legal_name, jurisdiction,
+            created_by)
+         VALUES ($1, $2, $3, $1, 'F-05 Co LLC', 'US-NV', 'test')`,
+        [entityId, TENANT_A, nodeId],
+      );
+      return { nodeId, entityId };
+    });
+
+    const r = await scope(adminContext(), [second.entityId, second.nodeId]);
+    expect(r.le_ok).toBe(false);
+    expect(r.node_ok).toBe(true);
+  });
+
+  it('refuses ids that do not exist at all — the original reproduction', async () => {
+    // This returned le_ok=true, node_ok=true, is_cp=false before the fix: the predicates never
+    // looked at the id, because system scope answered first.
+    const nowhere = randomUUID();
+    const r = await scope(systemContext(TENANT_A), [nowhere, nowhere]);
+    expect(r.le_ok).toBe(false);
+    expect(r.node_ok).toBe(false);
+    expect(r.is_cp).toBe(false);
+  });
+
+  it('leaves is_control_plane() false however the session describes itself', async () => {
+    for (const context of [
+      systemContext(TENANT_A),
+      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId),
+      carrierContextAt(TENANT_A, a.legalEntityId, a.terminalNodeId),
+    ]) {
+      const r = await scope(context, [a.legalEntityId, a.terminalNodeId]);
+      expect(r.is_cp, JSON.stringify(context.operatingContext)).toBe(false);
+    }
+  });
+
+  it('ignores a raw set_config that bypasses the context helper entirely', async () => {
+    // withLegalContext validates what it is given, so the escalation is attempted the way an
+    // attacker with SQL access would: straight at the GUC, mid-transaction, after a legitimate
+    // narrow context is already in force.
+    const r = await withLegalContext(
+      app,
+      carrierContextAt(TENANT_A, a.legalEntityId, a.terminalNodeId),
+      async (c) => {
+        await c.query(`SELECT set_config('app.operating_context', 'system', true)`);
+        await c.query(`SELECT set_config('app.legal_authority_class', 'software_only', true)`);
+        const q = await c.query<{ le_ok: boolean; node_ok: boolean; is_cp: boolean }>(
+          `SELECT app.legal_entity_scope_ok($1)      AS le_ok,
+                  app.organization_node_scope_ok($2) AS node_ok,
+                  app.is_control_plane()             AS is_cp`,
+          [randomUUID(), a.enterpriseNodeId],
+        );
+        return q.rows[0]!;
+      },
+    );
+    // The node is the caller's own ANCESTOR, not a descendant, so it is out of scope and stays so.
+    expect(r.le_ok).toBe(false);
+    expect(r.node_ok).toBe(false);
+    expect(r.is_cp).toBe(false);
+  });
+
+  it('refuses a write above the caller subtree even under system scope', async () => {
+    await expect(
+      withLegalContext(app, systemContextAt(TENANT_A, a.terminalNodeId, a.legalEntityId), (c) =>
+        (c as Client).query(
+          `INSERT INTO service_accounts
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, status,
+              created_by)
+           VALUES ($1, $2, $3, 'f05_above', 'Above', 'integration', 'active', 'test')`,
+          [TENANT_A, a.regionNodeId, a.legalEntityId],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/i);
+  });
+
+  it('still permits the same write inside the caller subtree', async () => {
+    // The predicate has to keep working, or "fail closed" would just mean "fail".
+    const id = await withLegalContext(
+      app,
+      systemContextAt(TENANT_A, a.regionNodeId, a.legalEntityId),
+      async (c) => {
+        const r = await (c as Client).query<{ id: string }>(
+          `INSERT INTO service_accounts
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, status,
+              created_by)
+           VALUES ($1, $2, $3, 'f05_inside', 'Inside', 'integration', 'active', 'test')
+           RETURNING id`,
+          [TENANT_A, a.terminalNodeId, a.legalEntityId],
+        );
+        return r.rows[0]!.id;
+      },
+    );
+    expect(id).toBeTruthy();
+  });
+
+  it('gives every operating context the identical scope', async () => {
+    // ADR-0019 property 2 — operating context never widens permission. Asserted as an equality
+    // across the contexts Horizon 1 allows, so a future branch on one of them shows up here.
+    const target: [string, string] = [a.legalEntityId, a.terminalNodeId];
+    const results = await Promise.all(
+      [
+        systemContextAt(TENANT_A, a.regionNodeId, a.legalEntityId),
+        carrierContextAt(TENANT_A, a.legalEntityId, a.regionNodeId),
+        facilityContextAt(TENANT_A, a.legalEntityId, a.regionNodeId),
+      ].map((context) => scope(context, target)),
+    );
+    for (const r of results) expect(r).toEqual(results[0]);
+    // And that shared answer is the one the hierarchy dictates, not a vacuous false.
+    expect(results[0]!.node_ok).toBe(true);
+    expect(results[0]!.le_ok).toBe(true);
+  });
+
+  it('does not let system scope cross a tenant boundary', async () => {
+    const r = await scope(systemContext(TENANT_A), [b.legalEntityId, b.terminalNodeId]);
+    expect(r.le_ok).toBe(false);
+    expect(r.node_ok).toBe(false);
+  });
+
+  it('still admits the control plane, which is role membership and cannot be claimed', async () => {
+    // The trusted branch has to survive the fix, or nothing is left that can act above a tenant's
+    // own subtree. The control plane holds no node and no legal entity in context and passes
+    // anyway — because of the role it connected as, which no session variable can produce.
+    const control = db.connectAs('freightos_control_plane');
+    await control.connect();
+    try {
+      const r = await control.query<{ le_ok: boolean; is_cp: boolean }>(
+        `SELECT app.legal_entity_scope_ok($1) AS le_ok,
+                app.is_control_plane()        AS is_cp`,
+        [a.legalEntityId],
+      );
+      expect(r.rows[0]).toEqual({ le_ok: true, is_cp: true });
+
+      // The node predicate is deliberately NOT reachable from this connection, and the refusal is
+      // a missing grant rather than a policy decision: ADR-0020 §7 gives the control plane no
+      // privilege on any identity table, the closure included. It reaches node scope only through
+      // the admin definer, which migration 0013 grants SELECT on the closure for exactly this
+      // reason. That path is evidenced in control-plane.test.ts.
+      await expect(
+        control.query('SELECT app.organization_node_scope_ok($1)', [a.terminalNodeId]),
+      ).rejects.toThrow(/permission denied for table organization_node_closure/i);
+    } finally {
+      await control.end();
+    }
+  });
+
+  it('names no session variable in either predicate', async () => {
+    // The behavioural tests above are the evidence; this is the tripwire. A future edit that
+    // reintroduces any current_* session read into these two predicates fails here, next to the
+    // comment explaining why it must not.
+    const admin = db.connectAs('postgres');
+    await admin.connect();
+    try {
+      const r = await admin.query<{ proname: string; body: string }>(
+        `SELECT p.proname, pg_get_functiondef(p.oid) AS body
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'app'
+            AND p.proname IN ('legal_entity_scope_ok', 'organization_node_scope_ok')
+          ORDER BY p.proname`,
+      );
+      expect(r.rows).toHaveLength(2);
+      for (const row of r.rows) {
+        expect(row.body, `${row.proname} reads operating context`).not.toMatch(
+          /current_operating_context/,
+        );
+        expect(row.body, `${row.proname} reads legal authority class`).not.toMatch(
+          /current_legal_authority_class/,
+        );
+      }
     } finally {
       await admin.end();
     }
