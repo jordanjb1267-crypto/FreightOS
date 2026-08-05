@@ -490,3 +490,148 @@ describe('revert and reapply', () => {
     await migrateUp(client, migrations);
   });
 });
+
+/**
+ * F-09 — 0014 runs without a transaction, so its down has to survive being interrupted.
+ *
+ * The runner honours `-- freightos:no-transaction` in both directions, so a failure part-way
+ * through 0014's revert commits everything before it and leaves the database in a state no
+ * migration describes: policies dropped, the enum half rebuilt, the column pointing at whichever
+ * type the failure interrupted. Re-running was not a recovery — `DROP POLICY` without IF EXISTS
+ * failed on the policy the first attempt had already dropped — so the operator was left
+ * hand-editing a half-reverted schema during whatever incident prompted the rollback.
+ *
+ * The failure is injected rather than imagined: a prefix of the real down file is executed by hand
+ * to reproduce a crash at a chosen point, and then the actual runner is asked to finish the job.
+ */
+describe('an interrupted 0014 revert can be re-run — F-09', () => {
+  const interrupted = new TestDatabase('freightos_test_0014_interrupted');
+  let client: Client;
+
+  beforeAll(async () => {
+    await interrupted.reset();
+    client = interrupted.connectAsMigrator();
+    await client.connect();
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.end();
+  });
+
+  /** Everything 0015 puts on top has to come off first, exactly as the runner does it. */
+  async function downTo15() {
+    const migrations = loadMigrations(MIGRATIONS_DIR);
+    await migrateDown(client, migrations, 14);
+    expect((await appliedMigrations(client)).map((m) => m.version)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+    ]);
+  }
+
+  it('finishes a revert that died after the policies were dropped', async () => {
+    await downTo15();
+
+    // The crash. These are the first statements of 0014's own down file, run by hand and left
+    // committed — which is exactly what a connection loss at that point produces.
+    await client.query('DROP POLICY IF EXISTS kill_switches_release ON kill_switches');
+    await client.query('DROP POLICY IF EXISTS kill_switches_write ON kill_switches');
+    await client.query('DROP POLICY IF EXISTS kill_switches_read ON kill_switches');
+
+    const migrations = loadMigrations(MIGRATIONS_DIR);
+    const result = await migrateDown(client, migrations, 13);
+    expect(result.reverted).toEqual([14]);
+
+    // And the schema is the Phase 0 shape, not a half-reverted one.
+    const values = await client.query<{ label: string }>(
+      `SELECT unnest(enum_range(NULL::app.kill_switch_scope))::text AS label`,
+    );
+    expect(values.rows.map((x) => x.label)).toEqual([
+      'system',
+      'legal_plane',
+      'tenant',
+      'workflow',
+      'agent',
+      'tool',
+      'integration',
+    ]);
+    const policies = await client.query<{ polname: string }>(
+      `SELECT p.polname FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+        WHERE c.relname = 'kill_switches' ORDER BY p.polname`,
+    );
+    expect(policies.rows.map((x) => x.polname)).toEqual([
+      'kill_switches_read',
+      'kill_switches_release',
+      'kill_switches_write',
+    ]);
+
+    await migrateUp(client, migrations);
+  });
+
+  it('finishes a revert that died with the rebuilt enum created but unused', async () => {
+    await downTo15();
+
+    // The nastier interruption: a type left behind that the next attempt's CREATE TYPE would
+    // collide with. Nothing references it, so resuming has to drop it and start that step again.
+    await client.query('DROP POLICY IF EXISTS kill_switches_release ON kill_switches');
+    await client.query('DROP POLICY IF EXISTS kill_switches_write ON kill_switches');
+    await client.query('DROP POLICY IF EXISTS kill_switches_read ON kill_switches');
+    await client.query(`
+      CREATE TYPE app.kill_switch_scope__rebuilt AS ENUM (
+        'system', 'legal_plane', 'tenant', 'workflow', 'agent', 'tool', 'integration')`);
+
+    const migrations = loadMigrations(MIGRATIONS_DIR);
+    expect((await migrateDown(client, migrations, 13)).reverted).toEqual([14]);
+
+    const leftovers = await client.query<{ typname: string }>(
+      `SELECT t.typname FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = 'app' AND t.typname LIKE 'kill_switch_scope%' ORDER BY t.typname`,
+    );
+    expect(leftovers.rows.map((x) => x.typname)).toEqual(['kill_switch_scope']);
+
+    await migrateUp(client, migrations);
+  });
+
+  it('finishes a revert that died after the column was retyped', async () => {
+    await downTo15();
+
+    // Furthest along: the column already points at the rebuilt type and the old one still exists.
+    // Resuming must drop the old type and rename, not try to retype a column that is already right.
+    await client.query('DROP POLICY IF EXISTS kill_switches_release ON kill_switches');
+    await client.query('DROP POLICY IF EXISTS kill_switches_write ON kill_switches');
+    await client.query('DROP POLICY IF EXISTS kill_switches_read ON kill_switches');
+    await client.query('DROP INDEX IF EXISTS kill_switches_one_active_per_subject');
+    await client.query('DROP INDEX IF EXISTS kill_switches_active_idx');
+    await client.query(`
+      ALTER TABLE kill_switches
+        DROP CONSTRAINT IF EXISTS kill_switches_scope_ref_shape,
+        DROP CONSTRAINT IF EXISTS kill_switches_tenant_shape`);
+    await client.query(`
+      CREATE TYPE app.kill_switch_scope__rebuilt AS ENUM (
+        'system', 'legal_plane', 'tenant', 'workflow', 'agent', 'tool', 'integration')`);
+    await client.query(`
+      ALTER TABLE kill_switches
+        ALTER COLUMN scope TYPE app.kill_switch_scope__rebuilt
+        USING scope::text::app.kill_switch_scope__rebuilt`);
+
+    const migrations = loadMigrations(MIGRATIONS_DIR);
+    expect((await migrateDown(client, migrations, 13)).reverted).toEqual([14]);
+
+    const columnType = await client.query<{ type: string }>(
+      `SELECT format_type(a.atttypid, NULL) AS type FROM pg_attribute a
+        WHERE a.attrelid = 'kill_switches'::regclass AND a.attname = 'scope'`,
+    );
+    expect(columnType.rows[0]!.type).toBe('app.kill_switch_scope');
+
+    await migrateUp(client, migrations);
+  });
+
+  it('is a no-op on an already-reverted database', async () => {
+    // Idempotence in the ordinary direction, which is what makes "just run it again" safe advice
+    // in the runbook rather than a gamble.
+    const migrations = loadMigrations(MIGRATIONS_DIR);
+    await migrateDown(client, migrations, 13);
+    const revert = migrations.find((m) => m.version === 14)!;
+    await expect(client.query(revert.downSql)).resolves.toBeTruthy();
+    await migrateUp(client, migrations);
+    expect((await appliedMigrations(client)).length).toBe(migrations.length);
+  });
+});

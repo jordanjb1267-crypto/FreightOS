@@ -1093,3 +1093,102 @@ describe('concurrent hierarchy mutation — F-03', () => {
     }
   });
 });
+
+/**
+ * F-08 — protectedness is a property of the control, not a field the caller may omit.
+ *
+ * The weakening guard fired only when the incoming row said `protected_category IS NOT NULL`, and
+ * that column is supplied by the same caller the guard exists to constrain. A child binding with
+ * the category left NULL skipped the check entirely and weakened a protected control freely: no
+ * error, no trace, and the resolved policy afterwards simply looser than the ancestor set. The one
+ * thing a caller had to do to escape a control it may not weaken was decline to mention it.
+ */
+describe('a protected control cannot be un-declared by a descendant — F-08', () => {
+  const POLICY = 'f08_policy';
+
+  async function bindAt(
+    nodeId: string,
+    legalEntityId: string | null,
+    controlKey: string,
+    restrictiveness: number,
+    protectedCategory: string | null,
+  ) {
+    return withLegalContext(app, adminContext(), (c) =>
+      (c as Client).query(
+        `INSERT INTO policy_bindings
+           (tenant_id, organization_node_id, legal_entity_id, policy_key, policy_version,
+            control_key, control_value, restrictiveness, direction, protected_category, created_by)
+         VALUES ($1, $2, $3, $4, '1.0.0', $5, 'value', $6, 'local_override', $7, 'test')`,
+        [TENANT_A, nodeId, legalEntityId, POLICY, controlKey, restrictiveness, protectedCategory],
+      ),
+    );
+  }
+
+  it('refuses a descendant binding that omits the inherited category', async () => {
+    // The reproduction. Before the fix this INSERT succeeded and the terminal node ran at
+    // restrictiveness 1 under an enterprise-wide control declared at 9.
+    const control = `f08_omitted_${randomUUID().slice(0, 8)}`;
+    await bindAt(a.enterpriseNodeId, null, control, 9, 'legal');
+    await expect(bindAt(a.terminalNodeId, a.legalEntityId, control, 1, null)).rejects.toThrow(
+      /may not change or omit it/i,
+    );
+  });
+
+  it('refuses a descendant binding that relabels the category', async () => {
+    // Relabelling would work the same way: name a different category and the weakening check runs
+    // against a control the ancestor never protected under that name.
+    const control = `f08_relabel_${randomUUID().slice(0, 8)}`;
+    await bindAt(a.enterpriseNodeId, null, control, 9, 'legal');
+    await expect(
+      bindAt(a.terminalNodeId, a.legalEntityId, control, 1, 'residency'),
+    ).rejects.toThrow(/may not change or omit it/i);
+  });
+
+  it('still refuses the weakening when the category IS named', async () => {
+    const control = `f08_named_${randomUUID().slice(0, 8)}`;
+    await bindAt(a.enterpriseNodeId, null, control, 9, 'legal');
+    await expect(bindAt(a.terminalNodeId, a.legalEntityId, control, 1, 'legal')).rejects.toThrow(
+      /may not be weakened/i,
+    );
+  });
+
+  it('permits a descendant that names the category and tightens', async () => {
+    const control = `f08_tighten_${randomUUID().slice(0, 8)}`;
+    await bindAt(a.enterpriseNodeId, null, control, 5, 'legal');
+    await expect(
+      bindAt(a.terminalNodeId, a.legalEntityId, control, 9, 'legal'),
+    ).resolves.toBeTruthy();
+  });
+
+  it('lets a node be the first to declare a control protected', async () => {
+    // A node may be the first to protect a control. What it may not be is the first to stop.
+    const control = `f08_first_${randomUUID().slice(0, 8)}`;
+    await expect(
+      bindAt(a.regionNodeId, a.legalEntityId, control, 5, 'legal'),
+    ).resolves.toBeTruthy();
+    await expect(bindAt(a.terminalNodeId, a.legalEntityId, control, 1, null)).rejects.toThrow(
+      /may not change or omit it/i,
+    );
+  });
+
+  it('leaves an unprotected control weakenable', async () => {
+    // The guard must stay off where it belongs off, or every control becomes protected by accident.
+    const control = `f08_ordinary_${randomUUID().slice(0, 8)}`;
+    await bindAt(a.enterpriseNodeId, null, control, 9, null);
+    await expect(bindAt(a.terminalNodeId, a.legalEntityId, control, 1, null)).resolves.toBeTruthy();
+  });
+
+  it('keeps the policy-binding read policy free of an organization-node term', async () => {
+    // The tripwire. This guard reads ancestor bindings as the caller, and it is safe because
+    // policy_bindings_read is scoped by tenant alone. Adding a node term would make it fail open
+    // exactly the way the self-elevation guards did before F-01 — an ancestor binding invisible to
+    // a descendant caller reads as "no ancestor declared this protected".
+    const r = await admin.query<{ qual: string }>(
+      `SELECT pg_get_expr(p.polqual, p.polrelid) AS qual
+         FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+        WHERE c.relname = 'policy_bindings' AND p.polname = 'policy_bindings_read'`,
+    );
+    expect(r.rows[0]!.qual).not.toMatch(/organization_node_scope_ok/);
+    expect(r.rows[0]!.qual).toMatch(/current_tenant_id/);
+  });
+});

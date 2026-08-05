@@ -46,6 +46,11 @@ CREATE TABLE policy_bindings (
   restrictiveness        integer NOT NULL CHECK (restrictiveness >= 0),
   direction              app.policy_binding_direction NOT NULL,
   -- NULL for an ordinary control. Set for one of the six a child may not weaken.
+  --
+  -- Declared once and inherited thereafter — F-08. The trigger below refuses a descendant binding
+  -- that names a different category, or none, for a control an ancestor has already declared
+  -- protected. Protectedness is a property of the CONTROL; leaving it a per-row option meant the
+  -- guard that reads it could be switched off by the row it was guarding.
   protected_category     app.protected_control_category,
 
   status                 app.identity_status NOT NULL DEFAULT 'active',
@@ -95,6 +100,7 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   v_governing uuid;
+  v_inherited_category app.protected_control_category;
   v_stricter_ancestor record;
 BEGIN
   v_governing := app.governing_legal_entity_id(NEW.tenant_id, NEW.organization_node_id);
@@ -107,6 +113,53 @@ BEGIN
       'policy binding legal_entity_id % does not match the legal entity governing node % (%)',
       NEW.legal_entity_id, NEW.organization_node_id, v_governing
       USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+
+  -- Protectedness is inherited, not asserted — F-08.
+  --
+  -- The weakening guard below fired only when the incoming row said protected_category IS NOT
+  -- NULL, and that column is supplied by the same caller the guard exists to constrain. Writing a
+  -- child binding with the category left NULL therefore skipped the check entirely and weakened a
+  -- protected control freely — no error, no trace, and the resolved policy afterwards is simply
+  -- looser than the ancestor set. The one thing a caller had to do to escape a control it may not
+  -- weaken was decline to mention that it may not weaken it.
+  --
+  -- So the category is taken from the hierarchy. If any strict ancestor has declared this control
+  -- protected, the incoming row must name that same category, and a mismatch — including an
+  -- absence — is refused rather than corrected, so the attempt is visible in the same way every
+  -- other refusal here is. A node may still be the first to declare a control protected; what it
+  -- may not do is be the first to stop.
+  --
+  -- The lookup is not visibility-dependent: policy_bindings_read is scoped by tenant alone, with no
+  -- organization-node term, so a caller at any node sees every binding in its own tenant including
+  -- its ancestors'. A node-scoped read policy here would make this guard fail open the way the
+  -- self-elevation guards did before F-01, and a test asserts the read policy stays as it is.
+  IF NEW.revoked_at IS NULL THEN
+    SELECT pb.protected_category INTO v_inherited_category
+      FROM policy_bindings pb
+      JOIN organization_node_closure c
+        ON c.tenant_id = pb.tenant_id
+       AND c.ancestor_id = pb.organization_node_id
+     WHERE pb.tenant_id = NEW.tenant_id
+       AND c.descendant_id = NEW.organization_node_id
+       AND c.depth > 0
+       AND pb.policy_key = NEW.policy_key
+       AND pb.control_key = NEW.control_key
+       AND pb.revoked_at IS NULL
+       AND pb.status = 'active'
+       AND pb.protected_category IS NOT NULL
+     ORDER BY c.depth ASC
+     LIMIT 1;
+
+    IF v_inherited_category IS NOT NULL
+       AND NEW.protected_category IS DISTINCT FROM v_inherited_category THEN
+      RAISE EXCEPTION
+        'protected control "%" is declared % by an ancestor binding; this binding names % and may '
+        'not change or omit it',
+        NEW.control_key, v_inherited_category,
+        coalesce(NEW.protected_category::text, 'no category')
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
   END IF;
 
   -- A child may tighten a protected control. It may not loosen one. Rejected at write time, so
@@ -217,9 +270,12 @@ CREATE POLICY policy_bindings_insert ON policy_bindings FOR INSERT
   WITH CHECK (
     (app.is_control_plane() OR tenant_id = app.current_tenant_id())
     AND app.organization_node_scope_ok(organization_node_id)
-    -- Above the legal-entity boundary legal_entity_id is NULL and the predicate is false, so a
-    -- root-level binding is writable only under system scope or by the control plane. That is the
-    -- intended reading of ADR-0019's matrix: enterprise-wide policy is tenant administration.
+    -- Above the legal-entity boundary legal_entity_id is NULL and the legal-entity term drops out,
+    -- so a root-level binding is gated on node scope alone: the caller must hold the enterprise
+    -- root it is binding. That is the intended reading of ADR-0019's matrix — enterprise-wide
+    -- policy is tenant administration — now that operating context confers no scope of its own
+    -- (F-05). It previously read "writable only under system scope", which described the
+    -- short-circuit rather than the rule.
     AND (legal_entity_id IS NULL OR app.legal_entity_scope_ok(legal_entity_id)));
 CREATE POLICY policy_bindings_update ON policy_bindings FOR UPDATE
   USING (
