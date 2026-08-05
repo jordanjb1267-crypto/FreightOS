@@ -24,17 +24,36 @@
 --   SUPERUSER    would make every RLS proof in the suite vacuous.
 --   BYPASSRLS    same, more narrowly. Asserted absent by the migration suite and by CI.
 --
--- ROLE SEPARATION
+-- ROLE SEPARATION, STATED AS IT ACTUALLY IS — R2-05
 --
---   Runtime roles (freightos_app, freightos_control_plane, freightos_admin) are NOT granted to
---   freightos_migrator in a usable form, and freightos_migrator is NOT granted to any runtime
---   role. A runtime connection therefore cannot SET ROLE its way to deployment authority.
+--   Three different things get conflated when this is described loosely, so they are separated
+--   here and each is claimed only as far as it holds.
 --
---   Where a runtime role already exists — a cluster carrying the Phase 0 baseline — the migrator
---   needs ADMIN OPTION on it to manage its grants. It is granted WITH INHERIT FALSE, SET FALSE,
---   so the migrator may administer the role without acquiring its privileges and without being
---   able to SET ROLE to it. Administering a role and being able to act as it are different
---   powers, and only the first is needed here.
+--   INHERITED AUTHORITY. freightos_migrator inherits nothing. Every membership it holds is
+--   INHERIT FALSE, so no ordinary statement on a deployment connection picks up any of these
+--   roles' privileges. `app.is_control_plane()` is false in a migrator session and migration 0013
+--   refuses to proceed if it is not.
+--
+--   SET ROLE REACHABILITY is a different question with a different answer, and saying "cannot
+--   SET ROLE" where only "does not inherit" was proved is what R2-05 found. The migrator CAN
+--   SET ROLE to freightos_admin, freightos_admin_owner, freightos_hierarchy_owner and
+--   freightos_identity_guard directly, and to freightos_control_plane TRANSITIVELY through
+--   freightos_admin_owner, which is a member of it. It cannot reach freightos_app at all.
+--
+--   That reachability is required, not incidental: `ALTER ... OWNER TO` demands that the
+--   assigning role be able to SET ROLE to the target, and migrations 0007, 0010, 0013 and 0017
+--   each hand objects to a NOLOGIN definer owner. Removing it would mean giving up definer-owned
+--   trusted code or handing ownership assignment back to a superuser at deploy time.
+--
+--   RUNTIME-TO-DEPLOYMENT. freightos_migrator is NOT granted to any runtime role, so no
+--   application, tenant or routine control-plane connection can reach deployment authority or any
+--   definer owner — by inheritance or by SET ROLE. This is the direction that would be an
+--   escalation, and it is the one that is closed. A test asserts it as an empty set.
+--
+--   So: the migrator may administer a runtime role without acquiring its privileges, and may
+--   deliberately become the definer owners it hands objects to. Administering, inheriting, and
+--   being able to become are three powers, and this file takes the first everywhere, the second
+--   nowhere, and the third only where object ownership requires it.
 --
 -- Usage:
 --   psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
@@ -74,7 +93,9 @@ ALTER ROLE freightos_migrator PASSWORD :migrator_password;
 -- creator holds admin option on what it created. It matters when migrating a cluster that already
 -- carries the Phase 0 baseline, where those roles were created by someone else.
 --
--- INHERIT FALSE, SET FALSE is the point: administer, do not become.
+-- INHERIT FALSE is the point on every role: administer without inheriting. SET FALSE additionally
+-- withholds SET ROLE on the two runtime roles, where nothing needs it — see ROLE SEPARATION above
+-- for what remains reachable and why.
 -- ---------------------------------------------------------------------------
 
 -- An existing membership is CONVERGED, not simply re-granted. A GRANT never narrows a membership
@@ -106,8 +127,9 @@ DECLARE
   spec record;
   held record;
 BEGIN
-  -- Runtime roles: administer, never become. SET FALSE means the migrator cannot SET ROLE to a
-  -- runtime role even though it may manage that role's grants.
+  -- Runtime roles: administer without inheriting, and without SET ROLE either. SET FALSE is
+  -- available here because nothing in the deployment needs to become freightos_app or
+  -- freightos_control_plane — unlike the definer owners below, where object ownership requires it.
   --
   -- The definer owner is different, and deliberately so. `ALTER FUNCTION ... OWNER TO` requires
   -- the assigning role to be able to SET ROLE to the target, so migration 0013 cannot hand the
