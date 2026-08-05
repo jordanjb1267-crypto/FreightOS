@@ -21,6 +21,22 @@
 -- failing closed with evidence rather than failing closed in silence. An execution error is
 -- caught in a subtransaction, recorded as `failed`, and returned the same way.
 --
+-- THE DENIAL ROW IS TRANSACTION-BOUND, NOT DURABLE — F-07.
+--
+-- It is written in the caller's transaction and survives exactly as far as that transaction does.
+-- A caller that wraps this call and rolls back — deliberately, or because a later statement failed
+-- — takes the denial record with it. The refusal still happened and still did nothing; what is
+-- lost is the evidence that it was attempted. Earlier wording here and in ADR-0026 called the
+-- record durable, which it is not.
+--
+-- The limit is PostgreSQL's, not this schema's: with no autonomous transaction, no in-database
+-- write can outlive the transaction that made it. Escaping it needs a component outside the
+-- transaction, which is not something to introduce in a migration about identity and organization.
+--
+-- ADR-0026 §5 records this as TRANSACTION_BOUND_DENIAL_AUDIT and carries the stronger property
+-- forward as ROLLBACK_INDEPENDENT_DENIAL_AUDIT, Phase 3. A test asserts the current behaviour
+-- exactly, so the limit is a stated property rather than a surprise.
+--
 -- The one thing that does raise is a missing EXECUTE grant, which PostgreSQL refuses before the
 -- function body runs at all.
 
@@ -268,6 +284,26 @@ REVOKE ALL ON FUNCTION admin.refusal_reason(text, text, text, uuid, uuid) FROM P
 -- scope -> legal_entity_id, resource -> resource_type/resource_id, action -> event_type (the
 -- versioned action name, which is already mandatory and already constrained), timestamp ->
 -- created_at, outcome -> outcome. `action` is repeated in the payload for readability.
+--
+-- EVERY FIELD ABOVE IS SOMETHING THE CALLER SAID — F-06.
+--
+-- actor_id, actor_type, purpose, correlation id, resource, tenant: all parameters. The database
+-- cannot authenticate the person behind an administrative connection, so it cannot do better than
+-- record the claim — but recording ONLY the claim is what makes the ledger forgeable. Any holder
+-- of the freightos_admin connection could attribute a tenant suspension to a named colleague, and
+-- the audit trail, which Art. II.1 makes authoritative, would agree.
+--
+-- So every privileged record now also carries provenance the caller does not supply and cannot
+-- reach: the authenticated login role, the effective role, the backend that ran it, and the
+-- server's own clock. A claimed actor that no connection could have made is now visible as a
+-- contradiction in the record itself rather than being indistinguishable from the truth.
+--
+-- The provenance object is applied LAST in the payload concatenation. jsonb `||` lets the right
+-- operand win, so a caller passing its own `connection` key overwrites nothing — which a test
+-- asserts, because getting that operand order wrong would restore the forgery in silence.
+--
+-- This narrows the forgery to "which human was at the authenticated connection", which is the part
+-- only the application layer can answer. It does not close it. ADR-0026 records that.
 -- ---------------------------------------------------------------------------
 
 CREATE FUNCTION admin.record(
@@ -309,7 +345,17 @@ BEGIN
     p_resource_type,
     p_resource_id,
     coalesce(p_correlation_id, gen_random_uuid()),
-    p_payload || jsonb_build_object('action', p_action),
+    p_payload
+      || jsonb_build_object('action', p_action)
+      -- Non-forgeable, and last so it wins — F-06.
+      || jsonb_build_object(
+           'connection', jsonb_build_object(
+             'authenticated_role', session_user,
+             'effective_role', current_user,
+             'backend_pid', pg_backend_pid(),
+             'recorded_at', statement_timestamp()),
+           'claimed_actor', p_actor,
+           'claimed_actor_type', p_actor_type),
     coalesce(nullif(btrim(p_actor), ''), 'unknown:actor-not-supplied'),
     'privileged',
     -- Only a valid privileged purpose is stored. An absent or rejected one stays absent, and the

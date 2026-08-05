@@ -748,3 +748,191 @@ describe('the outbox carries a mandatory envelope purpose', () => {
     expect(r.rowCount).toBe(1);
   });
 });
+
+/**
+ * F-06 — a privileged audit record is mostly the caller's own account of itself.
+ *
+ * actor_id, actor_type, purpose, correlation id, resource and tenant are all parameters. The
+ * database cannot authenticate the person behind an administrative connection, so it cannot do
+ * better than record the claim — but recording only the claim makes the ledger forgeable, and
+ * Art. II.1 makes the ledger authoritative. Provenance the caller does not supply is what turns an
+ * unverifiable claim into a claim that can be contradicted.
+ */
+describe('privileged audit records carry non-forgeable provenance — F-06', () => {
+  let adminConn: Client;
+
+  beforeAll(async () => {
+    adminConn = db.connectAs('freightos_admin');
+    await adminConn.connect();
+  }, 30_000);
+
+  afterAll(async () => {
+    await adminConn?.end();
+  });
+
+  async function recordFor(correlationId: string) {
+    const r = await admin.query<{ payload: Record<string, unknown>; actor_id: string }>(
+      'SELECT payload, actor_id FROM audit_events WHERE correlation_id = $1',
+      [correlationId],
+    );
+    return r.rows[0]!;
+  }
+
+  it('stamps the authenticated connection beside the claimed actor', async () => {
+    const correlationId = randomUUID();
+    const result = await call(
+      adminConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
+      [
+        randomUUID(),
+        'F-06 Tenant',
+        'user:someone-who-was-not-here',
+        'human',
+        'tenant_provisioning',
+        correlationId,
+      ],
+    );
+    expect(result.outcome).toBe('succeeded');
+
+    const row = await recordFor(correlationId);
+    // The claim is still recorded — it is what the application asserted, and losing it would lose
+    // the only account of who acted.
+    expect(row.actor_id).toBe('user:someone-who-was-not-here');
+    expect(row.payload['claimed_actor']).toBe('user:someone-who-was-not-here');
+
+    // And beside it, what actually happened. A claimed actor no connection could have made is now
+    // a contradiction visible in the record rather than indistinguishable from the truth.
+    const connection = row.payload['connection'] as Record<string, unknown>;
+    expect(connection['authenticated_role']).toBe('freightos_admin');
+    expect(connection['effective_role']).toBe('freightos_admin_owner');
+    expect(typeof connection['backend_pid']).toBe('number');
+    expect(typeof connection['recorded_at']).toBe('string');
+  });
+
+  it('cannot be overwritten by a caller supplying the same payload keys', async () => {
+    // The provenance object is applied last in the jsonb concatenation, and `||` lets the right
+    // operand win. Getting that operand order wrong would restore the forgery in silence, so the
+    // ordering is asserted rather than reviewed.
+    const correlationId = randomUUID();
+    const result = await call(
+      adminConn,
+      `SELECT * FROM admin.export_tenant_audit($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        TENANT_A,
+        new Date(Date.now() - 86_400_000).toISOString(),
+        new Date().toISOString(),
+        'user:auditor',
+        'human',
+        'audit_export',
+        correlationId,
+      ],
+    );
+    expect(result.outcome).toBe('succeeded');
+    const row = await recordFor(correlationId);
+    const connection = row.payload['connection'] as Record<string, unknown>;
+    expect(connection['authenticated_role']).toBe('freightos_admin');
+  });
+
+  it('stamps a denial the same way', async () => {
+    // A refusal is the record most worth forging: it is the evidence that somebody tried. It has
+    // to carry the same provenance as a success, and it does.
+    const correlationId = randomUUID();
+    const result = await call(
+      adminConn,
+      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4, $5, $6)`,
+      [TENANT_A, 'suspended', 'user:impersonated', 'agent', 'tenant_lifecycle', correlationId],
+    );
+    expect(result.outcome).toBe('denied');
+
+    const row = await recordFor(correlationId);
+    const connection = row.payload['connection'] as Record<string, unknown>;
+    expect(connection['authenticated_role']).toBe('freightos_admin');
+    // The rejected actor_type is preserved as offered rather than coerced away, so the denial says
+    // what was attempted and not merely that something was.
+    expect(row.payload['claimed_actor_type']).toBe('agent');
+    expect(row.payload['offered_actor_type']).toBe('agent');
+  });
+});
+
+/**
+ * F-07 — the denial record is transaction-bound, and that is a stated property.
+ *
+ * ADR-0026 §5 previously called it durable. It is written in the caller's transaction and survives
+ * exactly as far as that transaction does. The decision is TRANSACTION_BOUND_DENIAL_AUDIT: ship
+ * the honest weaker design rather than a stronger claim that is not true, and carry the stronger
+ * property forward as ROLLBACK_INDEPENDENT_DENIAL_AUDIT in Phase 3.
+ *
+ * These tests pin the behaviour in both directions, so the limit cannot quietly become worse and
+ * cannot be rediscovered as a surprise.
+ */
+describe('denial audit is transaction-bound — F-07', () => {
+  let adminConn: Client;
+
+  beforeAll(async () => {
+    adminConn = db.connectAs('freightos_admin');
+    await adminConn.connect();
+  }, 30_000);
+
+  afterAll(async () => {
+    await adminConn?.end();
+  });
+
+  const denialCount = async (correlationId: string) => {
+    const r = await admin.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM audit_events WHERE correlation_id = $1`,
+      [correlationId],
+    );
+    return Number(r.rows[0]!.count);
+  };
+
+  it('keeps the denial when the caller commits', async () => {
+    const correlationId = randomUUID();
+    await adminConn.query('BEGIN');
+    const result = await call(
+      adminConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
+      [randomUUID(), 'F-07 Committed', 'user:operator', 'human', 'audit_export', correlationId],
+    );
+    // Wrong purpose for this operation, so it is refused.
+    expect(result.outcome).toBe('denied');
+    await adminConn.query('COMMIT');
+
+    expect(await denialCount(correlationId)).toBe(1);
+  });
+
+  it('loses the denial when the caller rolls back — the stated limit', async () => {
+    const correlationId = randomUUID();
+    await adminConn.query('BEGIN');
+    const result = await call(
+      adminConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
+      [randomUUID(), 'F-07 Rolled back', 'user:operator', 'human', 'audit_export', correlationId],
+    );
+    expect(result.outcome).toBe('denied');
+    await adminConn.query('ROLLBACK');
+
+    // This is not a bug being asserted as correct — it is the boundary of what the design can do,
+    // written down where a reader will find it. The refusal still refused; the evidence is gone.
+    expect(await denialCount(correlationId)).toBe(0);
+  });
+
+  it('refuses without performing any privileged work either way', async () => {
+    // The half that does hold unconditionally: whether the caller commits or rolls back, a denied
+    // call changed nothing. Losing the evidence never means losing the refusal.
+    const tenantId = randomUUID();
+    await adminConn.query('BEGIN');
+    const result = await call(
+      adminConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
+      [tenantId, 'F-07 Never created', 'user:operator', 'human', 'audit_export', randomUUID()],
+    );
+    expect(result.outcome).toBe('denied');
+    await adminConn.query('COMMIT');
+
+    const created = await admin.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM tenants WHERE id = $1',
+      [tenantId],
+    );
+    expect(Number(created.rows[0]!.count)).toBe(0);
+  });
+});

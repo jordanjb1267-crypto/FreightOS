@@ -79,7 +79,8 @@ evidences the refusal, and the ledger shows silence where a denial belongs.
 
 So `admin.*` functions return `admin.privileged_result` with `outcome = 'denied'`. A refused call
 performs **no** privileged work — nothing read, nothing written, no state changed — and its refusal
-is durably recorded. That is failing closed *with evidence* rather than failing closed in silence.
+is written to the ledger. That is failing closed *with evidence* rather than failing closed in
+silence.
 
 An execution error is caught in a subtransaction, recorded as `failed`, and returned the same way.
 The one thing that still raises is a missing `EXECUTE` grant, which PostgreSQL refuses before the
@@ -87,6 +88,48 @@ function body runs.
 
 **Rejected:** raising `insufficient_privilege`. It satisfies "fails closed" and defeats "is
 audited", and ADR-0020 requires both.
+
+#### The limit, stated plainly
+
+An earlier version of this section called the denial record *durable*. It is not, and the word was
+doing work the design cannot support. The record is written in the caller's transaction, so it
+survives exactly as far as that transaction does. A caller that wraps the call and rolls back — by
+choosing to, by hitting an error in a later statement, by losing the connection — takes the denial
+record with it. The refusal still happened and still did nothing; what is lost is the evidence that
+it was attempted.
+
+This is a property of PostgreSQL, not of this schema: there is no autonomous transaction, so no
+in-database write can outlive the transaction that made it. Escaping it needs something outside the
+transaction — an out-of-band recorder, a background worker, a `dblink`-style loopback, a logical
+decoding consumer — and every one of those is a new component with its own failure modes,
+authentication, and operational surface, introduced in a PR whose subject is identity and
+organization.
+
+**Decision: `TRANSACTION_BOUND_DENIAL_AUDIT`.** The denial record is transaction-bound and this ADR
+says so. It is the weaker of the two designs and it is the one being shipped, because the honest
+weaker design beats a stronger claim that is not true. It also matches the threat: an operator who
+rolls back to hide an attempted denial already holds the administrative connection, and the audit
+question about that operator is answered by the provenance stamp (§5a) and by monitoring, not by a
+record they could equally have chosen never to attempt.
+
+**Carry-forward: `ROLLBACK_INDEPENDENT_DENIAL_AUDIT`, Phase 3.** Denial evidence that survives a
+rolled-back caller transaction. To be designed with the observability and incident-response work,
+where the out-of-band component it requires has a reason to exist beyond this one record.
+
+### 5a. A privileged audit record carries the connection, not only the claim
+
+Every attributable field in a privileged record is a parameter: actor, actor type, purpose,
+correlation id, resource, tenant. The database cannot authenticate the person behind an
+administrative connection, so it cannot do better than record what it was told — but recording only
+what it was told makes an authoritative ledger forgeable by anyone holding the connection.
+
+`admin.record` therefore also stamps `payload.connection`: the authenticated login role, the
+effective role, the backend pid, and the server's own clock. None of it comes from a parameter and
+the object is concatenated last, so a caller supplying its own `connection` key overwrites nothing.
+The claimed actor is preserved beside it as `payload.claimed_actor`.
+
+This narrows the forgery to "which human was at the authenticated connection" — the part only the
+application layer can answer. It does not close it, and this ADR does not claim it does.
 
 ### 6. A denied privileged audit row may carry no purpose
 

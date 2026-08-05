@@ -78,18 +78,50 @@ next phase exit gate — ADR-0020 §Consequences.
 
 PostgreSQL has no autonomous transaction. Raising on a refusal would roll back the audit row that
 evidences the refusal, and ADR-0020 §8 requires every privileged operation to write one before
-returning. So a refused call performs no privileged work and returns `denied` with a durable audit
-record. Full reasoning in `adr/0026-identity-implementation-decisions.md` §5.
+returning. So a refused call performs no privileged work and returns `denied` with an audit record.
+Full reasoning in `adr/0026-identity-implementation-decisions.md` §5.
 
 **A caller must check the outcome.** An ignored `denied` looks like a successful call that did
 nothing.
 
+**The denial record is transaction-bound, not durable.** It is written in the caller's transaction,
+so it survives exactly as far as that transaction does. If you wrap an `admin.*` call and roll back
+— deliberately, or because a later statement failed, or because the connection dropped — the denial
+record goes with it. The refusal still happened and still did nothing; the evidence that it was
+attempted is gone.
+
+What that means operationally:
+
+- **Call `admin.*` functions in their own transaction.** Do not bundle one into a longer unit of
+  work whose later steps can fail. The runbook steps above assume one call, one transaction.
+- **Do not treat an empty denial history as proof nothing was attempted.** It is proof that nothing
+  attempted-and-committed. When investigating, corroborate with the PostgreSQL server log, which is
+  outside the transaction and therefore keeps what a rollback removed.
+- Rollback-independent denial evidence is carried forward as `ROLLBACK_INDEPENDENT_DENIAL_AUDIT`,
+  targeted at Phase 3 alongside the observability work.
+
 ## What is audited
 
-Every call, including refusals. Each record carries: actor, actor type, correlation id, purpose
-(absent on a refusal, deliberately), tenant scope, legal-entity scope where applicable, resource
-type and id, action — as the versioned `event_type` and again in `payload.action` — timestamp, and
-outcome.
+Every committed call, including refusals. Each record carries: actor, actor type, correlation id,
+purpose (absent on a refusal, deliberately), tenant scope, legal-entity scope where applicable,
+resource type and id, action — as the versioned `event_type` and again in `payload.action` —
+timestamp, and outcome.
+
+Everything in that list is something the caller told the database. Beside it, each record also
+carries `payload.connection` — the authenticated login role, the effective role, the backend pid,
+and the server's clock — none of which comes from a parameter, and `payload.claimed_actor`, which
+is the actor as supplied. When investigating a disputed action, compare the two: a claimed actor
+that no connection could plausibly have made is visible in the record itself.
+
+```sql
+-- Who actually held the connection, against who the call said was acting.
+SELECT created_at, actor_id AS claimed,
+       payload->'connection'->>'authenticated_role' AS connected_as,
+       payload->'connection'->>'backend_pid'        AS backend
+  FROM audit_events
+ WHERE operation_class = 'privileged'
+ ORDER BY created_at DESC;
+```
 
 The ledger is append-only for every role including the table owner: `UPDATE`, `DELETE` and
 `TRUNCATE` are rejected by trigger and by revoked privilege.
