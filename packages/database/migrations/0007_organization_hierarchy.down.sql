@@ -29,3 +29,16 @@ DROP FUNCTION IF EXISTS app.is_permitted_node_parent(
 
 DROP TYPE IF EXISTS app.identity_status;
 DROP TYPE IF EXISTS app.organization_node_type;
+
+-- The hierarchy definer's standing inside THIS database goes with the objects it owned — F-02.
+--
+-- Neither the role nor its control-plane membership is removed, for the reason 0001's down gives
+-- for the Phase 0 roles: both are cluster-wide, and another database may be relying on them. A
+-- revert here that reached outside this database would take the hierarchy triggers of every other
+-- FreightOS database in the cluster down with it — which is not hypothetical, it is what the test
+-- suite does, one database per file, concurrently.
+--
+-- Schema access is per-database and is removed. The table privileges went with the tables above,
+-- so what is left afterwards is a role that can reach nothing here.
+REVOKE ALL ON SCHEMA app FROM freightos_hierarchy_owner;
+REVOKE USAGE ON SCHEMA public FROM freightos_hierarchy_owner;

@@ -200,10 +200,79 @@ CREATE INDEX organization_node_closure_descendant_idx
 
 -- ---------------------------------------------------------------------------
 -- Hierarchy maintenance.
+--
+-- THE CLOSURE IS DERIVED, AND ONLY THIS CODE MAY WRITE IT — F-02.
+--
+-- organization_node_closure held `GRANT SELECT, INSERT, UPDATE, DELETE ... TO freightos_app` with
+-- permissive tenant-scoped policies to match, because the maintenance triggers below ran as the
+-- invoking session and needed the privilege to do their work. The privilege does not stop at the
+-- triggers, though: an application session could write the closure directly.
+--
+-- That is the whole authorization model. app.organization_node_scope_ok answers "is this row at or
+-- below a node the caller administers?" by asking the closure, so a caller able to insert one row
+--
+--   (tenant, ancestor_id => a node I hold, descendant_id => any node at all, depth => 1)
+--
+-- grants itself scope over that node, and over everything the policies gate on it: legal entities,
+-- operating authorities, carrier appointments, users, memberships, roles, service accounts, policy
+-- bindings. A DELETE removes somebody else's. No policy was violated in the process — the closure
+-- rows are the caller's own tenant, which is all the policies asked.
+--
+-- A derived table that the thing it authorizes can rewrite is not a derived table. So the triggers
+-- became the only writer: they are SECURITY DEFINER owned by freightos_hierarchy_owner, the
+-- remaining policies admit the control plane alone, and freightos_app holds SELECT and nothing
+-- else. The closure is now a function of organization_nodes, which is what it always claimed to be.
+--
+-- app.organization_node_before_write is trusted for the same reason one step removed: its cycle
+-- check and its depth-bound check are both closure lookups, and a lookup that returns nothing
+-- because the caller cannot see the rows would let a cycle through. It fails closed on evidence it
+-- can always see, rather than on evidence it hopes it can.
 -- ---------------------------------------------------------------------------
+
+DO $hierarchy$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'freightos_hierarchy_owner') THEN
+    CREATE ROLE freightos_hierarchy_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+  END IF;
+END
+$hierarchy$;
+
+DO $hierarchy$
+DECLARE
+  r record;
+BEGIN
+  SELECT rolsuper, rolbypassrls, rolcanlogin INTO r
+    FROM pg_roles WHERE rolname = 'freightos_hierarchy_owner';
+  IF r.rolsuper OR r.rolbypassrls OR r.rolcanlogin THEN
+    RAISE EXCEPTION
+      'freightos_hierarchy_owner must be NOLOGIN NOSUPERUSER NOBYPASSRLS (login=% super=% rls=%)',
+      r.rolcanlogin, r.rolsuper, r.rolbypassrls
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+END
+$hierarchy$;
+
+-- Deployment-time SET membership, so `ALTER FUNCTION ... OWNER TO` can hand the triggers over.
+-- INHERIT FALSE keeps the migrator from acquiring the control-plane membership granted below.
+DO $hierarchy$
+BEGIN
+  IF NOT pg_has_role(current_user, 'freightos_hierarchy_owner', 'SET') THEN
+    EXECUTE format('GRANT freightos_hierarchy_owner TO %I WITH SET TRUE, INHERIT FALSE',
+                   current_user);
+  END IF;
+END
+$hierarchy$;
+
+-- Control-plane membership is what carries the definer through the policy branch, the same device
+-- 0013 uses for its admin definer: the escape stays visible in pg_policies, and BYPASSRLS is
+-- granted to nothing anywhere in this schema.
+GRANT freightos_control_plane TO freightos_hierarchy_owner;
+GRANT USAGE ON SCHEMA app, public TO freightos_hierarchy_owner;
 
 CREATE FUNCTION app.organization_node_before_write() RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_parent_type  app.organization_node_type;
@@ -221,9 +290,10 @@ BEGIN
     FROM organization_nodes
    WHERE id = NEW.parent_id;
 
-  -- Under RLS a cross-tenant parent is simply not visible, so this is also the cross-tenant
-  -- refusal for an application session. The explicit tenant comparison below covers the
-  -- control-plane path, where every tenant IS visible.
+  -- This trigger is a definer, so every tenant IS visible to it and a cross-tenant parent reaches
+  -- the explicit comparison below rather than being reported as a row that does not exist. That is
+  -- the honest answer, and it was always the comparison that mattered: the control-plane path came
+  -- through here too, and row-level security never refused it.
   IF NOT FOUND THEN
     RAISE EXCEPTION 'organization node parent % does not exist', NEW.parent_id
       USING ERRCODE = 'foreign_key_violation';
@@ -272,6 +342,8 @@ $$;
 
 CREATE FUNCTION app.organization_node_after_insert() RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 BEGIN
   INSERT INTO organization_node_closure
@@ -293,6 +365,8 @@ $$;
 
 CREATE FUNCTION app.organization_node_after_move() RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_level integer;
@@ -338,6 +412,47 @@ BEGIN
   RETURN NULL;
 END
 $$;
+
+-- Ownership, and the standing that goes with it. CREATE on schema app is granted for the transfer
+-- and taken straight back: `ALTER FUNCTION ... OWNER TO` requires the incoming owner to hold it,
+-- and leaving it would let a role whose purpose is to maintain one derived table add objects to
+-- the schema every policy in the database resolves through.
+GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
+
+ALTER FUNCTION app.organization_node_before_write() OWNER TO freightos_hierarchy_owner;
+ALTER FUNCTION app.organization_node_after_insert() OWNER TO freightos_hierarchy_owner;
+ALTER FUNCTION app.organization_node_after_move() OWNER TO freightos_hierarchy_owner;
+
+REVOKE CREATE ON SCHEMA app FROM freightos_hierarchy_owner;
+
+-- Reachable as triggers and nothing else.
+REVOKE ALL ON FUNCTION app.organization_node_before_write() FROM PUBLIC;
+REVOKE ALL ON FUNCTION app.organization_node_after_insert() FROM PUBLIC;
+REVOKE ALL ON FUNCTION app.organization_node_after_move() FROM PUBLIC;
+
+DO $hierarchy$
+DECLARE
+  v_wrong text;
+BEGIN
+  SELECT string_agg(p.proname, ', ' ORDER BY p.proname) INTO v_wrong
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'app'
+     AND p.proname IN ('organization_node_before_write',
+                       'organization_node_after_insert',
+                       'organization_node_after_move')
+     AND (NOT p.prosecdef
+          OR p.proowner <> 'freightos_hierarchy_owner'::regrole
+          OR p.proconfig IS NULL
+          OR NOT (p.proconfig @> ARRAY['search_path=pg_catalog, public']));
+
+  IF v_wrong IS NOT NULL THEN
+    RAISE EXCEPTION
+      'hierarchy maintenance must be SECURITY DEFINER, owned by freightos_hierarchy_owner, with '
+      'a pinned search_path: %', v_wrong
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+END
+$hierarchy$;
 
 CREATE TRIGGER organization_nodes_before_write
   BEFORE INSERT OR UPDATE ON organization_nodes
@@ -831,19 +946,33 @@ REVOKE DELETE, TRUNCATE ON organization_nodes FROM freightos_app;
 
 ALTER TABLE organization_node_closure ENABLE ROW LEVEL SECURITY;
 ALTER TABLE organization_node_closure FORCE ROW LEVEL SECURITY;
+
+-- Read is tenant-scoped, as before: the closure is how a tenant answers questions about its own
+-- shape, and app.organization_node_scope_ok resolves through it on every scoped policy.
 CREATE POLICY organization_node_closure_read ON organization_node_closure FOR SELECT
   USING (app.is_control_plane() OR tenant_id = app.current_tenant_id());
+
+-- Write is control-plane only — F-02.
+--
+-- Which in practice means the maintenance triggers, since freightos_hierarchy_owner holds the
+-- membership and no connectable role does anything with it: freightos_control_plane is granted no
+-- privilege on this table, and freightos_app is granted SELECT alone below. Two independent
+-- refusals therefore stand between an application session and a forged ancestry — a missing table
+-- privilege and a policy it cannot satisfy — and removing either one on its own changes nothing.
 CREATE POLICY organization_node_closure_insert ON organization_node_closure FOR INSERT
-  WITH CHECK (app.is_control_plane() OR tenant_id = app.current_tenant_id());
+  WITH CHECK (app.is_control_plane());
 CREATE POLICY organization_node_closure_update ON organization_node_closure FOR UPDATE
-  USING (app.is_control_plane() OR tenant_id = app.current_tenant_id())
-  WITH CHECK (app.is_control_plane() OR tenant_id = app.current_tenant_id());
--- Derived rows are removed by the move trigger, which runs as the invoking session, so DELETE has
--- a policy here where the other tables have none.
+  USING (app.is_control_plane()) WITH CHECK (app.is_control_plane());
 CREATE POLICY organization_node_closure_delete ON organization_node_closure FOR DELETE
-  USING (app.is_control_plane() OR tenant_id = app.current_tenant_id());
-GRANT SELECT, INSERT, UPDATE, DELETE ON organization_node_closure TO freightos_app;
-REVOKE TRUNCATE ON organization_node_closure FROM freightos_app;
+  USING (app.is_control_plane());
+
+GRANT SELECT ON organization_node_closure TO freightos_app;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON organization_node_closure FROM freightos_app;
+
+-- The maintenance definer's whole reach. The closure it owns outright; organization_nodes it may
+-- read and re-depth, which is what the move trigger's breadth-first pass does and all it does.
+GRANT SELECT, INSERT, UPDATE, DELETE ON organization_node_closure TO freightos_hierarchy_owner;
+GRANT SELECT, UPDATE ON organization_nodes TO freightos_hierarchy_owner;
 
 ALTER TABLE legal_entities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE legal_entities FORCE ROW LEVEL SECURITY;

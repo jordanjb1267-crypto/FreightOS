@@ -101,6 +101,8 @@ describe('the shape ADR-0020 requires', () => {
       'freightos_admin_owner',
       'freightos_app',
       'freightos_control_plane',
+      // F-02. The hierarchy maintenance definer: NOLOGIN, owns the closure and re-depths nodes.
+      'freightos_hierarchy_owner',
       // F-01. The self-elevation guards' definer owner: NOLOGIN, SELECT on three tables.
       'freightos_identity_guard',
       'freightos_migrator',

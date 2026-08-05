@@ -107,7 +107,11 @@ describe('every PR 2 table is RLS-protected', () => {
     }
   });
 
-  it('denies DELETE on every PR 2 table except the derived closure', async () => {
+  it('denies DELETE on every PR 2 table, the derived closure included', async () => {
+    // The closure used to be the exception: its maintenance triggers ran as the invoking session,
+    // so the application role needed DELETE to make them work. That privilege did not stop at the
+    // triggers, and a table the authorization model resolves through must not be writable by what
+    // it authorizes — F-02. The triggers are trusted code now and the exception is gone.
     const admin = db.connectAs('postgres');
     await admin.connect();
     try {
@@ -116,10 +120,7 @@ describe('every PR 2 table is RLS-protected', () => {
           `SELECT has_table_privilege('freightos_app', $1, 'DELETE') AS ok`,
           [table],
         );
-        // The closure is maintained by a trigger running as the invoking session, so it is the one
-        // table the application role may delete from. Everything else is archived or revoked.
-        const expected = table === 'organization_node_closure';
-        expect(canDelete.rows[0]!.ok, `${table} DELETE`).toBe(expected);
+        expect(canDelete.rows[0]!.ok, `${table} DELETE`).toBe(false);
       }
     } finally {
       await admin.end();
@@ -250,7 +251,11 @@ describe('cross-tenant isolation', () => {
           [id, TENANT_A, b.enterpriseNodeId],
         );
       }),
-    ).rejects.toThrow(/does not exist/i);
+      // The trusted hierarchy trigger CAN see the other tenant's node — it is a definer now, so
+      // row-level security is not what refuses this — and says exactly what is wrong instead of
+      // reporting a row that plainly exists as missing. The explicit tenant comparison is the
+      // refusal, and it was always the one that mattered: the control-plane path reached it too.
+    ).rejects.toThrow(/belongs to a different tenant/i);
   });
 
   it('cannot reference another tenant legal entity from a role', async () => {

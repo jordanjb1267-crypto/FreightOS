@@ -581,3 +581,233 @@ describe('policy inheritance', () => {
     expect(rows).toBe(0);
   });
 });
+
+/**
+ * F-02 — the closure is derived, and only the maintenance triggers may write it.
+ *
+ * organization_node_closure carried `GRANT SELECT, INSERT, UPDATE, DELETE ... TO freightos_app`
+ * with permissive tenant-scoped policies to match, because the triggers that maintain it ran as
+ * the invoking session and needed the privilege. The privilege did not stop at the triggers.
+ *
+ * app.organization_node_scope_ok answers "is this row at or below a node the caller administers?"
+ * by asking the closure, so one inserted row
+ *
+ *   (tenant, ancestor_id => a node I hold, descendant_id => any node, depth => 1)
+ *
+ * granted the caller scope over that node and everything the policies gate on it. No policy was
+ * violated doing it: the rows are the caller's own tenant, which is all they asked.
+ */
+describe('the closure cannot be written by what it authorizes — F-02', () => {
+  it('gives the application role SELECT and nothing else', async () => {
+    const r = await admin.query<{ privilege_type: string }>(
+      `SELECT privilege_type FROM information_schema.table_privileges
+        WHERE grantee = 'freightos_app' AND table_name = 'organization_node_closure'
+        ORDER BY privilege_type`,
+    );
+    expect(r.rows.map((x) => x.privilege_type)).toEqual(['SELECT']);
+  });
+
+  it('refuses a forged ancestry row', async () => {
+    // The reproduction. Before the fix this INSERT succeeded and the caller acquired scope over
+    // the named descendant, and over every table whose policy resolves through the closure.
+    await expect(
+      withLegalContext(app, adminContext(), (c) =>
+        (c as Client).query(
+          `INSERT INTO organization_node_closure
+             (tenant_id, ancestor_id, descendant_id, depth, created_by, updated_by)
+           VALUES ($1, $2, $3, 1, 'test', 'test')`,
+          [TENANT_A, a.terminalNodeId, a.enterpriseNodeId],
+        ),
+      ),
+    ).rejects.toThrow(/permission denied|row-level security/i);
+  });
+
+  it('grants no scope even when the forged row is attempted', async () => {
+    // The point of the finding stated as an outcome rather than as an error message: the terminal
+    // node does not govern the enterprise root before the attempt, and does not after it.
+    const before = await withLegalContext(
+      app,
+      systemContextAt(TENANT_A, a.terminalNodeId, a.legalEntityId, `user:${a.adminUserId}`),
+      async (c) => {
+        const r = await c.query<{ ok: boolean }>(
+          'SELECT app.organization_node_scope_ok($1) AS ok',
+          [a.enterpriseNodeId],
+        );
+        return r.rows[0]!.ok;
+      },
+    );
+    expect(before).toBe(false);
+
+    await withLegalContext(app, adminContext(), async (c) => {
+      await (c as Client)
+        .query(
+          `INSERT INTO organization_node_closure
+             (tenant_id, ancestor_id, descendant_id, depth, created_by, updated_by)
+           VALUES ($1, $2, $3, 1, 'test', 'test')`,
+          [TENANT_A, a.terminalNodeId, a.enterpriseNodeId],
+        )
+        .catch(() => undefined);
+    });
+
+    const after = await withLegalContext(
+      app,
+      systemContextAt(TENANT_A, a.terminalNodeId, a.legalEntityId, `user:${a.adminUserId}`),
+      async (c) => {
+        const r = await c.query<{ ok: boolean }>(
+          'SELECT app.organization_node_scope_ok($1) AS ok',
+          [a.enterpriseNodeId],
+        );
+        return r.rows[0]!.ok;
+      },
+    );
+    expect(after).toBe(false);
+  });
+
+  it('refuses deleting somebody out of the tree', async () => {
+    await expect(
+      withLegalContext(app, adminContext(), (c) =>
+        (c as Client).query(
+          `DELETE FROM organization_node_closure
+            WHERE tenant_id = $1 AND ancestor_id = $2 AND descendant_id = $3`,
+          [TENANT_A, a.enterpriseNodeId, a.terminalNodeId],
+        ),
+      ),
+    ).rejects.toThrow(/permission denied|row-level security/i);
+  });
+
+  it('refuses re-pointing an existing row', async () => {
+    await expect(
+      withLegalContext(app, adminContext(), (c) =>
+        (c as Client).query(
+          `UPDATE organization_node_closure SET depth = 0
+            WHERE tenant_id = $1 AND ancestor_id = $2`,
+          [TENANT_A, a.enterpriseNodeId],
+        ),
+      ),
+    ).rejects.toThrow(/permission denied|row-level security/i);
+  });
+
+  it('refuses emptying it', async () => {
+    await expect(
+      withLegalContext(app, adminContext(), (c) =>
+        (c as Client).query('TRUNCATE organization_node_closure'),
+      ),
+    ).rejects.toThrow(/permission denied|must be owner/i);
+  });
+
+  it('still maintains itself when the tree legitimately changes', async () => {
+    // Two independent refusals stand in front of the closure now, so this is the test that the
+    // triggers can still get past both — "no writer at all" would be a different bug.
+    const nodeId = await withLegalContext(app, adminContext(), async (c) => {
+      const id = randomUUID();
+      await (c as Client).query(
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, $3, 'terminal', 'F-02 Yard', 'test')`,
+        [id, TENANT_A, a.regionNodeId],
+      );
+      return id;
+    });
+
+    const ancestry = await withLegalContext(app, adminContext(), async (c) => {
+      const r = await c.query<{ ancestor_id: string; depth: number }>(
+        `SELECT ancestor_id, depth FROM organization_node_closure
+          WHERE tenant_id = $1 AND descendant_id = $2 ORDER BY depth`,
+        [TENANT_A, nodeId],
+      );
+      return r.rows;
+    });
+    expect(ancestry.map((x) => x.depth)).toEqual([0, 1, 2, 3]);
+    expect(ancestry.map((x) => x.ancestor_id)).toEqual([
+      nodeId,
+      a.regionNodeId,
+      a.legalEntityNodeId,
+      a.enterpriseNodeId,
+    ]);
+
+    // And a move rewrites it — the trigger's detach/reattach pass, still working as a definer.
+    await withLegalContext(app, adminContext(), (c) =>
+      (c as Client).query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [
+        a.legalEntityNodeId,
+        nodeId,
+      ]),
+    );
+    const moved = await withLegalContext(app, adminContext(), async (c) => {
+      const r = await c.query<{ ancestor_id: string; depth: number }>(
+        `SELECT ancestor_id, depth FROM organization_node_closure
+          WHERE tenant_id = $1 AND descendant_id = $2 ORDER BY depth`,
+        [TENANT_A, nodeId],
+      );
+      return r.rows;
+    });
+    expect(moved.map((x) => x.depth)).toEqual([0, 1, 2]);
+    expect(moved.map((x) => x.ancestor_id)).not.toContain(a.regionNodeId);
+  });
+
+  it('keeps the maintenance triggers owned by a non-login definer with a pinned search path', async () => {
+    const r = await admin.query<{
+      proname: string;
+      prosecdef: boolean;
+      owner: string;
+      canlogin: boolean;
+      proconfig: string[] | null;
+    }>(
+      `SELECT p.proname, p.prosecdef, o.rolname AS owner, o.rolcanlogin AS canlogin, p.proconfig
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+         JOIN pg_roles o ON o.oid = p.proowner
+        WHERE n.nspname = 'app' AND p.proname LIKE 'organization_node_%'
+          AND p.proname <> 'organization_node_scope_ok'
+        ORDER BY p.proname`,
+    );
+    expect(r.rows.map((x) => x.proname)).toEqual([
+      'organization_node_after_insert',
+      'organization_node_after_move',
+      'organization_node_before_write',
+    ]);
+    for (const fn of r.rows) {
+      expect(fn.prosecdef, `${fn.proname} SECURITY DEFINER`).toBe(true);
+      expect(fn.owner, `${fn.proname} owner`).toBe('freightos_hierarchy_owner');
+      expect(fn.canlogin, `${fn.proname} owner can log in`).toBe(false);
+      expect(fn.proconfig, `${fn.proname} search_path`).toContain('search_path=pg_catalog, public');
+    }
+
+    // The definer's whole reach: the closure it maintains, and the node depths the move pass
+    // rewrites. Nothing else, and no other table in the schema.
+    const grants = await admin.query<{ table_name: string; privilege_type: string }>(
+      `SELECT table_name, privilege_type FROM information_schema.table_privileges
+        WHERE grantee = 'freightos_hierarchy_owner' ORDER BY table_name, privilege_type`,
+    );
+    expect(grants.rows).toEqual([
+      { table_name: 'organization_node_closure', privilege_type: 'DELETE' },
+      { table_name: 'organization_node_closure', privilege_type: 'INSERT' },
+      { table_name: 'organization_node_closure', privilege_type: 'SELECT' },
+      { table_name: 'organization_node_closure', privilege_type: 'UPDATE' },
+      { table_name: 'organization_nodes', privilege_type: 'SELECT' },
+      { table_name: 'organization_nodes', privilege_type: 'UPDATE' },
+    ]);
+  });
+
+  it('admits only the control plane to the write policies', async () => {
+    const r = await admin.query<{ polname: string; cmd: string; qual: string; withcheck: string }>(
+      `SELECT p.polname, p.polcmd::text AS cmd,
+              coalesce(pg_get_expr(p.polqual, p.polrelid), '') AS qual,
+              coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') AS withcheck
+         FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+        WHERE c.relname = 'organization_node_closure' ORDER BY p.polname`,
+    );
+    expect(r.rows.map((x) => x.polname)).toEqual([
+      'organization_node_closure_delete',
+      'organization_node_closure_insert',
+      'organization_node_closure_read',
+      'organization_node_closure_update',
+    ]);
+    for (const policy of r.rows) {
+      if (policy.polname === 'organization_node_closure_read') continue;
+      // No tenant branch on any write policy: naming your own tenant is not authority to rewrite
+      // the table that decides what your tenant's shape is.
+      expect(`${policy.qual}${policy.withcheck}`, policy.polname).not.toMatch(/current_tenant_id/);
+      expect(`${policy.qual}${policy.withcheck}`, policy.polname).toMatch(/is_control_plane/);
+    }
+  });
+});
