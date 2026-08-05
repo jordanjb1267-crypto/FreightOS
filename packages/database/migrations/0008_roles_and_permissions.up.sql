@@ -311,3 +311,14 @@ REVOKE DELETE, TRUNCATE ON role_permissions FROM freightos_app;
 
 CREATE INDEX roles_node_fk_idx ON roles (tenant_id, organization_node_id);
 CREATE INDEX roles_legal_entity_fk_idx ON roles (tenant_id, legal_entity_id);
+
+-- Full referencing-side index for a composite FK whose only cover was PARTIAL — R2-04.
+--
+-- `role_permissions_one_active_per_pair` has the right leading columns, and a partial index only
+-- answers a lookup the planner can prove falls inside its predicate. A foreign-key check does not:
+-- it looks up the referencing rows for a parent row regardless of whether they are revoked, so
+-- every row outside `revoked_at IS NULL` is invisible to that index and the check falls back to a scan.
+--
+-- The partial unique index stays — it enforces "one active per pair", which is a different job that
+-- a full index cannot do. This is the FK support beside it, not a replacement for it.
+CREATE INDEX role_permissions_role_fk_idx ON role_permissions (tenant_id, role_id);

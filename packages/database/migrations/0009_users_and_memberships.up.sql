@@ -337,3 +337,14 @@ CREATE INDEX users_legal_entity_fk_idx ON users (tenant_id, legal_entity_id);
 CREATE INDEX memberships_node_fk_idx ON memberships (tenant_id, organization_node_id);
 CREATE INDEX memberships_legal_entity_fk_idx ON memberships (tenant_id, legal_entity_id);
 CREATE INDEX membership_roles_role_fk_idx ON membership_roles (tenant_id, role_id);
+
+-- Full referencing-side index for a composite FK whose only cover was PARTIAL — R2-04.
+--
+-- `membership_roles_one_active_per_pair` has the right leading columns, and a partial index only
+-- answers a lookup the planner can prove falls inside its predicate. A foreign-key check does not:
+-- it looks up the referencing rows for a parent row regardless of whether they are revoked, so
+-- every row outside `revoked_at IS NULL` is invisible to that index and the check falls back to a scan.
+--
+-- The partial unique index stays — it enforces "one active per pair", which is a different job that
+-- a full index cannot do. This is the FK support beside it, not a replacement for it.
+CREATE INDEX membership_roles_membership_fk_idx ON membership_roles (tenant_id, membership_id);

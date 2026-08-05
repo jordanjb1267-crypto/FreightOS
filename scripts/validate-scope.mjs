@@ -16,6 +16,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
 import { REPO_ROOT } from './handoff-sources.mjs';
+import { importSpecifiers } from './lib/module-imports.mjs';
 
 const errors = [];
 const notes = [];
@@ -249,9 +250,6 @@ const LEAF_LAYERS = new Set([3]);
 //      through the filesystem is how rules 1 and 2 were avoided.
 // ---------------------------------------------------------------------------
 
-const IMPORT_RE =
-  /(?:^|[^\w$])(?:import|export)\s[^;]*?from\s*['"]([^'"]+)['"]|(?:^|[^\w$])import\s*\(\s*['"]([^'"]+)['"]\s*\)|(?:^|[^\w$])require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-
 /** Every .ts/.mts/.js file under `dir`, recursively. */
 function sourceFiles(dir) {
   if (!existsSync(dir)) return [];
@@ -266,15 +264,6 @@ function sourceFiles(dir) {
     }
   }
   return found;
-}
-
-function importSpecifiers(file) {
-  const text = readFileSync(file, 'utf8');
-  const specifiers = [];
-  for (const match of text.matchAll(IMPORT_RE)) {
-    specifiers.push(match[1] ?? match[2] ?? match[3]);
-  }
-  return specifiers.filter(Boolean);
 }
 
 /**
