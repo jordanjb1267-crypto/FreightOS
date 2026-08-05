@@ -513,3 +513,90 @@ describe('Phase 0 records resolve identically across the migration', () => {
     expect(recovered.applied).toEqual([15, 16]);
   });
 });
+
+/**
+ * F-12 — a legal_entity kill switch must name a legal entity of its own tenant.
+ *
+ * `kill_switches_scope_ref_type` checks that scope_ref parses as a uuid and stops there, so any
+ * uuid was accepted, another tenant's included. A tenant could record a halt naming an entity it
+ * does not own, permanently: kill_switches is append-only and Art. II.1 makes it incident evidence.
+ *
+ * The resolver had the matching half of the same gap. Its legal_entity branch matched on scope_ref
+ * alone, which made the row's own tenant_id decorative — a switch recorded under one tenant would
+ * halt an identically-numbered entity resolved under another. Row-level security hid that from an
+ * application session, which is a reason it was never seen rather than a reason it was safe: the
+ * control plane sees every row, and resolution is exactly what the control plane does.
+ */
+describe('a legal-entity kill switch is bound to its own tenant — F-12', () => {
+  let realEntityA: string;
+  let realEntityB: string;
+
+  beforeAll(async () => {
+    // Real legal entities, because the whole point is what the trigger reads about them. Written
+    // as a superuser: this file has no organization hierarchy, and building one to seed two rows
+    // would be a fixture larger than the thing it supports.
+    const make = async (tenantId: string) => {
+      const rootId = randomUUID();
+      await admin.query(
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, NULL, 'enterprise', 'F-12 root', 'test')`,
+        [rootId, tenantId],
+      );
+      // A legal entity attaches to a legal_entity node, never to the enterprise root.
+      const nodeId = randomUUID();
+      await admin.query(
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, $3, 'legal_entity', 'F-12', 'test')`,
+        [nodeId, tenantId, rootId],
+      );
+      const entityId = randomUUID();
+      await admin.query(
+        `INSERT INTO legal_entities
+           (id, tenant_id, organization_node_id, legal_entity_id, legal_name, jurisdiction,
+            created_by)
+         VALUES ($1, $2, $3, $1, 'F-12 Co', 'US-TX', 'test')`,
+        [entityId, tenantId, nodeId],
+      );
+      return entityId;
+    };
+    realEntityA = await make(TENANT_A);
+    realEntityB = await make(TENANT_B);
+  }, 30_000);
+
+  it('refuses a switch naming another tenant legal entity', async () => {
+    // The reproduction. Before the fix this row was accepted and stood as evidence of a halt one
+    // tenant recorded against another's entity.
+    await expect(engage('legal_entity', realEntityB, TENANT_A, 'read_only')).rejects.toThrow(
+      /belongs to tenant .* and not to/i,
+    );
+  });
+
+  it('accepts a switch naming its own tenant legal entity', async () => {
+    await expect(engage('legal_entity', realEntityA, TENANT_A, 'read_only')).resolves.toBeTruthy();
+  });
+
+  it('resolves a legal-entity switch only for the tenant that recorded it', async () => {
+    // The resolver half. This runs as a superuser, so row-level security is out of the picture and
+    // the tenant predicate in the query is what has to hold — the same position the control plane
+    // is in.
+    expect(await resolve({ tenantId: TENANT_A, legalEntityId: realEntityA })).toBe('read_only');
+    expect(await resolve({ tenantId: TENANT_B, legalEntityId: realEntityA })).toBe('enabled');
+  });
+
+  it('leaves the constraint to report a malformed scope reference', async () => {
+    // The trigger runs ahead of the CHECK constraints, so casting a bad scope_ref there would
+    // replace a specific complaint with "invalid input syntax for type uuid". It steps aside.
+    await expect(engage('legal_entity', 'not-a-uuid', TENANT_A, 'read_only')).rejects.toThrow(
+      /scope_ref_type/,
+    );
+  });
+
+  it('leaves an unknown legal entity alone', async () => {
+    // kill_switches carries no foreign key to legal_entities — the table predates them and is
+    // deliberately cross-tenant — and a switch naming an entity that does not exist halts nothing
+    // and harms only the tenant that recorded it. The cross-tenant case is the defect; this is not.
+    await expect(engage('legal_entity', randomUUID(), TENANT_A, 'suspended')).resolves.toBeTruthy();
+  });
+});

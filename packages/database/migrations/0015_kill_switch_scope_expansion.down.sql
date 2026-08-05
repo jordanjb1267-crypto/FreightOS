@@ -1,3 +1,8 @@
+-- F-12 additions come off first: the trigger and the definer's read on legal_entities.
+DROP TRIGGER IF EXISTS kill_switches_before_write ON kill_switches;
+DROP FUNCTION IF EXISTS app.kill_switch_before_write();
+REVOKE SELECT ON legal_entities FROM freightos_hierarchy_owner;
+
 -- Down: 0015 — OQ-19, part 2.
 --
 -- Restores the Phase 0 constraints, policies and precedence function exactly. 0014's down then

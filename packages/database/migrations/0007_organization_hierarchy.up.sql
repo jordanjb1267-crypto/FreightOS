@@ -346,6 +346,42 @@ BEGIN
       USING ERRCODE = 'integrity_constraint_violation';
   END IF;
 
+  -- Archiving is refused while the subtree below is still live — F-13.
+  --
+  -- Nothing stopped a node being archived with active descendants under it, and the result is a
+  -- subtree that is live by its own status and orphaned by its parent's. Every scope predicate in
+  -- the schema resolves through the closure, which is a structural relation and carries no status
+  -- at all, so the descendants kept their authority while the node that governs them no longer
+  -- claimed to exist. Reading the tree afterwards says one thing; asking the closure says another.
+  --
+  -- REFUSE_ARCHIVE_WHILE_ACTIVE_DESCENDANTS_EXIST, per the owner decision. The alternative —
+  -- cascading the archive down the subtree — is a single statement that silently changes the
+  -- authority of rows the caller did not name, and it is not built here. The operator archives
+  -- from the leaves up, which is the same order they would have to reason about anyway.
+  IF TG_OP = 'UPDATE' AND NEW.status = 'archived' AND OLD.status <> 'archived' THEN
+    DECLARE
+      v_live integer;
+    BEGIN
+      SELECT count(*) INTO v_live
+        FROM organization_node_closure c
+        JOIN organization_nodes n
+          ON n.tenant_id = c.tenant_id AND n.id = c.descendant_id
+       WHERE c.tenant_id = NEW.tenant_id
+         AND c.ancestor_id = NEW.id
+         AND c.depth > 0
+         AND n.status <> 'archived';
+
+      IF v_live > 0 THEN
+        RAISE EXCEPTION
+          'organization node % may not be archived: % descendant node(s) below it are still '
+          'active. Archive from the leaves up — a node''s authority reaches its subtree through '
+          'the closure, which carries no status of its own.',
+          NEW.id, v_live
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+    END;
+  END IF;
+
   -- Cycle prevention. A move is a cycle exactly when the proposed parent already sits inside the
   -- moving node's own subtree, which the closure answers in one lookup.
   IF TG_OP = 'UPDATE' AND EXISTS (

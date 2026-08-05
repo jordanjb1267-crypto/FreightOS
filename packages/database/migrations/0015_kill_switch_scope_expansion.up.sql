@@ -84,6 +84,77 @@ ALTER TABLE kill_switches
     );
 
 -- ---------------------------------------------------------------------------
+-- A legal_entity switch must name a legal entity of its own tenant — F-12.
+--
+-- The shape constraint above checks that scope_ref parses as a uuid and stops there, so any uuid
+-- was accepted, including another tenant's legal entity. A tenant could record a halt naming an
+-- entity it does not own, and the record would say so permanently — kill_switches is append-only,
+-- and Art. II.1 makes it incident evidence.
+--
+-- A CHECK constraint cannot express this: it would have to read another table. A trigger can, and
+-- it is a definer so the answer does not depend on what the caller can see. Under row-level
+-- security a caller cannot see another tenant's legal entity at all, so a caller-run check would
+-- read "no such entity" for the cross-tenant case and for the genuinely-missing case alike, and
+-- would have to conflate them. The definer tells them apart and says which is wrong.
+-- ---------------------------------------------------------------------------
+
+CREATE FUNCTION app.kill_switch_before_write() RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_owner uuid;
+BEGIN
+  IF NEW.scope <> 'legal_entity' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Shape first, and by returning rather than raising. A BEFORE trigger runs ahead of the CHECK
+  -- constraints, so casting a malformed scope_ref here would replace kill_switches_scope_ref_type's
+  -- specific complaint with "invalid input syntax for type uuid". The constraint is the better
+  -- error; this steps out of its way.
+  IF NEW.scope_ref !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+     OR NEW.tenant_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT tenant_id INTO v_owner
+    FROM legal_entities WHERE id = NEW.scope_ref::uuid;
+
+  -- A switch naming an entity that does not exist halts nothing and harms only the tenant that
+  -- recorded it, and kill_switches carries no foreign key to legal_entities — the table predates
+  -- them and is deliberately cross-tenant. Adding one is a schema change beyond this finding, so
+  -- the unknown case passes and the CROSS-TENANT case, which is the defect, does not.
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  IF v_owner IS DISTINCT FROM NEW.tenant_id THEN
+    RAISE EXCEPTION
+      'kill switch names legal entity %, which belongs to tenant % and not to %',
+      NEW.scope_ref, v_owner, NEW.tenant_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+
+  RETURN NEW;
+END
+$$;
+
+-- The definer owner is the hierarchy maintainer from 0007: already NOLOGIN, already a member of
+-- freightos_control_plane, and this is one more read of a tenant-owned table by trusted code. A
+-- third definer role for one lookup would be ceremony rather than isolation.
+GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
+ALTER FUNCTION app.kill_switch_before_write() OWNER TO freightos_hierarchy_owner;
+REVOKE CREATE ON SCHEMA app FROM freightos_hierarchy_owner;
+REVOKE ALL ON FUNCTION app.kill_switch_before_write() FROM PUBLIC;
+GRANT SELECT ON legal_entities TO freightos_hierarchy_owner;
+
+CREATE TRIGGER kill_switches_before_write
+  BEFORE INSERT OR UPDATE ON kill_switches
+  FOR EACH ROW EXECUTE FUNCTION app.kill_switch_before_write();
+
+-- ---------------------------------------------------------------------------
 -- Visibility.
 --
 -- 0004's read policy lets every tenant see system and legal_plane switches, so a tenant can tell
@@ -159,7 +230,15 @@ AS $$
           OR (scope = 'agent'             AND scope_ref = p_agent_id)
           OR (scope = 'tool'              AND scope_ref = p_tool_id)
           OR (scope = 'integration'       AND scope_ref = p_integration_id)
-          OR (scope = 'legal_entity'      AND scope_ref = p_legal_entity_id::text)
+          -- The tenant is part of the match, not merely of the row — F-12. A legal entity belongs
+          -- to exactly one tenant, so a legal_entity switch is only ever about that tenant's
+          -- entity. Matching on scope_ref alone made the row's own tenant_id decorative here: a
+          -- switch recorded under one tenant would halt an identically-numbered entity resolved
+          -- under another. Row-level security hid that from an application session, which is a
+          -- reason it was never seen rather than a reason it was safe — the control plane sees
+          -- every row, and resolution is exactly what the control plane does.
+          OR (scope = 'legal_entity'      AND scope_ref = p_legal_entity_id::text
+                                          AND tenant_id = p_tenant_id)
           OR (scope = 'operating_context' AND scope_ref = p_operating_context::text)
         )
       -- Enum declaration order is restrictiveness order, so DESC is "most restrictive wins".

@@ -772,13 +772,15 @@ describe('the closure cannot be written by what it authorizes — F-02', () => {
       expect(fn.proconfig, `${fn.proname} search_path`).toContain('search_path=pg_catalog, public');
     }
 
-    // The definer's whole reach: the closure it maintains, and the node depths the move pass
-    // rewrites. Nothing else, and no other table in the schema.
+    // The definer's whole reach: the closure it maintains, the node depths the move pass rewrites,
+    // and one read of legal_entities that 0015's kill-switch tenant check needs (F-12). Nothing
+    // else, and nothing writable outside the closure.
     const grants = await admin.query<{ table_name: string; privilege_type: string }>(
       `SELECT table_name, privilege_type FROM information_schema.table_privileges
         WHERE grantee = 'freightos_hierarchy_owner' ORDER BY table_name, privilege_type`,
     );
     expect(grants.rows).toEqual([
+      { table_name: 'legal_entities', privilege_type: 'SELECT' },
       { table_name: 'organization_node_closure', privilege_type: 'DELETE' },
       { table_name: 'organization_node_closure', privilege_type: 'INSERT' },
       { table_name: 'organization_node_closure', privilege_type: 'SELECT' },
@@ -1190,5 +1192,95 @@ describe('a protected control cannot be un-declared by a descendant — F-08', (
     );
     expect(r.rows[0]!.qual).not.toMatch(/organization_node_scope_ok/);
     expect(r.rows[0]!.qual).toMatch(/current_tenant_id/);
+  });
+});
+
+/**
+ * F-13 — archiving a node while its subtree is still live.
+ *
+ * Nothing stopped it, and the result is a subtree that is live by its own status and orphaned by
+ * its parent's. Every scope predicate resolves through the closure, which is a structural relation
+ * carrying no status at all, so the descendants kept their authority while the node governing them
+ * no longer claimed to exist.
+ *
+ * Per the owner decision this is REFUSE_ARCHIVE_WHILE_ACTIVE_DESCENDANTS_EXIST. Cascading the
+ * archive down the subtree is not built here: it is a single statement that silently changes the
+ * authority of rows the caller did not name.
+ */
+describe('a node cannot be archived above live descendants — F-13', () => {
+  async function branch() {
+    return withLegalContext(app, adminContext(), async (c) => {
+      const client = c as Client;
+      const make = async (parent: string, type: string) => {
+        const id = randomUUID();
+        await client.query(
+          `INSERT INTO organization_nodes
+             (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+           VALUES ($1, $2, $1, $3, $4, $5, 'test')`,
+          [id, TENANT_A, parent, type, `F-13 ${type} ${randomUUID().slice(0, 8)}`],
+        );
+        return id;
+      };
+      const region = await make(a.legalEntityNodeId, 'region');
+      const terminal = await make(region, 'terminal');
+      return { region, terminal };
+    });
+  }
+
+  const archive = (nodeId: string) =>
+    withLegalContext(app, adminContext(), (c) =>
+      (c as Client).query(`UPDATE organization_nodes SET status = 'archived' WHERE id = $1`, [
+        nodeId,
+      ]),
+    );
+
+  it('refuses while a descendant is still active', async () => {
+    const { region } = await branch();
+    await expect(archive(region)).rejects.toThrow(
+      /descendant node\(s\) below it are still active/i,
+    );
+  });
+
+  it('permits it once the subtree is archived from the leaves up', async () => {
+    const { region, terminal } = await branch();
+    await expect(archive(terminal)).resolves.toBeTruthy();
+    await expect(archive(region)).resolves.toBeTruthy();
+  });
+
+  it('names how many descendants are in the way', async () => {
+    // A refusal an operator can act on: the count is what tells them how much is below.
+    const { region } = await branch();
+    await expect(archive(region)).rejects.toThrow(/1 descendant node\(s\)/);
+  });
+
+  it('leaves a leaf archivable', async () => {
+    const { terminal } = await branch();
+    await expect(archive(terminal)).resolves.toBeTruthy();
+  });
+
+  it('does not archive anything the caller did not name', async () => {
+    // The alternative design, stated as an assertion. A cascading archive would have taken the
+    // terminal with the region, and the caller asked about one node.
+    const { region, terminal } = await branch();
+    await archive(region).catch(() => undefined);
+    const status = await withLegalContext(app, adminContext(), async (c) => {
+      const r = await c.query<{ status: string }>(
+        'SELECT status FROM organization_nodes WHERE id = $1',
+        [terminal],
+      );
+      return r.rows[0]!.status;
+    });
+    expect(status).toBe('active');
+  });
+
+  it('still permits an ordinary status change that is not an archive', async () => {
+    const { region } = await branch();
+    await expect(
+      withLegalContext(app, adminContext(), (c) =>
+        (c as Client).query(`UPDATE organization_nodes SET status = 'suspended' WHERE id = $1`, [
+          region,
+        ]),
+      ),
+    ).resolves.toBeTruthy();
   });
 });
