@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { repositoryRoot } from '../../../config/src/paths.ts';
+import { repositoryRoot } from '@freightos/config';
 import {
   OUTCOMES,
   PRIVILEGED_PURPOSES,

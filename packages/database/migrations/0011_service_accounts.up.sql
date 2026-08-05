@@ -102,9 +102,39 @@ CREATE TABLE service_account_credentials (
   updated_by             text NOT NULL CHECK (length(btrim(updated_by)) > 0),
   record_version         bigint NOT NULL DEFAULT 1,
 
-  CONSTRAINT service_account_credentials_reference_is_a_uri
-    CHECK (credential_reference ~ '^[a-z][a-z0-9+.-]*:[^[:space:]]+$'),
-  -- Belt as well as braces: even a URI-shaped value must not carry a recognisable secret.
+  -- An ALLOWLIST of schemes, not merely a URI shape — F-10.
+  --
+  -- The shape check alone accepted any scheme at all, so it let through the values it exists to
+  -- refuse: `data:;base64,...` is a URI, `basic:dXNlcjpwYXNzd29yZA==` is a URI, and
+  -- `postgres://user:hunter2@db` is a URI carrying a live password. The marker check below caught
+  -- none of those, because a denylist only catches the shapes somebody thought to name.
+  --
+  -- Every scheme here locates a secret held somewhere else, which is the whole property this
+  -- column exists to have. A scheme that can carry the secret inline is not on the list, and adding
+  -- one has to be a deliberate schema change with a reviewer.
+  -- The allowlist is per credential type, because the three types reference different things: a
+  -- secret store, an identity provider, and a digest. One combined list would let an
+  -- external_secret_reference name an OIDC subject and vice versa, which is exactly the confusion
+  -- the type column exists to prevent.
+  CONSTRAINT service_account_credentials_reference_scheme
+    CHECK (
+      CASE credential_type
+        WHEN 'external_secret_reference' THEN
+          credential_reference ~
+            '^(vault|secretsmanager|gcpsecretmanager|azurekeyvault|k8ssecret|env):[^[:space:]]+$'
+        WHEN 'provider_subject' THEN
+          credential_reference ~ '^(oidc|saml|oauth2|ldap):[^[:space:]]+$'
+        WHEN 'hash_reference' THEN
+          credential_reference ~ '^hash:[^[:space:]]+$'
+      END
+    ),
+
+  -- No userinfo, ever. `scheme://user:secret@host/path` is the oldest way to smuggle a credential
+  -- into something that looks like a location, and it passes any scheme allowlist by construction.
+  CONSTRAINT service_account_credentials_reference_has_no_userinfo
+    CHECK (credential_reference !~ '^[a-z][a-z0-9+.-]*://[^/@[:space:]]*@'),
+
+  -- Belt as well as braces: even an allowed scheme must not carry a recognisable secret.
   CONSTRAINT service_account_credentials_reference_is_not_a_secret
     CHECK (credential_reference !~* '(bearer |-----begin |sk_live|pk_live|ghp_|xox[abps]-)'),
   CONSTRAINT service_account_credentials_hash_shape
@@ -129,8 +159,9 @@ CREATE TABLE service_account_credentials (
 );
 
 COMMENT ON TABLE service_account_credentials IS
-  'Credential REFERENCES only. No column here can hold plaintext secret material, and the CHECK '
-  'constraints refuse the recognisable shapes outright.';
+  'Credential REFERENCES only. The scheme allowlist admits only URI schemes that LOCATE a secret '
+  'held elsewhere, so a value able to carry one inline is unrepresentable rather than merely '
+  'discouraged — F-10.';
 
 CREATE UNIQUE INDEX service_account_credentials_reference_unique
   ON service_account_credentials (tenant_id, credential_reference)

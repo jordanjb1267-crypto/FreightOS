@@ -11,11 +11,7 @@
  */
 
 import type { Client, PoolClient } from 'pg';
-import {
-  type LegalContext,
-  assertLegalContext,
-  type ValidationOptions,
-} from '../../context/src/legal.ts';
+import { type LegalContext, assertLegalContext, type ValidationOptions } from '@freightos/context';
 
 export type Queryable = Client | PoolClient;
 

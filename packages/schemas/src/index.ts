@@ -10,12 +10,33 @@
  * for is what makes that rule survive contact with a deadline.
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import _Ajv2020 from 'ajv/dist/2020.js';
 import _addFormats from 'ajv-formats';
 import type { AnySchema, ErrorObject } from 'ajv';
-import { repositoryRoot } from '../../config/src/paths.ts';
+
+/**
+ * Walk upward for the workspace marker rather than counting `../` segments, so this keeps working
+ * whether the module runs from source, from dist, or from a test runner's temp directory.
+ *
+ * Duplicated from packages/config rather than imported — F-11. Both packages are ADR-0024 L0, and
+ * L0 has no lower layer to depend on, so `@freightos/schemas -> @freightos/config` is a same-layer
+ * edge the layering rule forbids. It was reaching across with a relative path, which declared
+ * nothing in package.json and so was invisible to the check. Fourteen lines of path walking is the
+ * cheaper of the two ways to be honest about that; the other is a new package below L0 whose only
+ * member is this function.
+ */
+function repositoryRoot(from: string = fileURLToPath(import.meta.url)): string {
+  let dir = dirname(from);
+  for (;;) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error('repository root not found: no pnpm-workspace.yaml above');
+    dir = parent;
+  }
+}
 
 // ajv v8 ships CommonJS. Under NodeNext the runtime interop is correct but the types resolve to a
 // namespace rather than a constructor, so the default export is re-pointed explicitly.

@@ -490,7 +490,42 @@ describe('credential references never hold secret material', () => {
   });
 
   it('refuses a bare string that is not a URI', async () => {
-    await expect(insertCredential('not-a-uri')).rejects.toThrow(/reference_is_a_uri/);
+    await expect(insertCredential('not-a-uri')).rejects.toThrow(/reference_scheme/);
+  });
+
+  /**
+   * F-10. The constraint was a URI SHAPE plus a denylist of markers, so it admitted every value it
+   * exists to refuse: `data:;base64,…` is a URI, `basic:dXNlcjpwYXNzd29yZA==` is a URI, and
+   * `postgres://user:hunter2@db` is a URI carrying a live password. It is an allowlist of schemes
+   * now, per credential type, so anything not named is refused by default rather than by omission.
+   */
+  it('refuses a URI whose scheme can carry the secret inline', async () => {
+    for (const inline of [
+      'data:;base64,c2VjcmV0',
+      'basic:dXNlcjpwYXNzd29yZA==',
+      'http://example.test/token/abc',
+      'jdbc:postgresql://db/freightos',
+      'file:///etc/freightos/credential',
+    ]) {
+      await expect(insertCredential(inline), inline).rejects.toThrow(/reference_scheme/);
+    }
+  });
+
+  it('refuses userinfo even under an allowed scheme', async () => {
+    // `scheme://user:secret@host` passes any scheme allowlist by construction.
+    await expect(
+      insertCredential('vault://operator:hunter2@vault.internal/freightos'),
+    ).rejects.toThrow(/reference_has_no_userinfo/);
+  });
+
+  it('keeps each credential type to the schemes that make sense for it', async () => {
+    // A secret-store locator is not an identity, and an identity is not a secret-store locator.
+    await expect(
+      insertCredential('oidc://idp.example/subject/abc', 'external_secret_reference'),
+    ).rejects.toThrow(/reference_scheme/);
+    await expect(insertCredential('vault://x/y', 'provider_subject')).rejects.toThrow(
+      /reference_scheme/,
+    );
   });
 
   // Each fixture carries the marker its rule looks for and stops there. A realistic-looking value

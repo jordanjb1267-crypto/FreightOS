@@ -57,7 +57,58 @@ describe('a locator, never the thing located', () => {
 
   it('refuses a bare string that is not a URI', () => {
     const reasons = validateCredentialReference(reference({ credentialReference: 'not-a-uri' }));
-    expect(reasons.join(' ')).toContain('must be a URI');
+    expect(reasons.join(' ')).toContain('must locate the credential and never carry it');
+  });
+
+  /**
+   * F-10. "Must be a URI" accepted any scheme at all, so it admitted the values it exists to
+   * refuse. A denylist of markers only catches the shapes somebody thought to name; an allowlist
+   * of schemes catches everything else by default.
+   */
+  it('refuses a URI whose scheme can carry the secret inline', () => {
+    for (const inline of [
+      'data:;base64,c2VjcmV0',
+      'basic:dXNlcjpwYXNzd29yZA==',
+      'http://example.test/token/abc',
+      'jdbc:postgresql://db/freightos',
+      'file:///etc/freightos/credential',
+    ]) {
+      expect(isValidCredentialReference(reference({ credentialReference: inline })), inline).toBe(
+        false,
+      );
+    }
+  });
+
+  it('refuses userinfo even under an allowed scheme', () => {
+    // `scheme://user:secret@host` passes any scheme allowlist by construction, which is why it
+    // needs a rule of its own.
+    for (const smuggled of [
+      'vault://operator:hunter2@vault.internal/freightos',
+      'secretsmanager://token@aws/freightos',
+    ]) {
+      expect(
+        isValidCredentialReference(reference({ credentialReference: smuggled })),
+        smuggled,
+      ).toBe(false);
+    }
+  });
+
+  it('keeps each credential type to the schemes that make sense for it', () => {
+    // A secret-store locator is not an identity, and an identity is not a secret-store locator.
+    // One combined list would let either stand in for the other.
+    expect(
+      isValidCredentialReference(
+        reference({ credentialType: 'provider_subject', credentialReference: 'vault://x/y' }),
+      ),
+    ).toBe(false);
+    expect(
+      isValidCredentialReference(
+        reference({
+          credentialType: 'external_secret_reference',
+          credentialReference: 'oidc://idp.example/subject/abc',
+        }),
+      ),
+    ).toBe(false);
   });
 
   it('refuses a reference containing whitespace', () => {

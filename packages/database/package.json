@@ -10,6 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@freightos/context": "workspace:*",
     "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@freightos/identity": "workspace:*"
   }
 }

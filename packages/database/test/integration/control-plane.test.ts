@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PRIVILEGED_PURPOSES, PURPOSES } from '../../../identity/src/purpose.ts';
+import { PRIVILEGED_PURPOSES, PURPOSES } from '@freightos/identity';
 import { withLegalContext } from '../../src/session.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
 import { seedIdentity, systemContext, type IdentityFixture } from './identity-harness.ts';

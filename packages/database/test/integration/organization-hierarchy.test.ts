@@ -5,7 +5,7 @@ import {
   MAX_ORGANIZATION_DEPTH,
   ORGANIZATION_NODE_TYPES,
   isPermittedNodeParent,
-} from '../../../identity/src/organization.ts';
+} from '@freightos/identity';
 import { withLegalContext } from '../../src/session.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
 import { seedIdentity, systemContextAt, type IdentityFixture } from './identity-harness.ts';

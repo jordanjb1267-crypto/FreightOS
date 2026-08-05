@@ -68,9 +68,22 @@ importers:
 
   packages/database:
     dependencies:
+      '@freightos/context':
+        specifier: workspace:*
+        version: link:../context
       pg:
         specifier: ^8.13.1
         version: 8.22.0
+    devDependencies:
+      '@freightos/identity':
+        specifier: workspace:*
+        version: link:../identity
+
+  packages/identity:
+    devDependencies:
+      '@freightos/config':
+        specifier: workspace:*
+        version: link:../config
 
   packages/schemas:
     dependencies:

@@ -19,8 +19,49 @@ export const CREDENTIAL_TYPES = [
 ] as const;
 export type CredentialType = (typeof CREDENTIAL_TYPES)[number];
 
-/** A URI. A bare secret pasted into the field cannot satisfy this. */
-const REFERENCE_RE = /^[a-z][a-z0-9+.-]*:\S+$/;
+/**
+ * The schemes a credential reference may use — F-10.
+ *
+ * An allowlist, not a URI shape. "Must be a URI" accepted any scheme at all, so it admitted the
+ * values it exists to refuse: `data:;base64,…` is a URI, `basic:dXNlcjpwYXNzd29yZA==` is a URI,
+ * and `postgres://user:hunter2@db` is a URI carrying a live password. The marker list below caught
+ * none of them, because a denylist only catches the shapes somebody thought to name.
+ *
+ * Every scheme here LOCATES a secret held somewhere else, which is the property this field exists
+ * to have. Adding one that can carry a secret inline has to be a deliberate change to this list
+ * and to migration 0011's matching constraint, with a reviewer on both.
+ */
+export const CREDENTIAL_REFERENCE_SCHEMES = {
+  /** A pointer into an external secret store. The secret never enters this database. */
+  external_secret_reference: [
+    'vault',
+    'secretsmanager',
+    'gcpsecretmanager',
+    'azurekeyvault',
+    'k8ssecret',
+    'env',
+  ],
+  /** An identity the provider issued. Not secret, and not usable to authenticate by itself. */
+  provider_subject: ['oidc', 'saml', 'oauth2', 'ldap'],
+  /** A locator for the digest carried in credentialHash. */
+  hash_reference: ['hash'],
+} as const satisfies Record<CredentialType, readonly string[]>;
+
+/**
+ * The list is per credential type, because the three types reference different things: a secret
+ * store, an identity provider, and a digest. One combined list would let an
+ * external_secret_reference name an OIDC subject and vice versa, which is the confusion the type
+ * column exists to prevent.
+ */
+function referencePattern(type: CredentialType): RegExp {
+  return new RegExp(`^(?:${CREDENTIAL_REFERENCE_SCHEMES[type].join('|')}):\\S+$`);
+}
+
+/**
+ * `scheme://user:secret@host/path` — the oldest way to smuggle a credential into something that
+ * looks like a location, and it passes any scheme allowlist by construction.
+ */
+const USERINFO_RE = /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*@/;
 
 /**
  * Recognisable secret shapes, refused wherever they appear.
@@ -55,9 +96,20 @@ export function validateCredentialReference(input: CredentialReferenceInput): re
     reasons.push(`unknown credentialType "${input.credentialType}"`);
   }
 
-  if (!REFERENCE_RE.test(input.credentialReference)) {
+  const schemes = CREDENTIAL_REFERENCE_SCHEMES[input.credentialType] as
+    readonly string[] | undefined;
+  if (
+    schemes !== undefined &&
+    !referencePattern(input.credentialType).test(input.credentialReference)
+  ) {
     reasons.push(
-      'credentialReference must be a URI locating the credential, never the credential itself',
+      `credentialReference for "${input.credentialType}" must locate the credential and never ` +
+        `carry it: one of ${schemes.join(', ')} followed by a path, with no whitespace`,
+    );
+  }
+  if (USERINFO_RE.test(input.credentialReference)) {
+    reasons.push(
+      'credentialReference must not carry userinfo — that is a credential, not a locator',
     );
   }
   if (SECRET_MARKER_RE.test(input.credentialReference)) {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
-import type { LegalContext } from '../../../context/src/legal.ts';
+import type { LegalContext } from '@freightos/context';
 import { withLegalContext } from '../../src/session.ts';
 
 /**
