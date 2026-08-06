@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.freightos.example/network/command-envelope.v1.json",
+  "title": "FreightOS Network Command Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "command_id",
+    "command_type",
+    "requester_id",
+    "represented_organization_id",
+    "target",
+    "idempotency_key",
+    "issued_at",
+    "expires_at",
+    "policy_decision_ref",
+    "payload"
+  ],
+  "properties": {
+    "command_id": {
+      "type": "string"
+    },
+    "command_type": {
+      "type": "string"
+    },
+    "requester_id": {
+      "type": "string"
+    },
+    "represented_organization_id": {
+      "type": "string"
+    },
+    "target": {
+      "$ref": "logistics-object-reference.v1.json"
+    },
+    "expected_version": {
+      "type": [
+        "integer",
+        "string",
+        "null"
+      ]
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_decision_ref": {
+      "type": "string"
+    },
+    "approval_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "workflow_id": {
+      "type": "string"
+    },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}

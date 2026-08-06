@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.freightos.example/network/evidence-envelope.v1.json",
+  "title": "Evidence Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidence_id",
+    "evidence_type",
+    "content_hash",
+    "captured_at",
+    "captured_by",
+    "classification",
+    "storage_ref"
+  ],
+  "properties": {
+    "evidence_id": {
+      "type": "string"
+    },
+    "evidence_type": {
+      "type": "string"
+    },
+    "content_hash": {
+      "type": "string"
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "captured_by": {
+      "type": "string"
+    },
+    "related_event_id": {
+      "type": "string"
+    },
+    "subject_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "logistics-object-reference.v1.json"
+      }
+    },
+    "classification": {
+      "type": "string"
+    },
+    "storage_ref": {
+      "type": "string"
+    },
+    "verification_state": {
+      "enum": [
+        "unverified",
+        "device_attested",
+        "document_supported",
+        "counterparty_confirmed",
+        "independently_verified"
+      ]
+    },
+    "lineage": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "retention_class": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+asyncapi: 3.1.0
+info:
+  title: FreightOS Network Events
+  version: 1.0.0
+  description: Starter contract for governed FreightOS network event publication and consumption.
+servers:
+  sandbox:
+    host: events.sandbox.freightos.example
+    protocol: kafka-secure
+channels:
+  networkEvents:
+    address: freightos.network.events
+    messages:
+      NetworkEvent:
+        $ref: '#/components/messages/NetworkEvent'
+operations:
+  publishNetworkEvent:
+    action: send
+    channel:
+      $ref: '#/channels/networkEvents'
+    messages:
+      - $ref: '#/channels/networkEvents/messages/NetworkEvent'
+  consumeNetworkEvent:
+    action: receive
+    channel:
+      $ref: '#/channels/networkEvents'
+    messages:
+      - $ref: '#/channels/networkEvents/messages/NetworkEvent'
+components:
+  messages:
+    NetworkEvent:
+      name: NetworkEvent
+      contentType: application/json
+      payload:
+        $ref: '../../schemas/network-event-envelope.schema.json'

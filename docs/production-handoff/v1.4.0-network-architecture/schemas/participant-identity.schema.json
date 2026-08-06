@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.freightos.example/network/participant-identity.v1.json",
+  "title": "Participant Identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "participant_id",
+    "participant_type",
+    "status"
+  ],
+  "properties": {
+    "participant_id": {
+      "type": "string"
+    },
+    "participant_type": {
+      "enum": [
+        "organization",
+        "person",
+        "facility",
+        "device",
+        "workload",
+        "agent",
+        "asset"
+      ]
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "active",
+        "suspended",
+        "revoked"
+      ]
+    },
+    "represented_organization_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "assurance_level": {
+      "type": "string"
+    },
+    "valid_from": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "valid_until": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  }
+}

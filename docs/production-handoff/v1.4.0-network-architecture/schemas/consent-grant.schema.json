@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.freightos.example/network/consent-grant.v1.json",
+  "title": "Consent Grant",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "grant_id",
+    "grantor_id",
+    "recipient_id",
+    "resources",
+    "purposes",
+    "effective_at",
+    "status"
+  ],
+  "properties": {
+    "grant_id": {
+      "type": "string"
+    },
+    "grantor_id": {
+      "type": "string"
+    },
+    "recipient_id": {
+      "type": "string"
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "purposes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "effective_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "active",
+        "expired",
+        "revoked"
+      ]
+    },
+    "downstream_sharing": {
+      "type": "boolean"
+    }
+  }
+}

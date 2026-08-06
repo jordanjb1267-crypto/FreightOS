@@ -1,0 +1,20 @@
+version: 1
+levels:
+  L0:
+    name: documented
+    requirements: [declared_scope, contract_available]
+  L1:
+    name: syntactic
+    requirements: [schema_validation, authentication_contract]
+  L2:
+    name: semantic
+    requirements: [lifecycle_tests, code_mapping_tests]
+  L3:
+    name: operational
+    requirements: [idempotency, retry, replay, failure_tests, slo_measurement]
+  L4:
+    name: trusted
+    requirements: [authorization, privacy, evidence, audit, security_review]
+  L5:
+    name: certified
+    requirements: [approved_external_certification]

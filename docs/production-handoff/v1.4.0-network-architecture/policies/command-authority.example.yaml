@@ -1,0 +1,23 @@
+version: 1
+policy_id: freightos.command.roadside-dispatch.example
+command_type: com.freightos.service.provider-dispatch.v1
+risk_tier: 2
+required:
+  authenticated_subject: true
+  represented_organization: true
+  active_relationship_to_resource: true
+  idempotency_key: true
+  expected_resource_version: true
+  expires_at: true
+limits:
+  max_estimated_amount_usd: 1500
+  allowed_service_types:
+    - mobile_repair
+    - heavy_tow
+approval:
+  mode: explicit_or_pre_authorized
+  step_up_above_usd: 500
+executor:
+  allowlisted: true
+  kill_switch_required: true
+  reconciliation_required: true

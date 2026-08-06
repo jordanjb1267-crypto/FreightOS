@@ -1,0 +1,25 @@
+version: 1
+policy_id: freightos.data-sharing.mission-readiness.example
+resource_type: mission_readiness_assertion
+owner: fleet
+allowed_recipients:
+  - assigned_broker
+  - assigned_shipper
+projection:
+  include:
+    - assertion_id
+    - asset_reference
+    - mission_reference
+    - state
+    - constraints
+    - assessed_at
+    - expires_at
+  exclude:
+    - raw_fault_codes
+    - repair_costs
+    - full_maintenance_history
+purpose:
+  - shipment_execution
+revocation:
+  future_access: immediate
+  immutable_audit_retention: true

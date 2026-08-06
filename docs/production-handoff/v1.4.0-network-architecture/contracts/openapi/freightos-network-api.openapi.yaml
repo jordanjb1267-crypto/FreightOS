@@ -1,0 +1,62 @@
+openapi: 3.2.0
+info:
+  title: FreightOS Network API
+  version: 1.0.0
+  description: Starter contract for FreightOS canonical resources, events, and commands.
+servers:
+  - url: https://api.sandbox.freightos.example/network/v1
+paths:
+  /events:
+    post:
+      operationId: publishNetworkEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../../schemas/network-event-envelope.schema.json'
+      responses:
+        '202':
+          description: Event durably accepted
+        '400':
+          description: Schema or semantic validation failure
+        '401':
+          description: Authentication required
+        '403':
+          description: Publication not authorized
+        '409':
+          description: Idempotency or version conflict
+  /commands:
+    post:
+      operationId: submitNetworkCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../../schemas/network-command-envelope.schema.json'
+      responses:
+        '202':
+          description: Command accepted for policy and execution processing
+        '400':
+          description: Invalid command
+        '403':
+          description: Command not authorized
+        '409':
+          description: State or idempotency conflict
+  /objects/{networkId}:
+    get:
+      operationId: resolveNetworkObject
+      parameters:
+        - name: networkId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Authorized object projection
+        '403':
+          description: Projection not authorized
+        '404':
+          description: Object not found or not visible
