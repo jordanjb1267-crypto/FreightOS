@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.internal/schemas/agent-action-envelope.v1.json",
+  "title": "FreightOS Agent Action Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["envelope_id", "agent_id", "organization_id", "operation", "target", "parameters", "evidence_refs", "idempotency_key", "expires_at"],
+  "properties": {
+    "envelope_id": {"type": "string", "minLength": 16},
+    "agent_id": {"type": "string", "minLength": 3},
+    "represented_principal_id": {"type": "string"},
+    "organization_id": {"type": "string"},
+    "operation": {"type": "string"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_type", "resource_id"],
+      "properties": {
+        "resource_type": {"type": "string"},
+        "resource_id": {"type": "string"}
+      }
+    },
+    "parameters": {"type": "object"},
+    "reason": {"type": "string", "maxLength": 2000},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "requested_authority": {"type": "string"},
+    "idempotency_key": {"type": "string", "minLength": 16},
+    "policy_context_id": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"}
+  }
+}

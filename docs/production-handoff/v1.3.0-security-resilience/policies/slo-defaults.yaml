@@ -1,0 +1,30 @@
+version: 1
+policy_id: freightos.slo-defaults.v1
+status: initial_targets_not_external_commitments
+classes:
+  A:
+    availability_monthly: 0.9995
+    rto_minutes: 30
+    rpo_minutes: 5
+    alerting:
+      fast_burn_window_minutes: 60
+      slow_burn_window_hours: 6
+  B:
+    availability_monthly: 0.999
+    rto_minutes: 120
+    rpo_minutes: 15
+  C:
+    availability_monthly: 0.995
+    rto_minutes: 480
+    rpo_minutes: 240
+  D:
+    availability_monthly: 0.99
+    rto_minutes: 1440
+    rpo_minutes: 1440
+release_policy:
+  class_a_or_b_budget_exhausted:
+    pause_nonessential_releases: true
+    allowed_changes:
+      - security_fix
+      - reliability_fix
+      - approved_emergency_change

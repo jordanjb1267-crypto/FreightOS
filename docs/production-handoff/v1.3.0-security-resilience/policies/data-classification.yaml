@@ -1,0 +1,46 @@
+version: 1
+policy_id: freightos.data-classification.v1
+levels:
+  D0:
+    name: public
+    encryption_at_rest: required
+    audit_access: false
+    default_retention: product_defined
+  D1:
+    name: internal
+    encryption_at_rest: required
+    audit_access: risk_based
+    default_retention: active_need
+  D2:
+    name: network_restricted
+    encryption_at_rest: required
+    cross_party_sharing: explicit_policy
+    audit_access: true
+    default_retention: relationship_plus_defined_period
+  D3:
+    name: confidential
+    encryption_at_rest: required
+    export_requires_authorization: true
+    audit_access: true
+    nonproduction_use: masked_or_synthetic
+  D4:
+    name: highly_sensitive
+    encryption_at_rest: required
+    field_or_envelope_encryption: preferred
+    step_up_access: required
+    audit_access: true
+    logs_and_prompts: prohibited
+    nonproduction_use: prohibited_unless_irreversibly_masked
+  D5:
+    name: regulated_or_critical
+    encryption_at_rest: required
+    explicit_owner_approval: required
+    dedicated_controls: required
+    audit_access: true
+    generalized_model_training: prohibited_without_explicit_approval
+requirements:
+  every_field_has_owner: true
+  every_field_has_purpose: true
+  every_field_has_retention_class: true
+  sharing_is_deny_by_default: true
+  deletion_is_reconciled: true
