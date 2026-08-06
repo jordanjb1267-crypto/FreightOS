@@ -1,0 +1,22 @@
+version: 1
+policy_id: freightos.network.object-governance
+rules:
+  immutable_network_ids: true
+  external_identifiers:
+    require_issuer: true
+    require_effective_period: true
+    require_verification_state: true
+  material_history:
+    append_only: true
+    correction_requires_reference: true
+  source_of_truth:
+    declaration_required: true
+    allowed_roles:
+      - system_of_record
+      - authoritative_mirror
+      - derived_view
+      - routing_index
+      - evidence_custodian
+      - external_pointer
+  extensions:
+    registered_namespace_required: true
