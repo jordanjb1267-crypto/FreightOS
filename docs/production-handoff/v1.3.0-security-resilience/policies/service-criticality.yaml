@@ -1,0 +1,45 @@
+version: 1
+policy_id: freightos.service-criticality.v1
+classes:
+  A:
+    description: safety_and_continuity_critical
+    examples:
+      - identity_authorization_enforcement
+      - active_dispatch_access
+      - emergency_roadside_request
+      - critical_event_ingestion
+      - chain_of_custody_capture
+    required:
+      - defined_degraded_mode
+      - on_call_runbook
+      - burn_rate_alerts
+      - tested_restore
+      - dependency_failure_test
+  B:
+    description: transaction_critical
+    examples:
+      - freight_tendering
+      - appointment_management
+      - repair_approval
+      - document_exchange
+      - settlement_workflow
+    required:
+      - idempotency
+      - reconciliation
+      - retry_policy
+      - tested_restore
+  C:
+    description: decision_support
+    examples:
+      - rate_recommendations
+      - predictive_maintenance
+      - analytics
+      - benchmarking
+    required:
+      - freshness_indicator
+      - no_blocking_dependency_for_class_a
+  D:
+    description: administrative
+    examples:
+      - historical_exports
+      - nonurgent_configuration
