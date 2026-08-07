@@ -161,7 +161,7 @@ BEGIN
     ELSE NULL
   END;
   IF v_actor_type IS NULL THEN
-    RAISE EXCEPTION 'actor %L is not of a recognised principal form', v_actor
+    RAISE EXCEPTION 'actor % is not of a recognised principal form', quote_literal(v_actor)
       USING ERRCODE = 'invalid_authorization_specification';
   END IF;
 
