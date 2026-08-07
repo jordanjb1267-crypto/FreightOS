@@ -11,11 +11,7 @@
  */
 
 import type { Client, PoolClient } from 'pg';
-import {
-  type LegalContext,
-  assertLegalContext,
-  type ValidationOptions,
-} from '../../context/src/legal.ts';
+import { type LegalContext, assertLegalContext, type ValidationOptions } from '@freightos/context';
 
 export type Queryable = Client | PoolClient;
 
@@ -37,13 +33,18 @@ export async function applyLegalContext(
             set_config('app.actor_id', $2, true),
             set_config('app.legal_authority_class', $3, true),
             set_config('app.operating_context', $4, true),
-            set_config('app.legal_entity_id', $5, true)`,
+            set_config('app.legal_entity_id', $5, true),
+            set_config('app.organization_node_id', $6, true)`,
     [
       context.tenantId,
       context.actorId,
       context.legalAuthorityClass,
       context.operatingContext,
+      // Empty string rather than NULL: set_config rejects NULL, and app.current_legal_entity_id()
+      // and app.current_organization_node_id() both nullif('') before casting, so an absent value
+      // reads back as SQL NULL and the policies that depend on it fail closed.
       context.legalEntityId ?? '',
+      context.organizationNodeId ?? '',
     ],
   );
 }
@@ -79,6 +80,8 @@ export async function currentContext(client: Queryable): Promise<{
   actorId: string | null;
   legalAuthorityClass: string | null;
   operatingContext: string | null;
+  legalEntityId: string | null;
+  organizationNodeId: string | null;
   isControlPlane: boolean;
 }> {
   const result = await client.query<{
@@ -86,12 +89,16 @@ export async function currentContext(client: Queryable): Promise<{
     actor_id: string | null;
     legal_authority_class: string | null;
     operating_context: string | null;
+    legal_entity_id: string | null;
+    organization_node_id: string | null;
     is_control_plane: boolean;
   }>(
     `SELECT app.current_tenant_id()::text            AS tenant_id,
             app.current_actor_id()                   AS actor_id,
             app.current_legal_authority_class()::text AS legal_authority_class,
             app.current_operating_context()::text     AS operating_context,
+            app.current_legal_entity_id()::text       AS legal_entity_id,
+            app.current_organization_node_id()::text  AS organization_node_id,
             app.is_control_plane()                    AS is_control_plane`,
   );
 
@@ -101,6 +108,8 @@ export async function currentContext(client: Queryable): Promise<{
     actorId: row.actor_id,
     legalAuthorityClass: row.legal_authority_class,
     operatingContext: row.operating_context,
+    legalEntityId: row.legal_entity_id,
+    organizationNodeId: row.organization_node_id,
     isControlPlane: row.is_control_plane,
   };
 }

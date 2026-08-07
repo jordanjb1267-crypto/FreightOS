@@ -1,8 +1,9 @@
 # Runbook — Kill switch
 
 **Required by** `12_OBSERVABILITY_RELIABILITY_AND_RUNBOOKS.md:43`.
-**Mechanism:** `kill_switches` table (migration 0004), `app.resolve_kill_switch_mode()`, and
-`resolveKillSwitch()` in `packages/context/src/kill-switch.ts`.
+**Mechanism:** `kill_switches` table (migration 0004, extended by 0015),
+`app.resolve_kill_switch_mode()`, and `resolveKillSwitch()` in
+`packages/context/src/kill-switch.ts`.
 
 ## When to use this
 
@@ -18,14 +19,51 @@
 **Humans only.** Constitution Art. V.1 reserves kill-switch and override authority to humans, and
 Art. X.6 forbids an agent changing its own autonomy ceiling. The database enforces this:
 `kill_switches.engaged_by_type` accepts only `human` or `system`, so an insert naming an agent is
-rejected outright.
+rejected outright. **From OQ-19 onward the same holds for release**: `released_by_type` carries the
+same constraint, because an agent that cannot engage a switch but can release one has defeated the
+control.
 
 Scope determines who may engage:
 
-| Scope                                                | Who may engage                                                        |
-| ---------------------------------------------------- | --------------------------------------------------------------------- |
-| `system`, `legal_plane`                              | Control plane only — cross-tenant, so a tenant cannot set or clear it |
-| `tenant`, `workflow`, `agent`, `tool`, `integration` | The owning tenant, or the control plane                               |
+| Scope                                                                | Who may engage                                                        |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `system`, `legal_plane`, `operating_context`                         | Control plane only — cross-tenant, so a tenant cannot set or clear it |
+| `legal_entity`, `tenant`, `workflow`, `agent`, `tool`, `integration` | The owning tenant, or the control plane                               |
+
+## Scopes
+
+`legal_entity` and `operating_context` were added by OQ-19 (migrations 0014 and 0015). ADR-0019
+requirement 7 names both as kill-switch targets, and neither existed before Phase 1 PR 2.
+
+| Scope               | `scope_ref` holds                                    | Tenant-scoped? |
+| ------------------- | ---------------------------------------------------- | -------------- |
+| `system`            | nothing — `NULL`                                     | No             |
+| `legal_plane`       | a `class:context` pair, e.g. `software_only:carrier` | No             |
+| `operating_context` | one `app.operating_context` value                    | No             |
+| `legal_entity`      | a legal-entity uuid                                  | Yes            |
+| `tenant`            | a tenant uuid                                        | Yes            |
+| `workflow`          | a workflow id                                        | Yes            |
+| `agent`             | an agent id                                          | Yes            |
+| `tool`              | a tool id                                            | Yes            |
+| `integration`       | an integration id                                    | Yes            |
+
+`operating_context` is cross-tenant because an operating context is a platform-wide surface:
+suspending one suspends it everywhere. `legal_entity` is tenant-scoped because a legal entity
+belongs to exactly one tenant. The shapes are enforced by `kill_switches_tenant_shape` and
+`kill_switches_scope_ref_type`.
+
+## The standing autonomous_mobility suspension
+
+`0016_autonomous_mobility_standing_suspension` ships one switch **engaged**:
+`operating_context` / `autonomous_mobility` / `suspended`, id
+`f0000000-0000-4000-8000-00000000a119`.
+
+ADR-0019 holds `autonomous_mobility` at a standing fail-closed suspension for all of Phase 1. The
+enum value already exists in `app.operating_context`, so a code path can reach it; a standing switch
+makes an accidental path fail closed rather than merely fail review.
+
+**Do not release it.** Doing so requires a signed
+`checklists/AUTONOMOUS_VEHICLE_ACTIVATION_GATE.md`, which is unsigned and Horizon 3 at the earliest.
 
 ## Modes, least to most restrictive
 
@@ -91,9 +129,12 @@ survives.
 
 ```sql
 UPDATE kill_switches
-SET released_at = now(), released_by = 'user:jordan'
+SET released_at = now(), released_by = 'user:jordan', released_by_type = 'human'
 WHERE scope = 'agent' AND scope_ref = 'dispatch-agent' AND released_at IS NULL;
 ```
+
+All three release columns move together — `kill_switches_release_consistency` rejects any subset —
+and `released_by_type` accepts only `human` or `system`.
 
 Re-run the resolution query afterwards. If the mode has not returned to `enabled`, another switch
 is still contributing — check `appliedBy`.
@@ -108,9 +149,13 @@ is still contributing — check `appliedBy`.
 
 ## Known gap
 
-Phase 0 delivers the durable record, the semantics, and the precedence rule. **What Phase 0 does
-not deliver is enforcement at the point of action** — no command handler consults
-`resolve_kill_switch_mode()` yet, because no consequential command exists until Phase 3. Engaging a
-switch today records intent and is queryable; it does not by itself halt a workflow. Wiring the
-check into the command path, and testing that it halts in-flight Temporal workflows, is Phase 3
-scope and a precondition of the Horizon 1 stop gate.
+Phase 0 delivers the durable record, the semantics, and the precedence rule. Phase 1 PR 2 adds two
+scopes and symmetric release authority. **What neither delivers is enforcement at the point of
+action** — no command handler consults `resolve_kill_switch_mode()`, because no consequential
+command exists until Phase 3. Engaging a switch today records intent and is queryable; it does not
+by itself halt a workflow.
+
+That is unchanged by OQ-19, and saying so is the point: PR 2 widened what a switch can _target_, not
+what a switch _does_. Wiring the check into the command path, and testing that it halts in-flight
+Temporal workflows, is Phase 3 scope and a precondition of the Horizon 1 stop gate — Phase 0
+carry-forward item 1, OQ-14, P-17.

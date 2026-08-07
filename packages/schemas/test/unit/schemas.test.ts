@@ -17,6 +17,8 @@ function envelope(overrides: Record<string, unknown> = {}) {
     operatingcontext: 'carrier',
     actorid: 'user:jordan',
     correlationid: randomUUID(),
+    // OQ-20 / ADR-0019 requirement 6: purpose is a required context attribute on every envelope.
+    purpose: 'service_operation',
     data: {},
     ...overrides,
   };
@@ -98,6 +100,59 @@ describe('event envelope — ADR-0015', () => {
 
   it('rejects unknown attributes', () => {
     expect(validate('eventEnvelope', envelope({ smuggled: true })).valid).toBe(false);
+  });
+});
+
+/**
+ * OQ-20. ADR-0019 requirement 6 makes `purpose` part of every envelope, and the handoff schema set
+ * `additionalProperties: false` with no such attribute — so an envelope carrying one was invalid
+ * and an envelope omitting one was valid. Both halves are asserted here.
+ */
+describe('event envelope purpose — OQ-20', () => {
+  it('accepts an envelope carrying a purpose from the closed vocabulary', () => {
+    expect(validate('eventEnvelope', envelope({ purpose: 'identity_administration' }))).toEqual({
+      valid: true,
+      errors: [],
+    });
+  });
+
+  it('rejects an envelope with no purpose at all', () => {
+    const { purpose: _omitted, ...rest } = envelope();
+    const result = validate('eventEnvelope', rest);
+    expect(result.valid).toBe(false);
+    expect(JSON.stringify(result.errors)).toContain('purpose');
+  });
+
+  it('rejects a purpose outside the approved vocabulary', () => {
+    expect(validate('eventEnvelope', envelope({ purpose: 'because_i_said_so' })).valid).toBe(false);
+  });
+
+  it('rejects a purpose of the wrong type', () => {
+    expect(validate('eventEnvelope', envelope({ purpose: 42 })).valid).toBe(false);
+    expect(validate('eventEnvelope', envelope({ purpose: null })).valid).toBe(false);
+  });
+
+  it('accepts every value in the vocabulary and nothing else', () => {
+    const vocabulary = [
+      'service_operation',
+      'tenant_provisioning',
+      'tenant_lifecycle',
+      'identity_administration',
+      'access_review',
+      'audit_export',
+      'incident_response',
+      'security_investigation',
+      'regulatory_request',
+      'platform_operations',
+    ];
+    for (const purpose of vocabulary) {
+      expect(validate('eventEnvelope', envelope({ purpose })).valid, purpose).toBe(true);
+    }
+    for (const rejected of ['', 'SERVICE_OPERATION', 'service operation', 'admin']) {
+      expect(validate('eventEnvelope', envelope({ purpose: rejected })).valid, rejected).toBe(
+        false,
+      );
+    }
   });
 });
 

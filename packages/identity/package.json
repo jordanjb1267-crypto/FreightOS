@@ -1,0 +1,15 @@
+{
+  "name": "@freightos/identity",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@freightos/config": "workspace:*"
+  }
+}

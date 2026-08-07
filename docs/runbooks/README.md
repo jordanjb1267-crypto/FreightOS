@@ -3,11 +3,16 @@
 `12_OBSERVABILITY_RELIABILITY_AND_RUNBOOKS.md:43` and `:67` name **24 required runbooks**. The
 handoff contains the list and none of the documents. This directory is where they live.
 
-**Phase 0 status: 1 of 24 written.** That is not a claim of completeness — it is the honest count.
-The kill-switch runbook is written now because Phase 0 built the kill-switch mechanism, and a
-control with no procedure for using it is not a control. The rest are written as the capability
-each one covers is actually built; writing a runbook for a workflow that does not exist would be
-fiction.
+**Status after Phase 1 PR 2: 3 of 24 written.** That is not a claim of completeness — it is the
+honest count. Each is written when the capability it covers is actually built; writing a runbook for
+a workflow that does not exist would be fiction.
+
+- The kill-switch runbook came with Phase 0's kill-switch mechanism.
+- The control-plane-access runbook comes with PR 2's `admin` schema — ADR-0020 §Implementation
+  obligations assigns it to PR 2, and a privileged surface with no procedure for using it is not a
+  controlled surface.
+- The database-migration-recovery runbook comes with PR 2's first migration that can legitimately
+  refuse to revert.
 
 ## Required by `12_…:43` — core
 
@@ -33,6 +38,13 @@ All eleven are deferred with their modules and are listed for completeness: auto
 hold/cancel, provider outage, remote assistance, minimal-risk event, human recovery, autonomous
 cybersecurity event, facility evacuation/safety hold, gate outage, WMS/YMS outage, custody dispute,
 and facility data-provenance incident.
+
+## Additional runbooks, required by the ADRs rather than by `12_…`
+
+| Runbook                     | Status                                                                             | Required by                        |
+| --------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------- |
+| Control-plane access        | **Written** — [`control-plane-access.md`](./control-plane-access.md)               | ADR-0020                           |
+| Database migration recovery | **Written** — [`database-migration-recovery.md`](./database-migration-recovery.md) | ACCEPTANCE_THRESHOLDS §4, ADR-0017 |
 
 ## Standard
 

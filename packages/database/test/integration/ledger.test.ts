@@ -47,25 +47,55 @@ async function insertAudit(client: Client, overrides: Record<string, unknown> = 
 // schema while the previous block's connection still held locks on it.
 const db = new TestDatabase('freightos_test_ledger');
 let app: Client;
+/**
+ * The table owner.
+ *
+ * 0018 §1 revoked INSERT on audit_events from both runtime roles, so a direct compose is no longer
+ * something the application can do — that is the point of the fix. The CHECK constraints below are
+ * table constraints rather than policies, so exercising them needs a connection that can still
+ * insert directly. That is the owner, and the tests say so explicitly rather than quietly widening
+ * the runtime role to keep an old assertion working.
+ */
+let owner: Client;
 
 beforeAll(async () => {
   await db.reset();
   await db.seedTenants();
   app = db.connectAs('freightos_app');
   await app.connect();
+  owner = db.connectAs('postgres');
+  await owner.connect();
 }, 60_000);
 
 afterAll(async () => {
   await app?.end();
+  await owner?.end();
 });
 
 describe('append-only audit ledger', () => {
-  it('accepts an append', async () => {
-    const id = await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
-      const r = await insertAudit(c as Client);
-      return r.rows[0]!.id as string;
+  it('accepts an append through the governed write path — 0018 §1', async () => {
+    // A recognised principal form. 0018 §1 derives actor_type from the shape of the actor id
+    // rather than accepting an assertion of it, so an unrecognised prefix is refused outright —
+    // which is what stops an agent typing itself 'human'. The fixture's own 'test:actor' is not a
+    // principal form and is correctly rejected.
+    const context = { ...carrierContext(TENANT_A), actorId: 'system:test-harness' };
+    const id = await withLegalContext(app, context, async (c) => {
+      const r = await (c as Client).query<{ id: string }>(
+        `SELECT app.record_audit_event(
+           'rig.freight.shipment.created.v1', 'shipment', $1, $2, NULL, NULL, '{}'::jsonb) AS id`,
+        [randomUUID(), randomUUID()],
+      );
+      return r.rows[0]!.id;
     });
     expect(id).toBeTruthy();
+  });
+
+  it('refuses a direct compose by the runtime role — 0018 §1', async () => {
+    await expect(
+      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+        await insertAudit(c as Client);
+      }),
+    ).rejects.toThrow(/permission denied/i);
   });
 
   it('rejects UPDATE — Constitution Art. II.1', async () => {
@@ -105,11 +135,9 @@ describe('append-only audit ledger', () => {
   });
 
   it('requires legal_entity_id outside system scope', async () => {
-    await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
-        await insertAudit(c as Client, { legal_entity_id: null });
-      }),
-    ).rejects.toThrow(/audit_events_legal_entity_required/);
+    await expect(insertAudit(owner, { legal_entity_id: null })).rejects.toThrow(
+      /audit_events_legal_entity_required/,
+    );
   });
 
   it('permits omitting legal_entity_id under system scope with an authorized actor', async () => {
@@ -133,33 +161,33 @@ describe('append-only audit ledger', () => {
 
   it('rejects an impermissible legal pairing', async () => {
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
-        await insertAudit(c as Client, {
-          legal_authority_class: 'carrier_agent',
-          operating_context: 'brokerage',
-        });
+      insertAudit(owner, {
+        legal_authority_class: 'carrier_agent',
+        operating_context: 'brokerage',
       }),
     ).rejects.toThrow(/audit_events_legal_pairing/);
   });
 
   it('rejects a malformed event type', async () => {
-    await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
-        await insertAudit(c as Client, { event_type: 'not-a-versioned-type' });
-      }),
-    ).rejects.toThrow(/audit_events_event_type_check/);
+    await expect(insertAudit(owner, { event_type: 'not-a-versioned-type' })).rejects.toThrow(
+      /audit_events_event_type_check/,
+    );
   });
 });
 
 describe('transactional outbox', () => {
+  // `purpose` is a mandatory envelope attribute from OQ-20 onward (migration 0006, ADR-0019
+  // requirement 6). Every assertion below is unchanged in behaviour; the fixture carries the new
+  // attribute because the envelope now requires one.
   async function insertOutbox(client: Client, eventId: string) {
     return client.query(
       `INSERT INTO outbox_events (
          tenant_id, legal_entity_id, legal_authority_class, operating_context,
          event_id, event_type, event_source, event_time, actor_id, correlation_id,
-         payload, created_by)
+         payload, created_by, purpose)
        VALUES ($1,$2,'carrier_agent','carrier',$3,'rig.freight.shipment.created.v1',
-               '/freightos/test', now(), 'test:actor', $4, '{}'::jsonb, 'test:actor')
+               '/freightos/test', now(), 'test:actor', $4, '{}'::jsonb, 'test:actor',
+               'service_operation')
        RETURNING id, status`,
       [TENANT_A, LEGAL_ENTITY, eventId, randomUUID()],
     );

@@ -158,7 +158,9 @@ describe('row-level security', () => {
     const control = db.connectAs('freightos_control_plane');
     await control.connect();
     try {
-      const r = await control.query<{ id: string }>('SELECT id FROM tenants ORDER BY name');
+      const r = await control.query<{ id: string }>(
+        'SELECT id FROM tenants WHERE NOT is_platform ORDER BY name',
+      );
       expect(r.rows.map((x) => x.id)).toEqual([TENANT_A, TENANT_B]);
     } finally {
       await control.end();
@@ -166,7 +168,29 @@ describe('row-level security', () => {
   });
 
   it('forces RLS on the table owner as well', async () => {
-    const tables = ['tenants', 'audit_events', 'outbox_events', 'kill_switches'];
+    // P-04 and ACCEPTANCE_THRESHOLDS §1: extended to every Phase 1 table as each PR adds them, so
+    // a new table without FORCE fails here rather than at a phase exit gate.
+    const tables = [
+      'tenants',
+      'audit_events',
+      'outbox_events',
+      'kill_switches',
+      'organization_nodes',
+      'organization_node_closure',
+      'legal_entities',
+      'operating_authorities',
+      'carrier_appointments',
+      'users',
+      'memberships',
+      'membership_roles',
+      'roles',
+      'permissions',
+      'role_permissions',
+      'service_accounts',
+      'service_account_credentials',
+      'service_account_permissions',
+      'policy_bindings',
+    ];
     const admin = db.connectAs('postgres');
     await admin.connect();
     try {

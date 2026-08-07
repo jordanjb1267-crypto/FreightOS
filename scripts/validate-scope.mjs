@@ -16,6 +16,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
 import { REPO_ROOT } from './handoff-sources.mjs';
+import { importSpecifiers } from './lib/module-imports.mjs';
 
 const errors = [];
 const notes = [];
@@ -188,6 +189,208 @@ if (existsSync(packagesDir)) {
       }
     };
     walk(join(packagesDir, pkg));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3b. Package layering — ADR-0024 §Enforcement.
+//
+// "Dependency direction is asserted in CI, not merely documented. A check reads each package's
+// package.json workspace dependencies, maps them to layers, and fails on any same-layer or upward
+// edge — which also makes a cycle impossible to introduce."
+//
+// Only the roots ADR-0024 authorizes may exist. `packages/facility-contracts/` and the five other
+// paths 21_...:161-171 permits are deliberately absent: the doctrine allows them, and ADR-0024 §
+// "Authorized Phase 1 package roots" does not commission them.
+// ---------------------------------------------------------------------------
+const PACKAGE_LAYERS = {
+  config: 0,
+  schemas: 0,
+  context: 1,
+  database: 2,
+  'rigreceipts-contracts': 3,
+  'rigdesk-contracts': 3,
+  identity: 4,
+  parties: 4,
+  carrier: 5,
+  'modal-core': 5,
+  'mode-road': 6,
+  'facility-primitives': 6,
+};
+
+// L3 is a leaf on purpose: an external contract package importing a domain type would put tenant
+// domain types inside a package whose whole purpose is to model something FreightOS does not own.
+const LEAF_LAYERS = new Set([3]);
+
+// ---------------------------------------------------------------------------
+// The check reads IMPORTS, not only manifests — F-11.
+//
+// It used to read package.json alone, which meant it enforced the dependency graph a package
+// DECLARED rather than the one it had. Three ways of taking an undeclared edge went straight past
+// it, and the repository contained all three:
+//
+//   packages/schemas/src/index.ts     -> ../../config/src/paths.ts       (a same-layer edge)
+//   packages/database/src/session.ts  -> ../../context/src/legal.ts      (undeclared)
+//   packages/database/test/**         -> ../../../identity/src/*.ts      (an upward edge)
+//
+// Every one of them declared nothing in any package.json, so the validator reported
+// PACKAGE_LAYERING=PASS while the layering it describes did not hold. A relative path that walks
+// out of its own package is the whole trick, and it is invisible to a manifest reader by
+// construction.
+//
+// So three rules, and the third is what makes the first two enforceable:
+//
+//   1. A RUNTIME edge — `dependencies` or `peerDependencies`, and anything imported from src/ —
+//      must go strictly downward. No same-layer edge, no upward edge.
+//   2. A TEST edge — `devDependencies`, and anything imported from test/ — may go upward. A test
+//      asserting that the database and the identity package agree about a vocabulary is inherently
+//      cross-layer and ships to nobody. It must still be DECLARED, so the edge is visible in the
+//      manifest rather than buried in a path.
+//   3. A relative import may not leave its own package, in either directory. Reaching sideways
+//      through the filesystem is how rules 1 and 2 were avoided.
+// ---------------------------------------------------------------------------
+
+/** Every .ts/.mts/.js file under `dir`, recursively. */
+function sourceFiles(dir) {
+  if (!existsSync(dir)) return [];
+  const found = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      if (entry === 'node_modules' || entry === 'dist') continue;
+      found.push(...sourceFiles(full));
+    } else if (/\.(m?ts|m?js|tsx)$/.test(entry)) {
+      found.push(full);
+    }
+  }
+  return found;
+}
+
+/**
+ * TypeScript path aliases resolve at compile time and leave no trace in package.json, so an alias
+ * mapping one package's name onto another's source would take an edge this check never sees.
+ * Rather than resolve them, they are refused outright: nothing in this repository needs one, and a
+ * future one must arrive with its own decision about what it does to the layering rule.
+ */
+const typescriptConfigs = [
+  ...readdirSync(REPO_ROOT)
+    .filter((entry) => /^tsconfig(\..+)?\.json$/.test(entry))
+    .map((entry) => join(REPO_ROOT, entry)),
+  ...(existsSync(join(REPO_ROOT, 'packages'))
+    ? readdirSync(join(REPO_ROOT, 'packages'))
+        .map((pkg) => join(REPO_ROOT, 'packages', pkg))
+        .filter((dir) => statSync(dir).isDirectory())
+        .flatMap((dir) =>
+          readdirSync(dir)
+            .filter((entry) => /^tsconfig(\..+)?\.json$/.test(entry))
+            .map((entry) => join(dir, entry)),
+        )
+    : []),
+];
+
+for (const configPath of typescriptConfigs) {
+  if (/"paths"\s*:/.test(readFileSync(configPath, 'utf8'))) {
+    errors.push(
+      `${relative(REPO_ROOT, configPath)} defines compilerOptions.paths. A path alias can map one ` +
+        `package onto another's source without any package.json edge, which makes ADR-0024's ` +
+        `layering unenforceable. Use workspace dependencies.`,
+    );
+  }
+}
+
+if (existsSync(packagesDir)) {
+  for (const pkg of readdirSync(packagesDir)) {
+    if (!statSync(join(packagesDir, pkg)).isDirectory()) continue;
+
+    const layer = PACKAGE_LAYERS[pkg];
+    if (layer === undefined) {
+      errors.push(
+        `packages/${pkg}/ is not an authorized package root. ADR-0024 names the preserved Phase 0 ` +
+          `packages and the eight Phase 1 roots; creating another requires its own decision.`,
+      );
+      continue;
+    }
+
+    const manifestPath = join(packagesDir, pkg, 'package.json');
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+
+    const workspaceNames = (record) =>
+      Object.keys(record ?? {})
+        .filter((d) => d.startsWith('@freightos/'))
+        .map((d) => d.slice('@freightos/'.length));
+
+    const runtimeDeps = new Set([
+      ...workspaceNames(manifest.dependencies),
+      ...workspaceNames(manifest.peerDependencies),
+    ]);
+    const testDeps = new Set(workspaceNames(manifest.devDependencies));
+
+    // --- 1. Declared runtime edges must go strictly downward. ---
+    for (const name of runtimeDeps) {
+      const dependencyLayer = PACKAGE_LAYERS[name];
+      if (dependencyLayer === undefined) {
+        errors.push(`packages/${pkg} depends on unknown workspace package @freightos/${name}`);
+        continue;
+      }
+      if (LEAF_LAYERS.has(layer)) {
+        errors.push(
+          `packages/${pkg} is an external-contract leaf (ADR-0024 L${layer}) and may depend only ` +
+            `on L0; it depends on @freightos/${name}`,
+        );
+      } else if (dependencyLayer >= layer) {
+        errors.push(
+          `packages/${pkg} (L${layer}) depends on @freightos/${name} (L${dependencyLayer}). ` +
+            `ADR-0024 permits only strictly lower layers — no same-layer edge and no upward edge.`,
+        );
+      }
+    }
+
+    // --- 2. Declared test edges must at least name a real package. ---
+    for (const name of testDeps) {
+      if (PACKAGE_LAYERS[name] === undefined) {
+        errors.push(`packages/${pkg} devDepends on unknown workspace package @freightos/${name}`);
+      }
+    }
+
+    // --- 3. Every import in the package, checked against what it declared. ---
+    const packageRoot = join(packagesDir, pkg);
+    for (const area of ['src', 'test']) {
+      const isRuntime = area === 'src';
+      for (const file of sourceFiles(join(packageRoot, area))) {
+        const where = relative(REPO_ROOT, file);
+
+        for (const specifier of importSpecifiers(file)) {
+          if (specifier.startsWith('.')) {
+            // A relative import that leaves the package is a cross-package edge wearing a path.
+            const resolved = join(file, '..', specifier);
+            if (!relative(packageRoot, resolved).startsWith(`..${sep}`)) continue;
+            errors.push(
+              `${where} imports "${specifier}", which leaves packages/${pkg}. A cross-package ` +
+                `import must name the workspace package so the edge is declared and checkable.`,
+            );
+            continue;
+          }
+
+          if (!specifier.startsWith('@freightos/')) continue;
+          const name = specifier.slice('@freightos/'.length).split('/')[0];
+
+          if (isRuntime) {
+            if (!runtimeDeps.has(name)) {
+              errors.push(
+                `${where} imports @freightos/${name} but packages/${pkg} does not declare it as a ` +
+                  `runtime dependency. ${testDeps.has(name) ? 'It is a devDependency, which is a test-only edge and may not be imported from src/.' : 'Add it to dependencies.'}`,
+              );
+            }
+          } else if (!runtimeDeps.has(name) && !testDeps.has(name)) {
+            errors.push(
+              `${where} imports @freightos/${name} but packages/${pkg} declares no dependency on ` +
+                `it. A test edge still has to be declared — add it to devDependencies.`,
+            );
+          }
+        }
+      }
+    }
   }
 }
 
@@ -378,6 +581,7 @@ if (existsSync(migrationsDir)) {
 notes.push(`modules checked: ${Object.keys(MODULE_EXPECTATIONS).length}`);
 notes.push(`mandatory-false flags: ${MANDATORY_FALSE.length}`);
 notes.push(`prohibited paths: ${PROHIBITED_PATHS.length}`);
+notes.push(`authorized package roots: ${Object.keys(PACKAGE_LAYERS).length}`);
 notes.push(`products checked: ${(products.products ?? []).length}`);
 notes.push(
   `agents checked: ${(agentRegistry.agents ?? []).length} (${clampedCount} clamped below declared ceiling)`,
@@ -396,4 +600,5 @@ console.log('DEFERRED_MODULES_DISABLED=PASS');
 console.log('AUTONOMY_CEILING=PASS');
 console.log('SAFETY_BOUNDARY=PASS');
 console.log('BILLING_DISABLED=PASS');
+console.log('PACKAGE_LAYERING=PASS');
 for (const n of notes) console.log(`  ${n}`);

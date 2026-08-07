@@ -170,6 +170,21 @@ export async function migrateUp(
   return { applied: runNow, reverted: [] };
 }
 
+/**
+ * The version a single-step revert should stop at: one below the highest APPLIED migration.
+ *
+ * Relative to what is applied, never to how many files are on disk. Deriving it from the file
+ * count made the second consecutive single-step revert a no-op — the target came out as the
+ * version that had just been reverted to — so the runbook's documented way of unwinding a
+ * deployment one migration at a time stopped after one step and reported "nothing to revert".
+ */
+export async function oneStepDownTarget(client: Client): Promise<number> {
+  await ensureMigrationTable(client);
+  const applied = await appliedMigrations(client);
+  if (applied.length === 0) return 0;
+  return Math.max(0, Math.max(...applied.map((m) => m.version)) - 1);
+}
+
 /** Revert in reverse order. `toVersion` is the version to stop AT (0 unwinds everything). */
 export async function migrateDown(
   client: Client,

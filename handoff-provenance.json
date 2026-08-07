@@ -231,9 +231,9 @@
   ],
   "overrides": {
     "schemas/event-envelope.schema.json": {
-      "adr": "ADR-0015",
-      "reason": "Handoff enum omitted facility_operator and autonomous_mobility with additionalProperties:false, making Horizon 1 custody events unemittable. Replaced authoritymode with legalauthorityclass + operatingcontext; bounded legalentityid optionality to system scope.",
-      "sha256": "74cf30a406a16c216e0743dfeddcec04f0ba2775f87aa84b3e240e91974ca4ee",
+      "adr": "ADR-0015,ADR-0019",
+      "reason": "Handoff enum omitted facility_operator and autonomous_mobility with additionalProperties:false, making Horizon 1 custody events unemittable. Replaced authoritymode with legalauthorityclass + operatingcontext; bounded legalentityid optionality to system scope. Phase 1 PR 2 (OQ-20) adds the required `purpose` context attribute: ADR-0019 requirement 6 names purpose on every envelope, and additionalProperties:false made an envelope carrying one invalid. Purpose is a closed vocabulary mirrored by app.is_permitted_purpose in migration 0006, supplied by the trusted command or control-plane context and never by model output.",
+      "sha256": "ca5faea02de90ba45a4f3f4ef7a43a151952ad034fb603252621284f5cdeb982",
       "sourceSha256": "97bb9a3645b3e4340f00dc82e678b2c9c0b0c092eb4eb73d8d26c5c5d364a5fd"
     },
     "schemas/agent-manifest.schema.json": {

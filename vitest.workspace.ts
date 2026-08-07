@@ -12,7 +12,10 @@ export default defineWorkspace([
   {
     test: {
       name: 'unit',
-      include: ['packages/*/test/unit/**/*.test.ts'],
+      // scripts/ is repository tooling rather than a workspace package, and its tests live beside
+      // it: the layering validator refuses a cross-package relative import, and a test for a script
+      // parked inside a package would be exactly that — R2-03.
+      include: ['packages/*/test/unit/**/*.test.ts', 'scripts/test/**/*.test.ts'],
       environment: 'node',
     },
   },

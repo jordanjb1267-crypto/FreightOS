@@ -1,0 +1,237 @@
+# ADR-0026 — Identity and organization implementation decisions
+
+**Status:** Accepted (engineering, Phase 1 PR 2)
+**Date:** 2026-08-04
+**Subordinate to:** ADR-0015, ADR-0017, ADR-0019, ADR-0020, ADR-0021, ADR-0024, and the owner
+rulings in `docs/decisions/0002-phase-1-owner-rulings.md`
+**Changes no owner ruling.**
+
+## Context
+
+`docs/plans/phase-1-definition-and-owner-decisions.md` §13 asks for an implementation decision
+record when a material engineering choice is not already resolved by the accepted ADRs. Seven such
+choices arose in PR 2. Each is recorded here with the alternative that was rejected, so a reviewer
+can disagree with the reasoning rather than reverse-engineer it from the SQL.
+
+## Decisions
+
+### 1. Fifteen tables, not twelve
+
+The plan's §7 allocates **12** tables to PR 2. The authorized PR 2 scope enumerates
+*membership-role assignments*, *service-account credentials or credential references*, and
+*service-account permissions* as distinct concepts, and each is a many-to-many that needs its own
+table. The plan itself anticipates this — "possibly split by aggregate".
+
+Added beyond the twelve: `membership_roles`, `service_account_credentials`,
+`service_account_permissions`.
+
+**Rejected:** folding roles into `memberships` and a credential into `service_accounts`, as the
+plan's prose implies. It makes a second role on one attachment unrepresentable, and it makes
+credential rotation an in-place overwrite of the value being rotated away from — so the overlap
+window during which both the old and new credential are live cannot be modelled at all.
+
+### 2. Permitted parenthood is a function, not a table
+
+The plan recommends "a small permitted-parent table". `app.is_permitted_node_parent(child, parent)`
+is an `IMMUTABLE` SQL function instead, matching `app.is_permitted_legal_pairing` from Phase 0 —
+the same shape of rule, expressed the same way.
+
+The plan's actual constraint is that parenthood must **not** be a rigid ladder: `04_…:16` scopes
+records "to any valid node". The function returns a *set* of permitted parents per type, so a
+region may sit under an enterprise, a legal entity, an operating authority, a business unit, or
+another region. That constraint is met.
+
+**Rejected:** a table. It would be a thirteenth table holding eight rows that change only by
+migration, it would need its own RLS policy and grants, and being data rather than code it would
+not be diffable in review. The function is mirrored by `PERMITTED_NODE_PARENTS` in
+`packages/identity/src/organization.ts`, and a test asserts the two agree over the full 8 × 8
+cross-product.
+
+### 3. `organization_nodes` and `legal_entities` self-reference their own dimension
+
+`organization_nodes.organization_node_id = id` and `legal_entities.legal_entity_id = id`, enforced
+by `CHECK`. This is the device `tenants.tenant_id` already uses
+(`0002_tenants.up.sql:19`): one predicate shape across every table beats a special case on three.
+
+The consequence is that `legal_entities` needs **no** ADR-0021 exception at all, and
+`organization_nodes` needs one only for `legal_entity_id` — which is the category-5 case ADR-0021
+now registers.
+
+### 4. The governing legal entity is derived, not stored on the node
+
+`app.governing_legal_entity_id(tenant, node)` walks the closure to the nearest ancestor-or-self node
+with a legal entity attached. `organization_nodes` carries no `legal_entity_id` column.
+
+**Rejected:** storing it on the node. `legal_entities.organization_node_id` already points the other
+way, so a stored column is a second copy of the same fact that a subtree move can silently
+invalidate — and it would need its own reconciliation trigger to stay true.
+
+A shared trigger, `app.assert_governing_legal_entity`, then makes the two ADR-0021 columns agree on
+every table that carries both: the stored `legal_entity_id` must be the entity that actually governs
+the stored node. Two independent `NOT NULL` columns can still disagree, and this is what stops them.
+
+### 5. A privileged denial returns; it does not raise
+
+ADR-0020 §8 requires every privileged operation to write an audit record before returning. OQ-20
+requires a missing actor or purpose to fail closed. Those two pull against each other if a refusal
+raises: PostgreSQL has no autonomous transaction, so `RAISE` rolls back the very audit row that
+evidences the refusal, and the ledger shows silence where a denial belongs.
+
+So `admin.*` functions return `admin.privileged_result` with `outcome = 'denied'`. A refused call
+performs **no** privileged work — nothing read, nothing written, no state changed — and its refusal
+is written to the ledger. That is failing closed *with evidence* rather than failing closed in
+silence.
+
+An execution error is caught in a subtransaction, recorded as `failed`, and returned the same way.
+The one thing that still raises is a missing `EXECUTE` grant, which PostgreSQL refuses before the
+function body runs.
+
+**Rejected:** raising `insufficient_privilege`. It satisfies "fails closed" and defeats "is
+audited", and ADR-0020 requires both.
+
+#### The limit, stated plainly
+
+An earlier version of this section called the denial record *durable*. It is not, and the word was
+doing work the design cannot support. The record is written in the caller's transaction, so it
+survives exactly as far as that transaction does. A caller that wraps the call and rolls back — by
+choosing to, by hitting an error in a later statement, by losing the connection — takes the denial
+record with it. The refusal still happened and still did nothing; what is lost is the evidence that
+it was attempted.
+
+This is a property of PostgreSQL, not of this schema: there is no autonomous transaction, so no
+in-database write can outlive the transaction that made it. Escaping it needs something outside the
+transaction — an out-of-band recorder, a background worker, a `dblink`-style loopback, a logical
+decoding consumer — and every one of those is a new component with its own failure modes,
+authentication, and operational surface, introduced in a PR whose subject is identity and
+organization.
+
+**Decision: `TRANSACTION_BOUND_DENIAL_AUDIT`.** The denial record is transaction-bound and this ADR
+says so. It is the weaker of the two designs and it is the one being shipped, because the honest
+weaker design beats a stronger claim that is not true. It also matches the threat: an operator who
+rolls back to hide an attempted denial already holds the administrative connection, and the audit
+question about that operator is answered by the provenance stamp (§5a) and by monitoring, not by a
+record they could equally have chosen never to attempt.
+
+**Carry-forward: `ROLLBACK_INDEPENDENT_DENIAL_AUDIT`, Phase 3.** Denial evidence that survives a
+rolled-back caller transaction. To be designed with the observability and incident-response work,
+where the out-of-band component it requires has a reason to exist beyond this one record.
+
+### 5a. A privileged audit record carries the connection, not only the claim
+
+Every attributable field in a privileged record is a parameter: actor, actor type, purpose,
+correlation id, resource, tenant. The database cannot authenticate the person behind an
+administrative connection, so it cannot do better than record what it was told — but recording only
+what it was told makes an authoritative ledger forgeable by anyone holding the connection.
+
+`admin.record` therefore also stamps `payload.connection`: the authenticated login role, the
+effective role, the backend pid, and the server's own clock. None of it comes from a parameter and
+the object is concatenated last, so a caller supplying its own `connection` key overwrites nothing.
+The claimed actor is preserved beside it as `payload.claimed_actor`.
+
+This narrows the forgery to "which human was at the authenticated connection" — the part only the
+application layer can answer. It does not close it, and this ADR does not claim it does.
+
+### 6. A denied privileged audit row may carry no purpose
+
+`audit_events_privileged_requires_purpose` exempts `outcome = 'denied'`. The commonest reason to
+deny is that no purpose was supplied or the one supplied was outside the vocabulary; requiring a
+purpose on the refusal record would force the ledger to invent one, and OQ-20 states that absence
+is never defaulted, inferred, or backfilled. The refusal is recorded with the purpose absent, which
+is the fact. What was *offered* is in the denial payload.
+
+`audit_events_privileged_actor_is_human_or_system` takes no such exemption: a privileged row may
+never claim an agent actor, denied or not. An agent's attempt is recorded with the platform as the
+recording actor, so the attempt is evidenced without the ledger asserting it was authorised.
+
+What the attempt actually was is kept verbatim, and in two places, because the coercion that keeps
+`actor_type` to `human | system` would otherwise be the only record and would read as though a
+system actor had made the call. `payload.offered_actor_type` carries it on the denial path, and
+`payload.claimed_actor_type` — written by `admin.record` for every privileged row, denied or not —
+carries it unconditionally. Neither is derived: both are the parameter as supplied, so "an agent
+tried this" and "the platform did this" are distinguishable in the ledger rather than only in the
+mind of whoever remembers the coercion rule.
+
+### 6a. A tenant session may read the authorization graph but may not mutate it
+
+`app.current_user_id()` parses `user:<uuid>` out of `app.actor_id`, which is a session variable the
+caller sets. F-01 closed the case where a caller declined to name a user; it did not close the case
+where a caller names one it is not. A regex-valid UUID is not an authenticated identity, so a
+freightos_app session could set
+
+```sql
+SET LOCAL app.actor_id = 'user:<any uuid at all>';
+```
+
+and every self-elevation guard compared the row against somebody else. The reproduction: a
+fabricated UUID created a role, granted that role a permission, and assigned the role to the
+caller's own membership. Impersonating a real colleague worked identically.
+
+**Decision.** Direct application `INSERT`, `UPDATE` and `DELETE` are removed from the five tables
+where a write can change effective authority — `roles`, `role_permissions`, `memberships`,
+`membership_roles`, `service_account_permissions`. Their write policies admit the control plane
+alone, and `freightos_app` holds `SELECT`. Every change goes through a named `admin.*` function
+reached over the `freightos_admin` connection, so authority comes from a **role**, which a session
+cannot set, rather than from a parameter or a GUC.
+
+Ten operations, enumerated the way ADR-0020 §Consequences requires. Each validates that the actor is
+a real, active user of the tenant whose authority is changing — or a platform `system:` actor —
+verifies the target belongs to that tenant and that node and legal-entity relationships agree,
+replays rather than repeats under a correlation id already used, publishes the **verified** actor so
+0010's self-elevation guards evaluate against it, and audits the outcome in the same transaction as
+the mutation.
+
+**What this is not.** It is not identity binding, and it does not claim to be. The database cannot
+know which human is behind a tenant session. Validating the actor stops the ledger attributing a
+change to somebody revoked, foreign, or nonexistent; the *authority* to make the change at all comes
+from the connection role. Checking merely that a supplied UUID exists would have been the fake
+version of this and was explicitly rejected.
+
+**Compatibility, stated for operators.** Until a trusted application authentication boundary exists,
+tenant-facing sessions may read the authorized identity information they could always read, and may
+not directly mutate the authorization graph. Authority-changing mutations use the governed
+administrative boundary. This is a fail-closed Phase 1 rule, not a Phase 2 or Phase 3 feature, and no
+end-user application or authentication provider is introduced to soften it.
+
+**Rejected:** keeping direct mutation and hardening the guards further. Every guard would still be
+asking a session variable who was acting, which is the defect rather than an instance of it.
+
+### 6b. A partial index is not foreign-key support
+
+`role_permissions_one_active_per_pair` and three siblings have the right leading columns and a
+`revoked_at IS NULL` predicate. A partial index answers only a lookup the planner can prove falls
+inside its predicate, and a referential check cannot: it looks up the referencing rows for a parent
+row whether or not they are revoked.
+
+**Decision.** Four full indexes are added — `carrier_appointments_legal_entity_fk_idx`,
+`role_permissions_role_fk_idx`, `membership_roles_membership_fk_idx`,
+`service_account_permissions_account_fk_idx` — and the schema-wide audit requires `indpred IS NULL`.
+
+The partial unique indexes are **retained deliberately and separately**: each enforces "one active
+per pair", which a full index cannot do. They are not redundant with the new indexes and neither
+replaces the other.
+
+### 7. `carrier_appointments.carrier_reference` is opaque text, not a foreign key
+
+`carrier_profiles` is PR 4 and PR 2 may not create it. The column is `text NOT NULL` with a
+uniqueness constraint on the active appointment per legal entity and carrier. PR 4 adds the
+referential constraint when the table it would reference exists.
+
+**Rejected:** creating a stub `carrier_profiles` table in PR 2 to hang the key off. That is a later
+PR's table arriving early under a different justification, which is precisely what
+`21_SEQUENCING_DOCTRINE` exists to prevent.
+
+## Consequences
+
+**Good.** Every deviation from the plan's prose is written down with its reason, and none of them
+touches an owner ruling. The two that a reviewer is most likely to challenge — the table count and
+the returning denial — are the two with the most explicit rationale.
+
+**Cost.** Decision 5 means a caller that ignores the returned `outcome` sees a successful-looking
+call that did nothing. Mitigated by the outcome being the first field of the result type and by
+`privilegedRefusalReason` in `packages/identity/src/purpose.ts`, which lets a caller check before
+the round trip; not eliminated. A future application layer should treat a non-`succeeded` outcome
+as an error at its own boundary.
+
+**Deferred.** Decision 7's foreign key lands in PR 4. Until then, a carrier reference naming no
+carrier is representable — and a test asserts the *appointment* side is still provable, which is
+what `carrier_agent` context actually depends on.
