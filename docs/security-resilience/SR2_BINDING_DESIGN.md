@@ -422,3 +422,104 @@ posture the database actually has, and because SR-2 adds functions in the same s
 copy the pattern. SR-2's own grants will be asserted from the catalog rather than assumed from the
 statements that were written. Raising it as a separate finding against `main` rather than widening
 this PR.
+
+---
+
+## 12. Correction 3 — there are three cycles, not one, and the third has a revocation trade-off
+
+The accepted three-stage model is right in shape. Measuring the actual policy bodies shows the
+bootstrap boundary is **three policies, not two**, and the third one is not a free choice.
+
+### 12.1 The cycles, from the real definitions
+
+```
+app.organization_node_scope_ok(node)                       -- 0007:1012
+  SELECT app.is_control_plane()
+      OR (app.current_organization_node_id() IS NOT NULL
+          AND EXISTS (SELECT 1 FROM organization_node_closure c
+                       WHERE c.tenant_id  = app.current_tenant_id()
+                         AND c.ancestor_id = app.current_organization_node_id()
+                         AND c.descendant_id = p_organization_node_id))
+
+organization_node_closure_read                              -- 0007:1050
+  USING (app.is_control_plane() OR tenant_id = app.current_tenant_id())
+```
+
+With `current_tenant_id()` routed through `verified_principal()`:
+
+| #   | Cycle                                                                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `users_read` → `current_tenant_id()` → `verified_principal()` → `SELECT users` → `users_read`                                                                                |
+| 2   | `memberships_read` → same shape                                                                                                                                              |
+| 3   | `users_read`/`memberships_read` → `organization_node_scope_ok()` → `current_organization_node_id()` **and** `current_tenant_id()` → `verified_principal()` → …               |
+| 4   | `organization_node_scope_ok()` → `SELECT organization_node_closure` → `organization_node_closure_read` → `current_tenant_id()` → `verified_principal()` → `SELECT users` → … |
+
+Cycles 3 and 4 were not visible from the policy text alone: they run through
+`organization_node_scope_ok`, a helper the two bootstrap policies call, which itself reads a third
+RLS-protected table.
+
+### 12.2 The finalized cut
+
+Layer B needs **two** primitives, not one, because the bootstrap policies gate on node scope as well
+as tenant:
+
+| Bootstrap primitive                        | Reads                                               | Never calls                |
+| ------------------------------------------ | --------------------------------------------------- | -------------------------- |
+| `app.verified_binding_tenant_scope()`      | `app.session_binding`                               | any authoritative accessor |
+| `app.verified_binding_node_scope_ok(uuid)` | `app.session_binding` + `organization_node_closure` | any authoritative accessor |
+
+and the bootstrap boundary is these three policies:
+
+```
+users_read                      -- rewritten to the binding-only pair
+memberships_read                -- rewritten to the binding-only pair
+organization_node_closure_read  -- see the open question below
+```
+
+Everything else — the other 49 policies — keeps consuming `current_tenant_id()`, which routes
+through the **fully revalidated** `verified_principal()`. That is the property correction 3 exists
+to protect: ordinary tenant RLS observes revocation.
+
+### 12.3 The open question, stated with a recommendation rather than bounced back
+
+`organization_node_closure_read` participates in cycle 4. Two ways to cut it, with different
+security consequences:
+
+**(a) Rewrite it binding-only**, like the other two. Simple, provably acyclic — but it removes
+revalidation from ordinary closure reads, which is a small instance of exactly the hole correction 3
+rejects: a revoked Alice could still read ancestry inside her open transaction.
+
+**(b) Leave it authoritative and ADD a second, role-only permissive policy**:
+
+```sql
+CREATE POLICY organization_node_closure_binding_read ON organization_node_closure
+  FOR SELECT USING (pg_has_role(current_user, 'freightos_binding_owner', 'USAGE'));
+```
+
+Permissive policies are OR'd, so this adds a path reachable only when `current_user` is
+`freightos_binding_owner` — i.e. only inside the bootstrap definer — and takes nothing away from the
+existing authoritative path. Ordinary closure reads keep revalidating.
+
+**Recommended: (b)**, because it preserves the revocation property everywhere and narrows the
+bootstrap path to one role that cannot log in.
+
+**The measurement that decides it, and which must be run before 0019 is written.** Under (b) the
+existing disjunct containing `current_tenant_id()` is still _present in the policy expression_ even
+when the role-only disjunct is satisfied. PostgreSQL does not guarantee `OR` evaluation order, and
+its RLS recursion detection is structural. So (b) is only viable if PostgreSQL does not recurse when
+a permissive policy's _other_ disjunct would re-enter the table. That is an empirical question about
+this PostgreSQL, not something to reason about from the manual — the same discipline that caught
+`backend_start` and R-01.
+
+If the measurement shows (b) recurses, the fallback is (a) plus an explicit, documented acceptance
+that closure ancestry reads are binding-scoped rather than revalidated — a materially smaller
+exposure than tenant-wide RLS, and one that would be recorded as a residual rather than hidden.
+
+### 12.4 Consequence for the object inventory
+
+- Layer B grows from one accessor to two.
+- Three policies are edited, not two; `organization_node_closure_read` joins the bootstrap boundary.
+- `freightos_binding_owner` needs `SELECT` on `organization_node_closure` in addition to
+  `app.session_binding`, `users` and `memberships`.
+- The static consumer allowlist covers both bootstrap primitives, and asserts that
+  `verified_binding_node_scope_ok` is referenced by exactly the approved policies.
