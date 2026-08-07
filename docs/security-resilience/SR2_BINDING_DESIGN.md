@@ -523,3 +523,75 @@ exposure than tenant-wide RLS, and one that would be recorded as a residual rath
   `app.session_binding`, `users` and `memberships`.
 - The static consumer allowlist covers both bootstrap primitives, and asserts that
   `verified_binding_node_scope_ok` is referenced by exactly the approved policies.
+
+---
+
+## 13. Cycle 4 measured — and a measurement-harness defect caught before it became a false claim
+
+### 13.1 The cycle is real, not theoretical
+
+Built on a disposable database migrated 1..18, with the proposed shape scaffolded faithfully:
+`app.session_binding` owned by a NOLOGIN `freightos_binding_owner` with a role-only policy, the two
+bootstrap primitives, a revalidating `verified_principal_tenant()`, and `app.current_tenant_id()`
+routed through it. `users_read` and `memberships_read` rewritten to the bootstrap pair.
+
+| Step | Call                                       | Result                                         |
+| ---- | ------------------------------------------ | ---------------------------------------------- |
+| A    | `app.verified_binding_tenant_scope()`      | **succeeds** → `11111111-…` (the bound tenant) |
+| B    | `app.verified_binding_node_scope_ok(node)` | **`stack depth limit exceeded`**               |
+
+The error's `CONTEXT` stack attributes it exactly — 1008 frames of
+`verified_binding_node_scope_ok` interleaved with 1010 of `verified_principal_tenant`:
+
+```
+SQL function "verified_binding_node_scope_ok" during startup
+SQL function "verified_principal_tenant" statement 1
+SQL function "verified_binding_node_scope_ok" during startup
+SQL function "verified_principal_tenant" statement 1
+…
+```
+
+Two things this settles:
+
+1. **Layer A's cut works.** Step A reads only `session_binding`, whose policy names no accessor, and
+   returns the bound tenant. The recursion is specifically the closure path, not the binding path.
+2. **PostgreSQL does not detect this as RLS recursion.** It exhausts the stack. There is no clean
+   `infinite recursion detected in policy` error to rely on, which matters for the static graph
+   check: the invariant has to be asserted structurally, because the runtime symptom is a crash.
+
+### 13.2 The harness defect, recorded because it nearly produced a false result
+
+Two runs were set up to measure Candidate B and then Candidate C. **Neither candidate was actually
+installed.** Both `psql` heredocs ran under `ON_ERROR_STOP=1` and aborted at an earlier statement —
+the first at a `legal_entities` insert that violated a node-type trigger, the second at a `DROP
+POLICY` for the policy the first run never created. Each run then measured the **baseline**
+arrangement and reported `stack depth limit exceeded`.
+
+Read carelessly, that output says "Candidate B recurses". It says nothing of the kind: the
+binding-owner policy did not exist. Catching it required checking `pg_policy` afterwards rather
+than trusting the transcript:
+
+```
+organization_node_closure_read | PUBLIC | (app.is_control_plane() OR (tenant_id = app.current_tenant_id()))
+```
+
+One policy, `TO PUBLIC`, exactly as shipped. This is the same class of error the whole SR-2 review
+has been catching — a result that looks like evidence for a proposition it never tested — and it is
+recorded here rather than quietly re-run, because the next person to measure this needs to know the
+heredoc-abort trap is present.
+
+### 13.3 State of the B-vs-C decision
+
+**Undecided.** `CLOSURE_BOOTSTRAP` is not yet B or C. What is established:
+
+- cycle 4 exists and crashes the backend rather than erroring cleanly;
+- the Layer A/B split cuts cycles 1–3 (step A proves the binding path resolves);
+- `freightos_binding_owner` is a member of none of the five roles holding SELECT on the closure
+  (`freightos_app`, `freightos_admin_owner`, `freightos_hierarchy_owner`, `freightos_identity_guard`,
+  `freightos_migrator`) — all five measured `false`, so role-disjoint applicability (Candidate C) is
+  structurally available without touching role inheritance;
+- all four closure policies are currently `TO PUBLIC`, so Candidate C requires narrowing
+  `organization_node_closure_read` to that exact five-role allowlist.
+
+The decisive measurement — install B, measure; if it recurses install C, measure — is the immediate
+next step, with each candidate's presence asserted from `pg_policy` **before** the result is read.
