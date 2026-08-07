@@ -841,13 +841,18 @@ describe('the closure cannot be written by what it authorizes — F-02', () => {
         WHERE c.relname = 'organization_node_closure' ORDER BY p.polname`,
     );
     expect(r.rows.map((x) => x.polname)).toEqual([
+      // SR-2 / 0019 §4. The role-disjoint bootstrap door, added so app.verified_principal() can
+      // read the closure as freightos_binding_owner without re-entering the authoritative accessor
+      // it is being called to resolve — CLOSURE_BOOTSTRAP=C. It is a READ policy, applicable to the
+      // binding owner alone, and it is skipped by the write-policy loop below for that reason.
+      'organization_node_closure_bootstrap_read',
       'organization_node_closure_delete',
       'organization_node_closure_insert',
       'organization_node_closure_read',
       'organization_node_closure_update',
     ]);
     for (const policy of r.rows) {
-      if (policy.polname === 'organization_node_closure_read') continue;
+      if (policy.polname.endsWith('_read')) continue;
       // No tenant branch on any write policy: naming your own tenant is not authority to rewrite
       // the table that decides what your tenant's shape is.
       expect(`${policy.qual}${policy.withcheck}`, policy.polname).not.toMatch(/current_tenant_id/);
