@@ -48,12 +48,54 @@ provably cannot do, measured on this cluster:
 | `session_user` / `current_user`     | No                            | `SET ROLE` denied to all eight roles                                      |
 | `pg_has_role(...)`                  | No                            | derives from the above; `app.is_control_plane()` rests on it              |
 | `pg_backend_pid()`                  | No                            | not a GUC — `SET pg_backend_pid` → _unrecognized configuration parameter_ |
-| own `backend_start`                 | No (readable, not settable)   | visible for own row only                                                  |
+| own `backend_start`                 | No (readable, not settable)   | visible for own row **only outside a definer** — see §1.1                 |
 | **other** backends' `backend_start` | Not even readable             | 5 other rows visible, **0** with `backend_start`                          |
 | `pg_current_xact_id()`              | No                            | distinct per transaction on the same connection (103469 → 103470)         |
 | any `app.*` GUC                     | **Yes**                       | this is SEC-01                                                            |
 
 The design uses the four unforgeable rows and none of the forgeable one.
+
+### 1.1 Correction — `backend_start` is unusable inside a `SECURITY DEFINER`
+
+The first version of this design keyed both the mint target and the install stamp on
+`(pg_backend_pid(), backend_start)`, on the assumption that a session can always see its own
+`pg_stat_activity` row. **That assumption is false inside a `SECURITY DEFINER`**, and it was
+measured rather than reasoned about:
+
+| Call site                                                     | `backend_start` for the caller's own backend |
+| ------------------------------------------------------------- | -------------------------------------------- |
+| direct `SELECT` as `freightos_app`                            | `2026-08-07 16:22:56.425106+00`              |
+| the identical `SELECT` inside a definer owned by another role | **NULL — masked**                            |
+
+`pg_stat_activity` unmasks a row when `GetUserId()` matches the backend's user or holds
+`pg_read_all_stats`. Inside a definer `GetUserId()` is the _function owner_, not the session user,
+so the caller's own row is masked from the very function that needs it.
+
+Had this shipped, `target_backend_start = v_backend_start` would have compared NULL to a stored
+value and refused every install — R-01 exactly: a control that looks present and refuses everybody.
+Or, written as `IS NOT DISTINCT FROM`, it would have matched NULL to NULL and checked nothing.
+
+**The corrected design drops `backend_start` entirely** and takes its uniqueness guarantee from the
+transaction id instead:
+
+- `pg_current_xact_id()` is globally unique and monotonic, so `installed_xact_id` identifies exactly
+  one transaction cluster-wide, forever. A recycled pid in a different transaction carries a
+  different xid and cannot resolve. This is _stronger_ than the pid+start pair for the resolve step.
+- The mint target is `target_backend_pid` alone. Its residual — a pid recycled inside the 60-second
+  expiry window, onto an attacker's connection, while that attacker also holds the identifier — is
+  stated in §10 rather than papered over.
+
+`pg_backend_pid()` and `pg_current_xact_id_if_assigned()` both work correctly inside a definer;
+only `pg_stat_activity` is masked.
+
+### 1.2 `pg_current_xact_id_if_assigned()`, not `pg_current_xact_id()`
+
+Measured: a read-only transaction reports **NULL**, and a transaction that has written reports its
+xid (`103476`). The resolver therefore uses the `_if_assigned` variant so that ordinary read queries
+do not force an xid assignment merely to evaluate an RLS predicate — which would burn transaction
+ids on every `SELECT` in the system. Install performs an `UPDATE`, so an xid always exists by the
+time anything needs to resolve, and a transaction that never installed resolves to NULL and fails
+closed.
 
 ---
 
@@ -97,17 +139,17 @@ hold control-plane credentials to assert its result.
 
 ### Step 3 — mint
 
-|                    |                                                                                                                                                                                          |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Executing role     | `freightos_admin` (**LOGIN**, control plane)                                                                                                                                             |
-| Function           | `admin.issue_session_binding(principal_type, principal_id, tenant_id, organization_node_id, legal_entity_id, class, context, target_pid, target_backend_start, purpose, correlation_id)` |
-| Owner              | `freightos_admin_owner` (**NOLOGIN**) — `SECURITY DEFINER`, pinned `search_path`                                                                                                         |
-| Caller             | the authentication adapter                                                                                                                                                               |
-| Reads              | `users`, `memberships`, `membership_roles`, `service_accounts`, `organization_node_closure`                                                                                              |
-| Writes             | `INSERT` into `app.session_binding`                                                                                                                                                      |
-| Runtime may invoke | **no** — `freightos_app` has no `USAGE` on schema `admin`                                                                                                                                |
-| Scope              | one row, `expires_at = now() + 60s`                                                                                                                                                      |
-| Trust source       | **the control-plane connection**, the same anchor `admin.*` already rests on                                                                                                             |
+|                    |                                                                                                                                                                            |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Executing role     | `freightos_admin` (**LOGIN**, control plane)                                                                                                                               |
+| Function           | `admin.issue_session_binding(principal_type, principal_id, tenant_id, organization_node_id, legal_entity_id, class, context, target_backend_pid, purpose, correlation_id)` |
+| Owner              | `freightos_admin_owner` (**NOLOGIN**) — `SECURITY DEFINER`, pinned `search_path`                                                                                           |
+| Caller             | the authentication adapter                                                                                                                                                 |
+| Reads              | `users`, `memberships`, `membership_roles`, `service_accounts`, `organization_node_closure`                                                                                |
+| Writes             | `INSERT` into `app.session_binding`                                                                                                                                        |
+| Runtime may invoke | **no** — `freightos_app` has no `USAGE` on schema `admin`                                                                                                                  |
+| Scope              | one row, `expires_at = now() + 60s`                                                                                                                                        |
+| Trust source       | **the control-plane connection**, the same anchor `admin.*` already rests on                                                                                               |
 
 Mint refuses, with a reason, when: the principal does not exist, is not active, is revoked, is
 outside its effective window, has no active membership justifying the tenant/node (human), or the
@@ -126,15 +168,13 @@ node lies outside the service account's own scope (service).
 
 ```sql
 UPDATE app.session_binding
-   SET installed_backend_pid   = pg_backend_pid(),
-       installed_backend_start = v_backend_start,
-       installed_xact_id       = pg_current_xact_id(),
-       installed_at            = now()
+   SET installed_backend_pid = pg_backend_pid(),
+       installed_xact_id     = pg_current_xact_id(),
+       installed_at          = now()
  WHERE id = p_binding
    AND installed_xact_id IS NULL                      -- one-time
    AND expires_at > now()                             -- short-lived
-   AND target_backend_pid   = pg_backend_pid()        -- minted FOR this backend
-   AND target_backend_start = v_backend_start         -- and not a recycled pid
+   AND target_backend_pid = pg_backend_pid()          -- minted FOR this backend
    AND NOT EXISTS (SELECT 1 FROM app.session_binding b
                     WHERE b.installed_xact_id = pg_current_xact_id());  -- one per transaction
 ```
@@ -156,8 +196,7 @@ Zero rows updated → a single generic exception. Not a different message per ca
 SELECT ...
   FROM app.session_binding b
  WHERE b.installed_backend_pid   = pg_backend_pid()
-   AND b.installed_backend_start = <this backend's start>
-   AND b.installed_xact_id       = pg_current_xact_id()
+   AND b.installed_xact_id       = pg_current_xact_id_if_assigned()
    AND <live authorization state still valid>
 ```
 
@@ -310,6 +349,12 @@ Explicitly, against the stop conditions:
 3. **Consumption is transactional.** A rolled-back install un-consumes the binding, because
    PostgreSQL has no autonomous transaction — the same constraint ADR-0026 §5 records for denial
    audit. Security still holds (target-bound, 60 s), and both COMMIT and ROLLBACK cases are tested.
-4. **`app.actor_id` disposition.** Becomes non-authoritative compatibility metadata for non-runtime
+4. **Pid recycling.** The mint target is now `target_backend_pid` alone, because `backend_start`
+   is unreadable inside a definer (§1.1). The residual: a backend exits, its pid is recycled onto an
+   attacker's connection inside the 60-second expiry window, and the attacker separately holds the
+   uninstalled identifier. All three must coincide. Mitigated by the short expiry, one-time
+   consumption, and the identifier never leaving the server between mint and install — stated here
+   rather than hidden, and to be re-examined if the expiry is ever lengthened.
+5. **`app.actor_id` disposition.** Becomes non-authoritative compatibility metadata for non-runtime
    roles; no security-sensitive consumer reads it once a binding is installed. A static checker will
    enforce that no security-sensitive function reads the raw GUC.
