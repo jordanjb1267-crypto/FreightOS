@@ -100,6 +100,10 @@ describe('the shape ADR-0020 requires', () => {
       'freightos_admin',
       'freightos_admin_owner',
       'freightos_app',
+      // 0018 §1. The audit write definer: NOLOGIN, and deliberately NOT a control-plane member —
+      // it inserts its own tenant's rows through the existing isolation policy and has no use for
+      // an RLS bypass.
+      'freightos_audit_writer',
       'freightos_control_plane',
       // F-02. The hierarchy maintenance definer: NOLOGIN, owns the closure and re-depths nodes.
       'freightos_hierarchy_owner',
@@ -998,6 +1002,7 @@ describe('the role graph, described accurately — R2-05', () => {
       'freightos_admin',
       'freightos_admin_owner',
       'freightos_app',
+      'freightos_audit_writer',
       'freightos_control_plane',
       'freightos_hierarchy_owner',
       'freightos_identity_guard',
@@ -1010,10 +1015,11 @@ describe('the role graph, described accurately — R2-05', () => {
       expect(role.rolbypassrls, `${role.rolname} BYPASSRLS`).toBe(false);
     }
 
-    // The three definer owners are NOLOGIN: they are identities code runs AS, never connections.
+    // The four definer owners are NOLOGIN: they are identities code runs AS, never connections.
     const nologin = r.rows.filter((x) => !x.rolcanlogin).map((x) => x.rolname);
     expect(nologin).toEqual([
       'freightos_admin_owner',
+      'freightos_audit_writer',
       'freightos_hierarchy_owner',
       'freightos_identity_guard',
     ]);

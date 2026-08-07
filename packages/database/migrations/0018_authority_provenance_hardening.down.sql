@@ -7,6 +7,16 @@
 --
 -- Sections are undone in reverse order of the up migration.
 
+-- §10 — the governed node move and the platform-tenant fallback in admin.record. admin.record is
+-- dropped rather than restored: 0013 re-creates its own definition when re-applied, and the
+-- fallback only matters while §1's referential constraint exists.
+SET LOCAL ROLE freightos_admin_owner;
+DROP FUNCTION IF EXISTS admin.move_organization_node(uuid, uuid, uuid, text, text, text, uuid);
+DROP FUNCTION IF EXISTS admin.record(
+  uuid, uuid, text, text, text, uuid, text, text, text, text, text, jsonb);
+RESET ROLE;
+REVOKE UPDATE ON organization_nodes FROM freightos_admin_owner;
+
 -- §9 / §3 / §2 — put the ten privileged operations back on the old primitives. The functions are
 -- dropped rather than restored: 0017's own definitions are re-created when it is re-applied, and a
 -- half-restored function calling a signature that no longer exists would be worse than an absent

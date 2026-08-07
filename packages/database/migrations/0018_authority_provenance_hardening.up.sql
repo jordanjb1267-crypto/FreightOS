@@ -1821,3 +1821,193 @@ $$;
 RESET ROLE;
 
 REVOKE CREATE ON SCHEMA app FROM freightos_identity_guard;
+
+
+-- ---------------------------------------------------------------------------
+-- §10. Two consequences of §1 and §6 that would otherwise be regressions.
+--
+-- A control that removes a capability without replacing it is not a control, it is a defect with
+-- better intentions. Both of these were found by running the existing suite against §1 and §6, and
+-- both are fixed here rather than deferred.
+-- ---------------------------------------------------------------------------
+
+SET LOCAL ROLE freightos_admin_owner;
+
+-- §10a. The referential constraint from §1 made a denial concerning an unknown tenant unwritable.
+-- admin.record already routed a NULL tenant to the platform tenant; it now routes an unknown one
+-- there too, keeping the attempted id on the record. Refusing to record "somebody tried to act on
+-- a tenant that does not exist" would have been the worst possible reading of an integrity control.
+CREATE OR REPLACE FUNCTION admin.record(
+  p_tenant_id uuid,
+  p_legal_entity_id uuid,
+  p_actor text,
+  p_actor_type text,
+  p_purpose text,
+  p_correlation_id uuid,
+  p_event_type text,
+  p_resource_type text,
+  p_resource_id text,
+  p_action text,
+  p_outcome text,
+  p_payload jsonb
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_id uuid;
+  v_tenant uuid;
+BEGIN
+  v_tenant := CASE
+    WHEN p_tenant_id IS NOT NULL
+     AND EXISTS (SELECT 1 FROM tenants t WHERE t.id = p_tenant_id)
+    THEN p_tenant_id
+    ELSE '00000000-0000-0000-0000-000000000000'::uuid
+  END;
+  INSERT INTO audit_events (
+    tenant_id, legal_entity_id, legal_authority_class, operating_context,
+    actor_type, actor_id, event_type, resource_type, resource_id,
+    correlation_id, payload, created_by, operation_class, purpose, outcome)
+  VALUES (
+    -- A refusal for a missing OR UNKNOWN tenant scope still has to be recorded somewhere, and it
+    -- is the event most worth recording. 0018 §1 gives audit_events a referential relationship to
+    -- tenants, so naming a tenant that does not exist would now make the evidence unwritable — the
+    -- control would have destroyed the record rather than protected it. Platform-scope evidence
+    -- belongs to the platform tenant, and payload.attempted_tenant_id keeps what was named.
+    v_tenant,
+    p_legal_entity_id,
+    'software_only',
+    'system',
+    CASE WHEN p_actor_type IN ('human', 'system') THEN p_actor_type ELSE 'system' END,
+    coalesce(nullif(btrim(p_actor), ''), 'unknown:actor-not-supplied'),
+    p_event_type,
+    p_resource_type,
+    p_resource_id,
+    coalesce(p_correlation_id, gen_random_uuid()),
+    p_payload
+      || jsonb_build_object('action', p_action)
+      || CASE WHEN v_tenant IS DISTINCT FROM p_tenant_id
+              THEN jsonb_build_object('attempted_tenant_id', p_tenant_id)
+              ELSE '{}'::jsonb END
+      -- Non-forgeable, and last so it wins — F-06.
+      || jsonb_build_object(
+           'connection', jsonb_build_object(
+             'authenticated_role', session_user,
+             'effective_role', current_user,
+             'backend_pid', pg_backend_pid(),
+             'recorded_at', statement_timestamp()),
+           'claimed_actor', p_actor,
+           'claimed_actor_type', p_actor_type),
+    coalesce(nullif(btrim(p_actor), ''), 'unknown:actor-not-supplied'),
+    'privileged',
+    -- Only a valid privileged purpose is stored. An absent or rejected one stays absent, and the
+    -- denial payload carries what was offered.
+    CASE WHEN p_purpose IS NOT NULL AND app.is_privileged_purpose(p_purpose)
+         THEN p_purpose ELSE NULL END,
+    p_outcome)
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END
+$$;
+
+-- §10b. §6 took parent_id away from the runtime role and left legitimate reparenting with nowhere
+-- to go. Ruling 7: a hierarchy change is an authority mutation, so it belongs on the same governed
+-- boundary as every other one — gated on identity.organization_node.write, audited, idempotent,
+-- and with the structural invariants still enforced by 0007's triggers underneath.
+CREATE FUNCTION admin.move_organization_node(
+  p_tenant_id uuid,
+  p_node_id uuid,
+  p_new_parent_id uuid,
+  p_actor text,
+  p_actor_type text,
+  p_purpose text,
+  p_correlation_id uuid
+) RETURNS admin.privileged_result
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_reason text;
+  v_audit uuid;
+  v_prior uuid;
+  v_old_parent uuid;
+  v_result jsonb := '{}'::jsonb;
+BEGIN
+  v_reason := admin.authorization_refusal_reason(
+    p_actor, p_actor_type, p_purpose, p_tenant_id, p_correlation_id,
+    'identity.organization_node.write');
+
+  IF v_reason IS NULL THEN
+    SELECT parent_id INTO v_old_parent
+      FROM organization_nodes WHERE tenant_id = p_tenant_id AND id = p_node_id;
+    IF NOT FOUND THEN
+      v_reason := format('organization node %s is not in tenant %s', p_node_id, p_tenant_id);
+    ELSIF p_new_parent_id IS NULL THEN
+      -- Detaching a node to root would make it its own governing authority, which is a different
+      -- and much larger decision than moving it. It is not offered here.
+      v_reason := 'a node may be moved beneath another node, not detached to the root';
+    ELSIF NOT EXISTS (SELECT 1 FROM organization_nodes
+                       WHERE tenant_id = p_tenant_id AND id = p_new_parent_id) THEN
+      v_reason := format('proposed parent %s is not in tenant %s', p_new_parent_id, p_tenant_id);
+    END IF;
+  END IF;
+
+  IF v_reason IS NOT NULL THEN
+    RETURN admin.deny(v_reason, p_tenant_id, p_actor, p_actor_type, p_purpose, p_correlation_id,
+                      'rig.freight.identity.organization_node_moved.v1', 'organization_node',
+                      p_node_id::text, 'identity.organization_node.move');
+  END IF;
+
+  v_prior := admin.prior_success(
+    p_tenant_id, p_correlation_id, 'identity.organization_node.move', p_actor);
+  IF v_prior IS NOT NULL THEN
+    RETURN ROW('succeeded', v_prior, 'already applied under this correlation id',
+               jsonb_build_object('idempotent_replay', true))::admin.privileged_result;
+  END IF;
+
+  PERFORM admin.publish_actor(p_actor);
+
+  BEGIN
+    -- 0007's triggers still own the structural invariants: permitted parenthood, cycle rejection
+    -- through the closure, the depth bound over the whole subtree, and the serialising advisory
+    -- lock. This boundary adds the authority question they never asked.
+    UPDATE organization_nodes
+       SET parent_id = p_new_parent_id, updated_by = p_actor, updated_at = now()
+     WHERE tenant_id = p_tenant_id AND id = p_node_id;
+    v_result := jsonb_build_object(
+      'organization_node_id', p_node_id,
+      'previous_parent_id', v_old_parent,
+      'new_parent_id', p_new_parent_id);
+  EXCEPTION WHEN others THEN
+    v_audit := admin.record(
+      p_tenant_id, NULL, p_actor, p_actor_type, p_purpose, p_correlation_id,
+      'rig.freight.identity.organization_node_moved.v1', 'organization_node', p_node_id::text,
+      'identity.organization_node.move', 'failed',
+      jsonb_build_object('error', SQLERRM, 'sqlstate', SQLSTATE));
+    RETURN ROW('failed', v_audit, SQLERRM, '{}'::jsonb)::admin.privileged_result;
+  END;
+
+  v_audit := admin.record(
+    p_tenant_id, NULL, p_actor, p_actor_type, p_purpose, p_correlation_id,
+    'rig.freight.identity.organization_node_moved.v1', 'organization_node', p_node_id::text,
+    'identity.organization_node.move', 'succeeded', v_result);
+
+  PERFORM admin.claim_operation(
+    p_tenant_id, p_correlation_id, 'identity.organization_node.move', p_actor, v_audit);
+
+  RETURN ROW('succeeded', v_audit, NULL, v_result)::admin.privileged_result;
+END
+$$;
+
+REVOKE ALL ON FUNCTION admin.move_organization_node(uuid, uuid, uuid, text, text, text, uuid)
+  FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.move_organization_node(uuid, uuid, uuid, text, text, text, uuid)
+  TO freightos_admin;
+
+RESET ROLE;
+
+-- The definer needs exactly one column, on exactly one table, to do this.
+GRANT UPDATE (parent_id, updated_by, updated_at) ON organization_nodes TO freightos_admin_owner;

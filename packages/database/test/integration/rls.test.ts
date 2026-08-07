@@ -158,7 +158,9 @@ describe('row-level security', () => {
     const control = db.connectAs('freightos_control_plane');
     await control.connect();
     try {
-      const r = await control.query<{ id: string }>('SELECT id FROM tenants ORDER BY name');
+      const r = await control.query<{ id: string }>(
+        'SELECT id FROM tenants WHERE NOT is_platform ORDER BY name',
+      );
       expect(r.rows.map((x) => x.id)).toEqual([TENANT_A, TENANT_B]);
     } finally {
       await control.end();
