@@ -1,31 +1,53 @@
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { applyLegalContext, currentContext, withLegalContext } from '../../src/session.ts';
+import { applyLegalContext, currentContext } from '../../src/session.ts';
 import { TENANT_A, TENANT_B, TestDatabase, carrierContext } from './harness.ts';
+import type { IdentityFixture } from './identity-harness.ts';
+import { seedVerifiedFixture } from './sr2-harness.ts';
+import { fixtureOperator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
 
 /**
  * 14_TEST_AND_ACCEPTANCE_STRATEGY requires tenant-isolation and RLS tests, and lists the negative
  * cases explicitly. Closes audit finding G1: the handoff enables RLS on some tables and defines
  * zero policies, so nothing was actually isolated.
+ *
+ * MIGRATED TO THE VERIFIED SESSION — SR-2.
+ *
+ * Every case that needs authority now obtains it the way production does: authenticate at the
+ * test-only boundary, mint against the runtime connection's own backend, install, work. What used
+ * to be `withLegalContext(app, carrierContext(TENANT_A), ...)` was a caller writing its own tenant
+ * id into a session variable and the database believing it. After 0019 the database does not, and
+ * the assertions below are unchanged because they were always about isolation rather than about how
+ * the session said who it was.
+ *
+ * The three cases that do NOT use it are the ones whose subject is the absence of authority — no
+ * context at all, a rejected legal pairing, an unsigned brokerage gate — plus the catalog checks.
+ * Giving those a verified session would remove what they test.
  */
 const db = new TestDatabase('freightos_test_rls');
 
 describe('row-level security', () => {
   let app: Client;
+  let fixtureA: IdentityFixture;
+  let fixtureB: IdentityFixture;
 
   beforeAll(async () => {
     await db.reset();
     await db.seedTenants();
+    // Provisioning, not authentication: a binding needs a principal that already exists, and the
+    // first user of a tenant is the row that would justify one. See sr2-harness.ts.
+    fixtureA = await seedVerifiedFixture(db, TENANT_A);
+    fixtureB = await seedVerifiedFixture(db, TENANT_B);
     app = db.connectAs('freightos_app');
     await app.connect();
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     await app?.end();
   });
 
   it('shows a tenant only its own row', async () => {
-    const rows = await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+    const rows = await withAuthenticatedTestPrincipal(db, fixtureOperator(fixtureA), async (c) => {
       const r = await c.query<{ id: string }>('SELECT id FROM tenants');
       return r.rows;
     });
@@ -34,7 +56,7 @@ describe('row-level security', () => {
   });
 
   it('hides other tenants even when asked for them by primary key', async () => {
-    const rows = await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+    const rows = await withAuthenticatedTestPrincipal(db, fixtureOperator(fixtureA), async (c) => {
       const r = await c.query('SELECT id FROM tenants WHERE id = $1', [TENANT_B]);
       return r.rows;
     });
@@ -51,7 +73,7 @@ describe('row-level security', () => {
 
   it('rejects writing a row belonging to another tenant', async () => {
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      withAuthenticatedTestPrincipal(db, fixtureOperator(fixtureA), async (c) => {
         await c.query(
           'INSERT INTO tenants (id, tenant_id, name, created_by) VALUES ($1, $1, $2, $3)',
           ['44444444-4444-4444-8444-444444444444', 'Smuggled', 'test'],
@@ -61,13 +83,22 @@ describe('row-level security', () => {
   });
 
   it('rejects updating another tenant', async () => {
-    const updated = await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
-      const r = await c.query('UPDATE tenants SET name = $1 WHERE id = $2', ['hijacked', TENANT_B]);
-      return r.rowCount;
-    });
+    const updated = await withAuthenticatedTestPrincipal(
+      db,
+      fixtureOperator(fixtureA),
+      async (c) => {
+        const r = await c.query('UPDATE tenants SET name = $1 WHERE id = $2', [
+          'hijacked',
+          TENANT_B,
+        ]);
+        return r.rowCount;
+      },
+    );
     expect(updated).toBe(0);
 
-    const check = await withLegalContext(app, carrierContext(TENANT_B), async (c) => {
+    // Tenant B's own principal confirms the row is untouched — a separately authenticated session,
+    // which is the ONLY way to change tenant. There is no context switch a caller can perform.
+    const check = await withAuthenticatedTestPrincipal(db, fixtureOperator(fixtureB), async (c) => {
       const r = await c.query<{ name: string }>('SELECT name FROM tenants WHERE id = $1', [
         TENANT_B,
       ]);
@@ -78,14 +109,14 @@ describe('row-level security', () => {
 
   it('denies the application role any DELETE on tenants', async () => {
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      withAuthenticatedTestPrincipal(db, fixtureOperator(fixtureA), async (c) => {
         await c.query('DELETE FROM tenants WHERE id = $1', [TENANT_A]);
       }),
     ).rejects.toThrow(/permission denied/i);
   });
 
   it('does not leak context across transactions', async () => {
-    await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+    await withAuthenticatedTestPrincipal(db, fixtureOperator(fixtureA), async (c) => {
       const ctx = await currentContext(c);
       expect(ctx.tenantId).toBe(TENANT_A);
     });
@@ -99,7 +130,7 @@ describe('row-level security', () => {
 
   it('rolls context back with a failed transaction', async () => {
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      withAuthenticatedTestPrincipal(db, fixtureOperator(fixtureA), async (c) => {
         await c.query('SELECT 1');
         throw new Error('boom');
       }),
@@ -145,12 +176,16 @@ describe('row-level security', () => {
   });
 
   it('does not let a tenant session claim control-plane authority', async () => {
-    const isControlPlane = await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
-      // Try to fake it via a session variable — the policy checks role membership, not settings.
-      await c.query(`SELECT set_config('app.is_control_plane', 'true', true)`);
-      const ctx = await currentContext(c);
-      return ctx.isControlPlane;
-    });
+    const isControlPlane = await withAuthenticatedTestPrincipal(
+      db,
+      fixtureOperator(fixtureA),
+      async (c) => {
+        // Try to fake it via a session variable — the policy checks role membership, not settings.
+        await c.query(`SELECT set_config('app.is_control_plane', 'true', true)`);
+        const ctx = await currentContext(c);
+        return ctx.isControlPlane;
+      },
+    );
     expect(isControlPlane).toBe(false);
   });
 
