@@ -354,28 +354,55 @@ async function seedIdentityWith(
   );
   const roleId = role['role_id'] as string;
 
-  // The administrator role carries what an administrator actually needs. Before 0018 §3 the
-  // boundary asked only whether the actor was a real active user, so a role with one read
-  // permission was indistinguishable from one with none — the fixture never noticed. It does now:
-  // every later operation that names the human requires the matching write permission.
-  for (const permission of [
+  await privileged(admin, 'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)', [
+    tenantId,
+    roleId,
     'identity.user.read',
+    bootstrap,
+    ...asPlatform,
+    randomUUID(),
+  ]);
+
+  // The administrator's own role, membership and assignment — SEPARATE from fleet_administrator.
+  //
+  // Without any of it the administrator holds no permission at all, which before 0018 §3 made no
+  // difference (the boundary asked only whether the actor was a real active user) and now makes
+  // every human-authorised operation fail. Provisioning it is the platform actor's job.
+  //
+  // It must be a distinct role, because the 0010 self-elevation guards refuse an administrator
+  // widening a role it holds itself. Putting the administrator into fleet_administrator would make
+  // the fixture unable to administer the very role the tests manipulate — correct behaviour, wrong
+  // fixture. Separating the two is how a real tenant would be set up anyway: the people who
+  // administer authority are not the people the authority is about.
+  const adminRole = await privileged(
+    admin,
+    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+    [
+      tenantId,
+      legalEntityNodeId,
+      legalEntityId,
+      'tenant_administrator',
+      'Tenant Administrator',
+      bootstrap,
+      ...asPlatform,
+      randomUUID(),
+    ],
+  );
+  const adminRoleId = adminRole['role_id'] as string;
+
+  for (const permission of [
     'identity.role.write',
     'identity.membership.write',
     'identity.service_account.write',
+    'identity.organization_node.write',
   ]) {
     await privileged(
       admin,
       'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [tenantId, roleId, permission, bootstrap, ...asPlatform, randomUUID()],
+      [tenantId, adminRoleId, permission, bootstrap, ...asPlatform, randomUUID()],
     );
   }
 
-  // The administrator's own membership and role. Without it the administrator holds no permission
-  // at all, which before 0018 §3 made no difference — the boundary asked only whether the actor
-  // was a real active user — and now makes every human-authorised operation fail. Provisioning it
-  // is the platform actor's job, and it is the last thing the platform actor does: everything
-  // after this point can name the human.
   const adminMembership = await privileged(
     admin,
     'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
@@ -397,7 +424,7 @@ async function seedIdentityWith(
     [
       tenantId,
       adminMembership['membership_id'] as string,
-      roleId,
+      adminRoleId,
       bootstrap,
       ...asPlatform,
       randomUUID(),
