@@ -4,40 +4,56 @@ Deliverable D of `20_CLAUDE_MASTER_IMPLEMENTATION_PROMPT.md`. Repository-specifi
 `18_IMPLEMENTATION_ROADMAP_PR_SEQUENCE.md`, and ordered by the blocker sequence in
 [`PHASE_0_GAP_AND_RISK_REGISTER.md`](PHASE_0_GAP_AND_RISK_REGISTER.md) §2.
 
-Nothing in this plan is authorized to start. It is the plan the prompt asks for; the owner decides
-what proceeds.
+Only SR-1 is delivered. Nothing else in this plan is authorized to start; SR-2 in particular is
+explicitly gated by owner ruling 4 and must not begin until the post-merge baseline is returned and
+accepted.
 
 ---
 
-## D-0. The sequencing problem, stated before the plan
+## D-0. Roadmap hierarchy — decided
 
-**Three roadmaps are simultaneously active against one repository, and none of them references the
-other two.**
+**Owner ruling 1. This is no longer an open blocker.** The earlier framing of "three simultaneously
+active roadmaps" is superseded by a single spine with two mandatory overlays.
 
-| Roadmap                                     | Where                                             | Progress                                                      |
-| ------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
-| v1.2 Horizon 1 Phase 1 — ten-PR sequence    | `docs/decisions/0002-phase-1-owner-rulings.md` §5 | PR 1 merged; **PR 2 in flight** (PR #5); PRs 3–10 not started |
-| v1.3.0 security and resilience — Phases 0–8 | `18_IMPLEMENTATION_ROADMAP_PR_SEQUENCE.md`        | Phase 0 PR 0.1 merged; PR 0.2 is this document                |
-| v1.4.0 network architecture — Phases 0–7    | v1.4.0 `23_IMPLEMENTATION_ROADMAP_PR_SEQUENCE.md` | not started                                                   |
+| Rank | Roadmap                                                                                   | Role                                                                   | Progress                                                      |
+| ---- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 1    | v1.2 approved ten-PR Phase 1 sequence (`docs/decisions/0002-phase-1-owner-rulings.md` §5) | **Primary delivery spine**                                             | PR 1 merged; **PR 2 in flight** (PR #5); PRs 3–10 not started |
+| 2    | v1.3.0 security and resilience (`18_IMPLEMENTATION_ROADMAP_PR_SEQUENCE.md`)               | **Mandatory cross-cutting control and acceptance overlay**             | Phase 0 PR 0.1 merged; PR 0.2 is this document                |
+| 3    | v1.4.0 network architecture (v1.4.0 `23_IMPLEMENTATION_ROADMAP_PR_SEQUENCE.md`)           | **Mandatory cross-cutting architectural and interoperability overlay** | not started                                                   |
 
-They overlap rather than conflict, and the overlap is substantial:
+**The newer packages do not create separate competing implementation programs.** Their internal phase
+numbering describes requirement sets, not an independent schedule.
 
-- v1.3.0 PR 1.1 + PR 1.2 ≈ v1.2 Phase 1 PR 2 (identity and organization foundation) — **the same
-  work**, currently in flight as PR #5.
-- v1.4.0 PR 4 (transactional outbox) ≈ v1.3.0 PR 3.2 — the same work.
-- v1.4.0 PR 3 (universal event envelope) ≈ v1.2 Phase 1 PR 6 (event contracts).
-- v1.3.0 PR 1.3 (cross-tenant isolation suite) has no counterpart in either other roadmap and is
-  purely additive.
+### Per-PR obligation
 
-**Recommended reading, offered for approval rather than adopted:** treat v1.2's ten-PR sequence as
-the _delivery spine_ — it is the only roadmap with owner-approved, repository-specific PRs — and
-treat v1.3.0 and v1.4.0 as **cross-cutting requirement sets that attach to that spine**, plus a
-small number of standalone infrastructure PRs (below) that have no domain counterpart. That
-satisfies constraint 3's "in order" requirement in substance without running three parallel
-sequences over one codebase, and it avoids the large-bang rewrite constraint 2 forbids.
+Every remaining v1.2 spine PR must identify, in its description and its evidence:
 
-**This is an owner decision (see §D-9, item 1). Until it is made, the plan below sequences only the
-standalone security work, which does not collide with any v1.2 domain PR.**
+1. applicable **v1.3.0 controls and gates**;
+2. applicable **v1.4.0 architecture requirements**;
+3. **evidence produced** for each applicable requirement;
+4. any **conflict requiring owner approval**.
+
+### Evidence rule
+
+**No requirement may be marked satisfied merely because it appears in documentation.** Acceptance
+requires repository and test evidence — the same rule already applied to the gate matrix.
+
+### How the overlaps resolve under the hierarchy
+
+The overlaps identified during intake are real; the hierarchy tells each one where it lands.
+
+| Overlap                                                             | Resolution                                                                                                                                |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| v1.3.0 PR 1.1 + 1.2 ≈ v1.2 Phase 1 PR 2 (identity and organization) | Spine PR 2 (PR #5) is the delivery. v1.3.0 SEC-01/SEC-02 are the acceptance overlay on it. SR-2 completes SEC-01 where PR #5 stops short. |
+| v1.4.0 PR 4 (transactional outbox) ≈ v1.3.0 PR 3.2                  | One piece of work — SR-6 — satisfying both overlays. Not two PRs.                                                                         |
+| v1.4.0 PR 3 (event envelope) ≈ v1.2 Phase 1 PR 6 (event contracts)  | Delivered by spine PR 6, with the v1.4.0 envelope requirements as its architecture overlay.                                               |
+| v1.3.0 PR 1.3 (cross-tenant isolation suite)                        | No spine counterpart. Standalone overlay work — SR-3.                                                                                     |
+
+### Overlay-only PRs
+
+SR-2 through SR-12 below are overlay work with **no spine counterpart**. They do not compete with the
+v1.2 sequence and are not a second program; each exists because a control, an architectural
+requirement, or a governance rule has nowhere in the domain sequence to attach.
 
 ---
 
@@ -57,47 +73,92 @@ standalone security work, which does not collide with any v1.2 domain PR.**
 
 ---
 
-## D-2. SR-2 — Verified actor binding _(first implementation PR)_
+## D-2. SR-2 — Verified actor binding _(first runtime security implementation objective)_
 
 | Field       | Value                                                                                  |
 | ----------- | -------------------------------------------------------------------------------------- |
 | **Roadmap** | completes v1.3.0 PR 1.1 (_trusted server-side actor and tenant context_) — gate SEC-01 |
 | **Blocker** | #1, cross-tenant / fabricated authority, R3                                            |
+| **Status**  | **BLOCKED — owner ruling 4. Not started, and must not start yet.**                     |
 
-**Objective.** Make it structurally impossible for a caller to place an unverified identifier into
-`app.actor_id`. Today `withLegalContext()` accepts whatever string it is handed. After this PR the
-actor field of a `LegalContext` can only be produced by resolving a principal against the identity
-tables, and a raw string is a type error.
+**Owner ruling 4 confirms this as the first runtime security implementation objective**, because
+fabricated actor or tenant authority is the highest immediate control risk. It also fixes hard
+preconditions, none of which is currently met.
 
-**Files likely affected.**
-`packages/context/src/legal.ts` (introduce a nominal `VerifiedActor`),
-`packages/identity/src/` (new `resolve-actor.ts` — resolve a user or service-account principal to a
-`VerifiedActor`, refusing revoked, inactive, out-of-window, or wrong-tenant principals),
-`packages/database/src/session.ts` (accept only `VerifiedActor`),
-plus every call site and test fixture.
+### D-2.0 Preconditions — every one is mandatory
 
-**Migration impact.** None expected. If the resolution query needs an index, it is an additive
-`CREATE INDEX` with a matching `DROP` in the down migration. No destructive change.
+| #   | Precondition                                                                          | Current state                                                   |
+| --- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 1   | PR #5 completes **final independent rereview**                                        | not started — `get_reviews` returns `[]`                        |
+| 2   | PR #5 **merges**                                                                      | open, unmerged, `mergeable_state: clean`, CI green at `0ca3628` |
+| 3   | PR #5 is **verified on `main`**                                                       | n/a until merged                                                |
+| 4   | Local `main` updated, **clean tree confirmed**                                        | n/a                                                             |
+| 5   | Authority model **re-evaluated against the merged state**                             | n/a                                                             |
+| 6   | Relevant authority and tenant-boundary tests **reproduced against the merged commit** | n/a                                                             |
+| 7   | Post-merge baseline and exact PR plan **returned to the owner and accepted**          | n/a                                                             |
 
-**Security invariants.**
+Two of these deserve emphasis because they are easy to skip:
 
-1. A `VerifiedActor` cannot be constructed from a string literal anywhere outside the resolver.
-2. Resolution failure refuses; it never falls back to the supplied value.
-3. Resolution is tenant-scoped: a principal from another tenant resolves to a refusal, and the
-   refusal reason is identical to "does not exist" so the boundary is not an existence oracle.
-4. `system:` actors follow a separate, explicitly allowlisted path and cannot be minted by request
-   input.
+- **SR-2 is not cut from PR #5's branch, and not from a moving target.** It is cut from `main` after
+  the merge. Building against an unmerged branch would stack security work on unreviewed security
+  work.
+- **PR #5's own report is explicitly not sufficient evidence.** Its verification table (254 unit,
+  248 integration, later 370 integration after remediation) was produced on its own branch. The
+  authority and tenant-boundary tests must be **re-run against the merged commit on `main`**, and the
+  merged behaviour re-read from the merged SQL — a rebase or a merge commit can change what is
+  actually in force.
 
-**Tests and evidence.** Fabricated-actor, borrowed-actor, cross-tenant-actor, revoked-actor, and
-expired-window refusals; a compile-fail fixture proving a bare string is rejected by the type
-system; the existing 370 in-flight integration tests still passing.
+### D-2.1 Objective
 
-**Rollback.** Revert the merge; the previous signature is restored. No data change.
+Make it structurally impossible for a caller to place an unverified identifier into `app.actor_id`
+or `app.tenant_id`. Today `withLegalContext()` accepts whatever strings it is handed. Afterwards, the
+actor and tenant fields of a `LegalContext` can only be produced by deriving them from a verified
+principal, and a bare string is a type error.
 
-**Dependencies.** **PR #5 must merge first** — the identity tables it resolves against live there.
-If PR #5 does not merge, this PR cannot start, and SR-7 or SR-8 below become the first PR instead.
+**Scope is SEC-01 and nothing else.** Not SEC-02, not SEC-03, not audit-plane isolation, not
+redaction, and **no dependency upgrade** — owner instruction is explicit that dependency work must
+not be mixed into SR-2.
 
-**Owner approval.** Whether `system:` actors are allowlisted in configuration or in the database.
+### D-2.2 Required contents — the eleven items owner ruling 4 enumerates
+
+| #   | Requirement                                                            | Planned implementation                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Trusted actor derivation**                                           | A `resolveActor()` in `packages/identity` that takes an authentication result — never a request field — and resolves it against `users` / `service_accounts` for the tenant, returning a nominal `VerifiedActor` or refusing. Construction of `VerifiedActor` is impossible outside the resolver.                                                                                                                           |
+| 2   | **Trusted organization / tenant derivation**                           | The tenant is **derived from the resolved principal's membership**, not accepted alongside it. A caller cannot pass a tenant at all; passing one becomes a type error. This closes the larger half of the gap — today a holder of the app credential can select any tenant.                                                                                                                                                 |
+| 3   | **Elimination of caller-controlled identity as independent authority** | `applyLegalContext()` and `withLegalContext()` accept only `VerifiedActor` + derived scope. A compile-fail fixture proves a string literal is rejected. Constraint 6 is the invariant under test.                                                                                                                                                                                                                           |
+| 4   | **Runtime-role restrictions**                                          | Assert, in an integration test rather than in prose, that `freightos_app` holds no privilege that would let it forge a principal: no write on identity tables (verified against the merged 0017 boundary), no ownership, no `BYPASSRLS`, no `SET ROLE` reachability to a definer owner.                                                                                                                                     |
+| 5   | **Control-plane authority boundaries**                                 | `app.is_control_plane()` must not be reachable from an app-role session however context is set; `freightos_control_plane` and `freightos_admin` paths remain separate and audited; a test asserts an app session cannot escalate into either.                                                                                                                                                                               |
+| 6   | **Cross-tenant negative tests**                                        | Every resolution path attempted across a tenant boundary refuses, and the refusal is **indistinguishable from "does not exist"** so the boundary is not an existence oracle.                                                                                                                                                                                                                                                |
+| 7   | **Fabricated, borrowed, stale, and revoked identity tests**            | Four distinct suites: an identifier that never existed; a valid identifier belonging to another principal; a principal resolved before a revocation and used after it; a principal whose membership is revoked, inactive, or outside its effective window. All refuse identically.                                                                                                                                          |
+| 8   | **Service-account behavior**                                           | Service accounts resolve through the same boundary as humans, carry their own credential-type constraints, and cannot acquire a human principal's scope. A service account from tenant A resolving in tenant B refuses.                                                                                                                                                                                                     |
+| 9   | **Audit attribution**                                                  | Every `audit_events` row written after this PR carries an actor that was **verified**, not asserted. A test asserts that no code path can write an audit row with an unverified actor. This is what makes AUD-01's attribution meaningful rather than shaped.                                                                                                                                                               |
+| 10  | **Migration and rollback behavior**                                    | Expected: no schema change. If resolution needs an index, it is an additive `CREATE INDEX` with a matching `DROP` in the down migration, and the apply → revert → re-apply cycle is proven as it is for every existing migration. No destructive change; no combined destructive-schema-plus-code-dependency step (`08_…` §7).                                                                                              |
+| 11  | **Compatibility with the v1.4.0 network identity model**               | Checked against v1.4.0 `03_NETWORK_PARTICIPANT_IDENTITY_GRAPH.md` before implementation. The nominal type and the resolver signature must not foreclose the network participant graph — in particular, canonical immutable IDs with versioned external aliases (v1.4.0 gate NA-01) and cross-organization deny-by-default (NA-02). If the two models conflict, that is a §D-9 escalation, not something to resolve in code. |
+
+### D-2.3 Files likely affected
+
+`packages/context/src/legal.ts` (nominal `VerifiedActor`, derived scope type),
+`packages/identity/src/resolve-actor.ts` (new),
+`packages/database/src/session.ts` (accept only verified inputs),
+`packages/database/test/integration/` (new authority suites),
+plus call sites and fixtures. **Exact list is not knowable until the merged `main` exists** — that is
+part of what the post-merge baseline returns.
+
+### D-2.4 Evidence required before SR-2 can be called done
+
+Reproduced against the merged commit, with exact exit statuses: `pnpm verify`, `pnpm test`,
+`pnpm test:integration`, the migration apply/revert/re-apply cycle, and the new authority suites.
+Plus a **deliberate-regression demonstration**: remove the derivation, show the new tests fail.
+
+### D-2.5 Rollback
+
+Revert the merge; the previous signatures return. No data change, so no data rollback.
+
+### D-2.6 Owner approval still required
+
+- Whether `system:` actors are allowlisted in configuration or in the database.
+- If the v1.4.0 identity graph and the PR #5 authority model disagree on canonical identifier
+  semantics, which controls.
 
 ---
 
@@ -186,37 +247,108 @@ belongs to this workstream.
 
 ## D-5. SR-5 — Classification metadata, redaction library, logging guardrail
 
-| Field       | Value                                  |
-| ----------- | -------------------------------------- |
-| **Roadmap** | v1.3.0 PR 2.2 — gates DATA-01, DATA-02 |
-| **Blocker** | #3, R2 now / R3 once anything runs     |
+| Field       | Value                                                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Roadmap** | v1.3.0 PR 2.2 — gates DATA-01, DATA-02                                                                                                |
+| **Blocker** | #3, R2 now / R3 once anything runs                                                                                                    |
+| **Status**  | **Proposal only. Owner ruling 5 permits preparation while PR #5 is pending.** No code has been written and no branch has been opened. |
 
-**Objective.** Build the redaction boundary _before_ the first line of logging code exists. There is
-currently no logger, which makes this the cheapest it will ever be.
+**Objective.** Build the redaction boundary _before_ the first line of application logging exists.
+There is currently **no logger anywhere in the repository**, which makes this the cheapest it will
+ever be, and makes it the only security control that gets harder every day it waits.
 
-**Files.** New `packages/telemetry` — a logger that accepts only structured fields carrying a
-declared D0–D5 classification, refuses D4/D5 at the type level, and irreversibly redacts anything
-unclassified. `docs/governance/DATA_CLASSIFICATION.md` restructured onto the package's D0–D5
-vocabulary with per-field owner, purpose, retention class, and sharing rule, per
-`templates/DATA_PROCESSING_INVENTORY_TEMPLATE.md`. An ESLint rule banning `console.*` outside the
-telemetry package.
+Owner ruling 5 states the requirement directly: _the redaction control must exist before broad
+application logging is introduced._
 
-**Migration impact.** None.
+### D-5.1 Isolation — the condition on which this work is permitted
 
-**Security invariants.** A D4/D5 value cannot reach a log, trace, metric label, or error message.
-An unclassified value is redacted, not passed through — fail closed, not fail open. Redaction is
-irreversible, not masking that can be inverted.
+Owner ruling 5 permits code only if it is isolated from identity and authorization, database
+ownership, RLS policies, PR #5 files, migrations, live integrations, and production deployment.
+The design below satisfies every one, and the isolation is structural rather than promised:
 
-**Tests and evidence.** Property-based tests over generated payloads asserting no D4/D5 value
-appears in output; a compile-fail fixture; a lint-failure fixture.
+| Must be isolated from      | How                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Identity and authorization | `packages/telemetry` has **no dependency on `packages/identity`**. It never resolves a principal and never reads an authorization decision.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Database ownership         | It opens no database connection. `pg` is not a dependency.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| RLS policies               | It touches no table and no policy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| PR #5 files                | **One mechanical overlap, stated exactly.** Verified with `git diff --name-only origin/main...origin/claude/phase-1-pr-2-identity-organization`. SR-5 would add `packages/telemetry/**` (new — no overlap), edit `eslint.config.js` (**PR #5 does not touch it**), and add one importer entry to `pnpm-lock.yaml` (**PR #5 does touch it** — a lockfile line, not a semantic conflict). `vitest.workspace.ts` and `eslint.config.js` need no edit for discovery: their globs are `packages/*/test/unit/**` and `packages/**/*.ts`, so a new package is picked up automatically. `docs/governance/DATA_CLASSIFICATION.md` **is** touched by PR #5, so the classification-register rewrite is deferred out of the code PR entirely (§D-5.4). |
+| Migrations                 | None. No `.sql` file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Live integrations          | No network client. No exporter is configured; the sink is in-process.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Production deployment      | Nothing is deployed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
-**Rollback.** Revert; nothing depends on it yet, which is the point of doing it first.
+Under ADR-0024 layering, `packages/telemetry` sits at **L1** alongside `packages/context` — it
+depends on nothing in the workspace, so it introduces no same-layer or upward edge and
+`validate-scope.mjs`'s `PACKAGE_LAYERING` check is satisfied by construction.
 
-**Dependencies.** None. **This PR is unblocked today** and does not require PR #5.
+**No branch has been opened.** Opening one now would stack a second security branch beside PR #5 and
+PR #8, which owner ruling 5 warns against. Awaiting explicit instruction on whether to cut it from
+`main` after PR #8 merges.
 
-**Owner approval.** Retention periods per class (OQ-12, needs counsel). The library can ship with
-retention _classes_ declared and periods marked `POLICY_REQUIRED`, matching the pattern ADR-0025
-already established for detention.
+### D-5.2 Design — fail-safe by construction
+
+The control is a **type-directed structured logger**, not a regex scrubber over free text. A regex
+scrubber fails open on the value it did not anticipate; a type boundary fails closed on the value
+nobody classified.
+
+1. **Nothing is loggable until it is classified.** The logger accepts a map of
+   `Classified<T>` values, each carrying a D0–D5 tag from
+   `policies/data-classification.yaml`. A bare `string`, `object`, or `unknown` is a **compile
+   error**, not a runtime warning.
+2. **D4 and D5 are rejected at the type level.** `policies/data-classification.yaml` states
+   `D4.logs_and_prompts: prohibited`. The logger's signature accepts `D0 | D1 | D2 | D3` only, so a
+   D4/D5 value cannot be passed. Where a D4/D5 field must be referenced, only a
+   non-reversible token derived from it may be logged.
+3. **Unclassified input is redacted, never passed through.** The runtime path — for values crossing
+   a boundary the type system cannot see, such as a caught error's `message` — replaces the value
+   with a fixed marker. Fail closed.
+4. **Redaction is irreversible.** A fixed marker, or a keyed digest that cannot be inverted without
+   the key. Not masking that leaves a recoverable prefix and suffix.
+5. **The default sink drops.** With `OTEL_EXPORTER_OTLP_ENDPOINT` empty, records go nowhere — the
+   posture `.env.example` already documents. No exporter is configured by this PR.
+6. **Errors are wrapped, not logged raw.** A raw `Error` may carry a connection URI or a query
+   parameter in its message; the wrapper classifies before emission.
+7. **`console.*` is banned outside the package** by an ESLint rule, so the guardrail cannot be
+   bypassed by convenience.
+
+### D-5.3 Required test matrix
+
+Owner ruling 5 requires proof for six data categories across supported logging paths. Each cell is a
+test that **fails on the pre-fix version and passes after** — the standard `15_…` §6 sets.
+
+| Category                 | Representative synthetic values                                                                                         | Assertion                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Secrets                  | API keys, private keys, signing material                                                                                | absent from every emitted record, verbatim and as any substring ≥ 8 chars |
+| Credentials              | connection URIs with passwords, basic-auth headers, `DATABASE_*_URL` values                                             | absent, including the password component alone                            |
+| Tokens                   | bearer tokens, session identifiers, refresh tokens, signed URLs                                                         | absent                                                                    |
+| Personal data            | names, emails, phone numbers, driver licence numbers, addresses                                                         | absent or irreversibly tokenized                                          |
+| Financial data           | bank account and routing numbers, card numbers, payment instructions, settlement amounts tied to a counterparty         | absent                                                                    |
+| Protected logistics data | carrier margins, customer rates, internal notes, maintenance strategy, chain-of-custody detail — the Article III.4 list | absent unless separately authorized and classified ≤ D3                   |
+
+Plus:
+
+- **Property-based tests** over generated payloads, not a fixed fixture list — the failure mode is
+  the value nobody thought of.
+- **A compile-fail fixture** proving an unclassified value and a D4/D5 value are both type errors.
+- **A lint-failure fixture** proving `console.log` outside the package fails CI.
+- **An error-path test** proving a thrown `Error` carrying a connection URI does not emit it.
+- **A negative control**: a D0 value that _should_ appear does appear, so the tests are not passing
+  because the logger emits nothing.
+
+### D-5.4 Deferred out of the code PR
+
+`docs/governance/DATA_CLASSIFICATION.md` needs restructuring onto D0–D5 with per-field owner,
+purpose, retention class, and sharing rule (`templates/DATA_PROCESSING_INVENTORY_TEMPLATE.md`).
+PR #5 edits that file, so it is **the only semantic contact point** between the two workstreams and
+is deferred to a separate documentation PR. What remains is a single `pnpm-lock.yaml` importer line,
+which is a mechanical conflict at worst.
+
+**Migration impact.** None. **Rollback.** Revert; nothing depends on it yet, which is the point of
+doing it first. **Dependencies.** None — independent of PR #5 and of SR-2.
+
+**Owner approval.** (a) Whether to open the SR-5 branch now or hold until PR #8 merges — held
+pending instruction. (b) Retention periods per class (OQ-12, needs counsel); the library can ship
+with retention _classes_ declared and periods marked `POLICY_REQUIRED`, matching the pattern
+ADR-0025 already set for detention.
 
 ---
 
@@ -328,6 +460,149 @@ review demonstrated on the PR itself.
 **Owner approval.** Branch-protection and required-review settings are repository _settings_, not
 files. Only the owner can change them, and SDLC-01 and AI-05 cannot be evidenced without them.
 
+**Note.** Owner instruction separates dependency _scanning_ from dependency _remediation_. Scanning
+is **SR-11**; remediation is **SR-10**. Neither belongs in SR-8's SBOM/provenance work and neither
+belongs in SR-2.
+
+---
+
+## D-8a. SR-9 — Top-level handoff registry _(owner ruling 2)_
+
+| Field       | Value                                                                       |
+| ----------- | --------------------------------------------------------------------------- |
+| **Roadmap** | governance — implements the forward rule fixed by owner ruling 2            |
+| **Blocker** | none — prevents recurrence of the C-6 class of defect                       |
+| **Status**  | **deferred by owner ruling 2** to a later, narrowly scoped documentation PR |
+
+**Objective.** Give later handoff packages a place to register themselves that is **outside every
+checksummed historical package**, so no future installation has to edit v1.2 to be discoverable.
+
+**Files.** A new top-level index — `docs/production-handoff/README.md` — listing every installed
+package, its version, its controlling scope, its installation commit, and its integrity-manifest
+path. Plus a validator asserting that every directory under `docs/production-handoff/` has a registry
+entry and a verified manifest.
+
+**Migration impact.** None. **Rollback.** Revert.
+
+**Explicitly not in scope.** Removing or rewriting the pointers already merged into v1.2's
+`00_MASTER_HANDOFF.md`. Owner ruling 2 forbids further edits to v1.2 to attach later handoffs; it
+does not require unwinding the two already there, and unwinding them would mean editing v1.2 again
+to satisfy a rule about not editing v1.2.
+
+**Dependencies.** None. Should land before a v1.5.0 package is ever installed.
+
+**Owner approval.** Whether the registry lives at `docs/production-handoff/README.md` or at the
+repository root.
+
+---
+
+## D-8b. SR-10 — Dependency advisory remediation _(isolated)_
+
+| Field       | Value                                                                          |
+| ----------- | ------------------------------------------------------------------------------ |
+| **Roadmap** | v1.3.0 `08_…` §2 dependency update with risk review — gate SDLC-02             |
+| **Blocker** | #9 → tracked as **PR0-R-16**                                                   |
+| **Status**  | proposal; assessment complete in `PHASE_0_GAP_AND_RISK_REGISTER.md` Appendix A |
+
+**Objective.** Clear the five open advisories through the **narrowest** change that clears them.
+Owner instruction is explicit: **no forced or broad dependency upgrade**, and **not mixed into SR-2**.
+
+**Files.** `package.json` (the `vitest` and `@vitest/coverage-v8` devDependency ranges only),
+`pnpm-lock.yaml`, and whatever configuration the upgrade actually requires — the empirical test
+recorded in Appendix A determines that, rather than a guess.
+
+**Migration impact.** None. No runtime dependency changes.
+
+**Security invariants.** The change must not alter any test's _meaning_. A dependency upgrade that
+silently changes which tests run, or relaxes a coverage threshold to stay green, converts a security
+control into decoration. The suite counts must be identical before and after, or every difference
+must be explained.
+
+**Tests and evidence.** `pnpm audit` before and after with the exact advisory list; `pnpm verify`,
+`pnpm test`, `pnpm test:integration` with exit statuses and **identical test counts**; the coverage
+run still meeting its thresholds.
+
+**Rollback.** Revert; the lockfile returns to the pinned prior versions.
+
+**Dependencies.** None on PR #5. **Must not be combined with SR-2 or SR-11.**
+
+**Owner approval.** Whether to accept the major-version move the fix requires, or to temporarily
+accept the advisories with the justification recorded in Appendix A.
+
+---
+
+## D-8c. SR-11 — Automated dependency scanning in CI _(dedicated change)_
+
+| Field       | Value                                                           |
+| ----------- | --------------------------------------------------------------- |
+| **Roadmap** | v1.3.0 `08_…` §4 dependency and license scanning — gate SDLC-02 |
+| **Blocker** | #9                                                              |
+
+**Objective.** Make the pipeline find its own advisories. Today GitHub Dependabot found five that CI
+did not look for.
+
+**Files.** `.github/workflows/ci.yml` — a blocking dependency-audit step, plus a license scan.
+
+**Security invariants.** The step must be **blocking**. A non-blocking scan reproduces the exact
+failure mode `ci.yml` already documents for the secret scan: output nobody reads that looks like
+coverage. If a severity threshold or a time-boxed allowlist is needed to land it, each entry must
+carry an owner and an expiration, per `01_…` Article X.
+
+**Tests and evidence.** A demonstration that the step fails on a known-vulnerable dependency and
+passes after remediation.
+
+**Rollback.** Revert the workflow change.
+
+**Dependencies.** Ordering matters: **SR-10 before SR-11**, or CI goes red on the advisories the
+moment the scan is added. Alternatively SR-11 first with a documented, expiring allowlist — that is
+the owner's call.
+
+---
+
+## D-8d. SR-12 — Backup and restore, with proven restoration _(owner ruling 6, R4)_
+
+| Field       | Value                                                                                                     |
+| ----------- | --------------------------------------------------------------------------------------------------------- |
+| **Roadmap** | v1.3.0 PR 5.4 — gates DR-01, DR-02                                                                        |
+| **Blocker** | #4 — **the only R4 in the register**                                                                      |
+| **Status**  | sequenced **immediately after SR-2**, or earlier if it can be done without conflicting with PR #5 or SR-2 |
+
+**Objective.** Close the only R4 finding. Owner ruling 6 is explicit that **documentation alone will
+not close it** — closure requires an actual restore.
+
+**Smallest independently reviewable form.** Scripts plus evidence, no infrastructure commitment:
+`scripts/backup.sh` and `scripts/restore.sh` operating against the local PostgreSQL 16 that
+`scripts/dev-postgres.sh` already provides, and a runbook. This deliberately does **not** select a
+cloud provider, which `22_…` places before Phase 5 and which Phase 0 was forbidden from choosing.
+It proves the _procedure_ and produces the _evidence_; provider-specific immutable and cross-region
+storage is a later, separate PR.
+
+**Evidence required for closure — all nine, per owner ruling 6:**
+
+| #   | Evidence                                                                  | How                                                                                                                                       |
+| --- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | A backup created from a safe synthetic or approved nonproduction database | `pg_dump`/`pg_basebackup` against a seeded synthetic database. **No production customer data** — none exists, and none may be introduced. |
+| 2   | Encrypted storage and access controls                                     | backup encrypted at rest; restricted file permissions; the key handled outside the repository                                             |
+| 3   | Restoration into an **isolated** environment                              | a second cluster or a distinct database name, never over the source                                                                       |
+| 4   | Integrity checks after restoration                                        | row counts per table, constraint and FK validation, migration-version table matches                                                       |
+| 5   | **Tenant-boundary verification after restoration**                        | the RLS suite re-run against the restored database — a restore that loses policies is a restore that loses isolation                      |
+| 6   | Measured recovery time and observed data-loss window                      | wall-clock RTO and the actual RPO, recorded as numbers, compared against `policies/slo-defaults.yaml`                                     |
+| 7   | Documented failure handling                                               | what to do when a restore fails midway, when a backup is corrupt, and when the migration version does not match                           |
+| 8   | Repeatable commands or automation                                         | committed scripts, not a transcript of hand-typed commands                                                                                |
+| 9   | No production customer data in chat, commits, or fixtures                 | synthetic fixtures only; the same constraint that governs every other test in this repository                                             |
+
+**Explicitly not claimable until an actual restore has succeeded.** Until then DR-01 and DR-02 remain
+NOT IMPLEMENTED, and backup capability must not be represented as accepted.
+
+**Migration impact.** None. **Rollback.** Revert the scripts; no state to unwind.
+
+**Dependencies.** Sequenced after SR-2 by owner ruling 6. It touches no file PR #5 touches, so if it
+can be completed without conflicting with PR #5 or SR-2 it may run earlier.
+
+**Owner approval.** Where restore evidence is preserved — committed to the repository, or held in an
+approved external evidence store. Measured numbers and logs may be committed; database contents may
+not.
+
 ---
 
 ## D-9. Owner decisions required
@@ -341,25 +616,31 @@ Ordered by what they block.
    owner merged it. Alternatives and reasoning: `README.md` §A.4a. Revert is one line if the owner
    prefers the pointer live outside the checksummed package instead.
 
-1. **Roadmap reconciliation — blocks everything.** Three active roadmaps (§D-0). Which sequence
-   governs, and does the recommendation to treat v1.2's ten-PR spine as primary with v1.3.0/v1.4.0
-   attached as cross-cutting requirements stand? Without this, any implementation PR risks being
-   out of order under one of the three.
+1. ~~**Roadmap reconciliation.**~~ **CLOSED — owner ruling 1.** v1.2's ten-PR sequence is the
+   delivery spine; v1.3.0 is the mandatory control and acceptance overlay; v1.4.0 is the mandatory
+   architectural and interoperability overlay; the newer packages do not create separate competing
+   programs. Per-PR obligations and the evidence rule are in §D-0.
 
-2. **PR #5 disposition — blocks SR-2, SR-3, SR-4, SR-6.** PR #5 delivers substantially all of
-   v1.3.0 PR 1.1 and PR 1.2. Is it accepted as satisfying those, with SR-2 completing the
-   trusted-actor requirement? Or are they separate follow-on work? It remains unmerged and under
-   independent rereview; no gate is scored on it either way.
+2. ~~**PR #5 disposition.**~~ **DIRECTED — owner ruling 4.** SR-2 does not begin against an unmerged
+   or moving PR #5. PR #5 completes final independent rereview, merges, and is verified on `main`;
+   then local `main` is updated, a clean tree confirmed, the authority model re-evaluated against the
+   merged state, and the authority and tenant-boundary tests **reproduced against the merged
+   commit** — PR #5's own report is not sufficient evidence. SR-2 is then cut from the updated
+   `main`, and **not started until the post-merge baseline and exact PR plan are returned**.
+   Preconditions and current state: §D-2.0.
 
 3. **Audit isolation depth — blocks SR-4.** Separate schema (recommended now) versus separate
    database (the stronger reading of Article V.3). Cost and operational complexity differ
-   materially.
+   materially. **Open.**
 
-4. **Backup and restore — highest tier in the register (R4), blocked on infrastructure.** No backup
-   exists and no restore has ever been performed. Implementation requires a cloud and region
-   decision, which `22_…` places before Phase 5 and which Phase 0 was explicitly forbidden from
-   making. **The decision should be sequenced earlier than the implementation**, so that the first
-   environment holding real records is not the one that discovers it has no recovery path.
+4. ~~**Backup and restore blocked on infrastructure.**~~ **DIRECTED — owner ruling 6.** It remains the
+   only R4 and must stay prominently tracked, but it is **no longer blocked on a cloud decision**:
+   SR-12 proves the procedure against a local synthetic database and produces all nine required
+   evidence items, deferring provider-specific immutable and cross-region storage to a later PR.
+   Sequenced immediately after SR-2, or earlier if it can be completed without conflicting with
+   PR #5 or SR-2. **Backup capability may not be represented as accepted until an actual restore has
+   succeeded and the evidence is preserved.** Still open within it: where restore evidence is stored
+   (§D-8d).
 
 5. **Named risk owners — blocks IR-01 and every evidence gate that needs an approver.**
    `02_…` §2 requires nine roles. None is assigned. One person may hold several, but the record must
@@ -374,6 +655,40 @@ Ordered by what they block.
 
 8. **Event platform selection — needed before Phase 3 completes, not before SR-6 starts.**
    SR-6 should be built against the PostgreSQL outbox alone.
+
+9. **Dependency remediation disposition — blocks SR-10 and orders SR-11.** Whether to accept the
+   major-version move the advisory fix requires, or temporarily accept the advisories with the
+   justification recorded in `PHASE_0_GAP_AND_RISK_REGISTER.md` Appendix A. Also whether SR-11 lands
+   before SR-10 with an expiring allowlist, or after it.
+
+10. **SR-5 branch timing — blocks nothing, needs a yes or no.** Owner ruling 5 permits preparing the
+    logging and redaction guardrail while PR #5 is pending. The proposal is complete (§D-5); **no
+    branch has been opened and no code written**, because opening one now would stack a third
+    security branch beside PR #5 and PR #8, which the same ruling warns against. Say the word and it
+    is cut from `main` after PR #8 merges.
+
+---
+
+## D-9a. Resulting order
+
+Owner rulings 1, 4, 5, and 6 together fix most of the sequence. What remains open is marked.
+
+| #   | Work                                                           | Gate              | Precondition                                                   |
+| --- | -------------------------------------------------------------- | ----------------- | -------------------------------------------------------------- |
+| 1   | **SR-1** — Phase 0 intake                                      | —                 | done; PR #8                                                    |
+| 2   | **PR #5** — spine PR 2, identity and organization              | SEC-01/02 partial | final independent rereview → merge → verify on `main`          |
+| 3   | **SR-2** — verified actor binding                              | SEC-01            | post-merge baseline returned **and accepted** (§D-2.0)         |
+| 4   | **SR-12** — backup and restore with proven restoration         | DR-01, DR-02      | after SR-2, or earlier if genuinely non-conflicting (ruling 6) |
+| —   | **SR-5** — redaction guardrail                                 | DATA-02           | independent of the above; awaiting a go/no-go on the branch    |
+| —   | **SR-10** → **SR-11** — advisory remediation, then CI scanning | SDLC-02           | independent; ordering per §D-8c                                |
+| —   | **SR-9** — handoff registry                                    | governance        | before any v1.5.0 package is installed                         |
+| 5   | **SR-3** — cross-tenant isolation suite                        | SEC-03            | after SR-2                                                     |
+| 6   | **SR-4** — audit plane isolation and integrity chain           | AUD-01            | after SR-2; needs decision 3                                   |
+| 7   | **SR-6** — idempotency, outbox publisher, inbox                | EVT-01/02/03      | after SR-2 and SR-4                                            |
+| 8   | **SR-7** — criticality registry and SLOs                       | REL-01/02         | independent                                                    |
+| 9   | **SR-8** — SBOM, provenance, CODEOWNERS, manifest verification | SDLC-01/02        | independent                                                    |
+
+Rows without a number are not blocked by the numbered chain and can interleave.
 
 ---
 

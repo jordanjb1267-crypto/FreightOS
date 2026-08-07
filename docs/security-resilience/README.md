@@ -127,16 +127,86 @@ Why this and not the alternatives:
   ignore a failing integrity check — the exact failure mode `ci.yml` already documents for the
   secret scan, where output nobody reads looks like coverage.
 
-**This is recorded for reversal, not presented as settled.** It changes a governance integrity
-record, so it is listed as an owner decision in `PHASE_0_PR_PLAN.md` §D-9. If the owner prefers the
-digest restored and the pointer relocated somewhere outside the checksummed package, that is a
-one-line revert plus a move.
+**Owner ruling 2 — accepted, and the forward rule is now fixed.** The correction is accepted as a
+**transitional consistency repair**, on the grounds that the required controlling pointer had already
+been merged into the checksummed file and `main` was failing its integrity check. It is not a
+precedent, and the following forward rule now governs:
+
+1. An installed versioned handoff package becomes **immutable after installation**, except through an
+   explicitly approved corrective amendment.
+2. Future additive handoff pointers belong in a **top-level handoff registry or index maintained
+   outside older checksummed packages** — not inside them.
+3. **Do not edit v1.2 again solely to attach a later handoff.**
+4. **Do not silently regenerate historical digests.** The correction above is documented, attributed
+   to a merged owner decision, and reversible in one line.
+5. Any future correction to a versioned package requires **an ADR or equivalent documented owner
+   approval** before it is made.
+
+The registry itself is deliberately **not** built here. Per owner ruling 2 it is deferred to a later,
+narrowly scoped documentation PR, because it is not required to make these documents internally
+consistent. It is tracked as **SR-9** in [`PHASE_0_PR_PLAN.md`](PHASE_0_PR_PLAN.md).
 
 The structural gap remains and is not fixed here: **nothing forces `SHA256SUMS.txt` to be
-regenerated when a checksummed file legitimately changes.** A validator for that belongs with the
-SR-8 supply-chain work alongside the two unverified `MANIFEST.sha256` files.
+regenerated when a checksummed file legitimately changes**, and under the forward rule above the
+correct enforcement is the opposite — a validator that _fails_ when a checksummed historical package
+is modified at all. That belongs with SR-8, alongside the two `MANIFEST.sha256` files CI does not
+verify.
 
-### A.5 Document precedence
+### A.5 Document precedence and roadmap hierarchy
+
+**Owner ruling 1 — the hierarchy below is decided. It is no longer an open blocker.**
+
+The three packages are not three competing implementation programs. They compose as one spine plus
+two mandatory overlays:
+
+| Rank | Package                                                                                       | Role                                                                                                |
+| ---- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 1    | **v1.2 approved ten-PR Phase 1 sequence** (`docs/decisions/0002-phase-1-owner-rulings.md` §5) | **Primary delivery spine.** All remaining domain work is sequenced here.                            |
+| 2    | **v1.3.0 security / resilience**                                                              | **Mandatory cross-cutting control and acceptance overlay.** Attaches to every spine PR.             |
+| 3    | **v1.4.0 network architecture**                                                               | **Mandatory cross-cutting architectural and interoperability overlay.** Attaches to every spine PR. |
+
+**The newer packages do not create separate competing implementation programs.** Where this document
+previously listed "three simultaneously active roadmaps" as an unresolved blocker, that blocker is
+**closed by owner ruling 1**. The standalone security PRs proposed in `PHASE_0_PR_PLAN.md` are
+overlay work that has no spine counterpart, not a parallel program.
+
+#### Per-PR obligation
+
+Every remaining v1.2 PR MUST identify, in its own description and evidence:
+
+1. the applicable **v1.3.0 controls and gates**;
+2. the applicable **v1.4.0 architecture requirements**;
+3. the **evidence produced** for each applicable requirement;
+4. any **conflict requiring owner approval**.
+
+#### Evidence rule
+
+**No requirement may be marked satisfied merely because it appears in documentation.** Acceptance
+requires repository and test evidence. This restates, and is consistent with, the scoring rule this
+directory already applies: a gate cannot be PASS when evidence exists only in an unmerged branch, a
+mock, or a document.
+
+#### Conflict resolution within the hierarchy
+
+Rank orders _delivery_, not _strictness_. Where the packages disagree on a requirement rather than on
+sequence, the pre-existing rules still control and are unchanged by ruling 1:
+
+- v1.3.0 is controlling for security, privacy, tenant isolation, zero-trust identity and
+  authorization, reliability, disaster recovery, secure delivery, incident response, AI-agent
+  authority, and bounded autonomous remediation. Where a prior implementation preference conflicts
+  with a non-regression requirement, _the stricter requirement controls_
+  (v1.2 `00_MASTER_HANDOFF.md:290`, v1.3.0 `README.md` §Relationship).
+- v1.4.0 is controlling for network domain model, identity graph, event language, command protocol,
+  interoperability, and network sequencing, and "must not weaken any security, privacy,
+  tenant-isolation, resilience, authority, or non-regression requirement"
+  (v1.2 `00_MASTER_HANDOFF.md:300`, v1.4.0 `README.md` §Package relationship).
+- v1.2 remains binding for product constitution, commercial scope, pricing, logistics domain,
+  sequencing doctrine, and the Horizon 1 stop rule. Its internal priority order
+  (`docs/production-handoff/v1.2/README.md:18-29`) and its tie-break rule — the stricter restriction
+  wins — are unchanged and consistent with both overlays.
+
+So: **v1.2 decides what is built next; v1.3.0 and v1.4.0 decide what that work must satisfy; the
+strictest requirement wins on any substantive disagreement.**
 
 Three handoff packages now control this repository. Their own text establishes the order; nothing
 below is an inference of mine.
@@ -186,23 +256,30 @@ are still mandatory-`false`, and `scripts/validate-scope.mjs` still fails the bu
 Named-role accountability under §2 is **not recorded anywhere**. `config/agents/registry.yaml`
 states `owner` is "the repository owner pending per-agent accountable owners."
 
-### A.7 Existing conflicts identified — not resolved here
+### A.7 Existing conflicts identified
 
-Per constraint 1, these are recorded and escalated rather than settled.
+C-1 and C-6 are **closed by owner ruling**. The remainder are recorded and escalated rather than
+settled, per constraint 1.
 
-**C-1 — Two packages both define a "Phase 1", and they are different work.**
-v1.3.0 Phase 1 is identity and tenant isolation (PR 1.1–1.3). v1.4.0 Phase 1 is canonical
-identifiers, schema registry, event envelope, and transactional outbox (PR 1–4). Both touch
-identity and events; neither states which runs first. v1.4.0 is additive and non-weakening, which
-resolves _conflicts_ but not _sequence_. Owner decision required — see `PHASE_0_PR_PLAN.md` §D-1.
+**C-1 — ~~Two packages both define a "Phase 1", and they are different work.~~ CLOSED — owner
+ruling 1.**
+v1.3.0 Phase 1 is identity and tenant isolation (PR 1.1–1.3); v1.4.0 Phase 1 is canonical
+identifiers, schema registry, event envelope, and transactional outbox (PR 1–4). Neither stated which
+runs first. **Resolved:** v1.2's ten-PR sequence is the delivery spine and both newer packages are
+cross-cutting overlays that attach to it — see §A.5. Neither package's internal "Phase 1" numbering
+schedules independent work.
 
 **C-2 — PR #5 is in flight and delivers most of v1.3.0 Phase 1.**
-Branch `claude/phase-1-pr-2-identity-organization` (head `0ca3628`, unmerged, under independent
-rereview) adds migrations 0005–0017, `packages/identity`, an authorization mutation boundary, and
-370 integration tests. That is substantially SEC-01, SEC-02, and part of SEC-03. It is **not on
-`main`**, so no gate is scored on it. It is recorded throughout as in-flight evidence so the PR
-plan does not propose rebuilding work that already exists. Owner decision required on whether
-v1.3.0 PR 1.1/1.2 are satisfied by PR #5 once merged, or are separate follow-on work.
+Branch `claude/phase-1-pr-2-identity-organization` (head `0ca3628`, unmerged, CI green, no review
+submitted, `mergeable_state: clean`) adds migrations 0005–0017, `packages/identity`, an authorization
+mutation boundary, and 370 integration tests. That is substantially SEC-01, SEC-02, and part of
+SEC-03. It is **not on `main`**, so no gate is scored on it.
+
+Owner ruling 4 fixes how this resolves: SR-2 does **not** begin against an unmerged or moving PR #5.
+PR #5 must complete final independent rereview, merge, and be verified on `main`; then the authority
+model is re-evaluated against the merged state and SR-2 is cut from the updated `main`. **PR #5's own
+report is explicitly not sufficient evidence** — the authority and tenant-boundary tests must be
+reproduced against the merged commit.
 
 **C-3 — `app.current_actor_id()` is a caller-supplied session variable on `main`.**
 Constraint 6 forbids using client-controlled actor IDs as independent proof of authority.
@@ -221,9 +298,20 @@ moment an agent runtime is built, and v1.3.0 Article VIII then controls.
 Carried forward from Phase 0 as risk R-11, still open. Unrelated to security, recorded so the
 register stays complete.
 
-**C-6 — the preserved-package rule and the required-pointer rule contradicted each other, and the
-contradiction was live.** Resolved in this pull request as described in §A.4a, and listed for owner
-reversal in `PHASE_0_PR_PLAN.md` §D-9.
+**C-6 — ~~the preserved-package rule and the required-pointer rule contradicted each other, and the
+contradiction was live.~~ CLOSED — owner ruling 2.** The one-line digest correction is accepted as a
+transitional consistency repair, and the forward rule in §A.4a now prevents recurrence: versioned
+packages are immutable after installation, later pointers live in a registry outside them, and any
+future correction requires an ADR or equivalent documented approval first.
+
+**C-7 — five open dependency advisories, and CI has no dependency scan.** `pnpm audit` reports 1
+critical, 1 high, and 3 moderate advisories in the `vitest` test toolchain. They were surfaced by
+GitHub Dependabot on push, not by this repository's pipeline. Full per-advisory assessment —
+reachability, exposure, fixed versions, compatibility, and remediation proposal — is Appendix A of
+[`PHASE_0_GAP_AND_RISK_REGISTER.md`](PHASE_0_GAP_AND_RISK_REGISTER.md), and the risk is tracked there
+as **PR0-R-16**. Per owner instruction: no forced or broad upgrade, remediation in a dedicated
+isolated PR, dependency scanning added to CI through its own reviewable change, and neither mixed
+into SR-2.
 
 ### A.8 Evidence for this intake
 

