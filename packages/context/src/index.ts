@@ -41,3 +41,23 @@ export {
   type Resolution,
   type ResolutionRequest,
 } from './kill-switch.ts';
+
+/**
+ * SR-2 verified principals — TYPES AND READERS ONLY.
+ *
+ * The constructors live in `@freightos/context/authentication-boundary` and are deliberately absent
+ * here, so that importing `@freightos/context` gives a module the ability to RECEIVE a verified
+ * principal and no ability to invent one. `packages/context/test/unit/production-exports.test.ts`
+ * asserts that separation from the package manifest rather than from this comment.
+ */
+export {
+  describePrincipal,
+  expectedActorId,
+  isHumanPrincipal,
+  isServicePrincipal,
+  principalId,
+  type PrincipalType,
+  type VerifiedHumanPrincipal,
+  type VerifiedPrincipal,
+  type VerifiedServicePrincipal,
+} from './principal.ts';
