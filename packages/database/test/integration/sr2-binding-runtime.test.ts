@@ -166,7 +166,7 @@ describe('gate B — trusted mint', () => {
   });
 
   it('refuses a real principal paired with a tenant no membership justifies', async () => {
-    await withAppAndAdmin(async (app, admin) => {
+    await withAppAndAdmin(async (_app, admin) => {
       const refusal = await refusalFrom(() =>
         mintBinding(admin, {
           ...alice(),
@@ -476,7 +476,10 @@ describe('gate D — backend pid binding', () => {
       const pid = await backendPid(app);
       const expired = await mintBinding(admin, { ...alice(), targetBackendPid: pid });
       await expireBinding(db, expired);
-      const wrongBackend = await mintBinding(admin, { ...alice(), targetBackendPid: 2_147_483_647 });
+      const wrongBackend = await mintBinding(admin, {
+        ...alice(),
+        targetBackendPid: 2_147_483_647,
+      });
 
       const messages = new Set<string>();
       for (const candidate of [randomUUID(), expired, wrongBackend]) {
@@ -823,7 +826,7 @@ describe('gate F — isolation contract', () => {
 // ---------------------------------------------------------------------------
 
 describe('gate G — actor forgery', () => {
-  const substitutes = () => [
+  const substitutes = (): ReadonlyArray<readonly [string, string]> => [
     ['a valid colleague', `user:${fixtureA.adminUserId}`],
     ['a foreign-tenant administrator', `user:${fixtureB.adminUserId}`],
     ['a fabricated uuid', `user:${randomUUID()}`],
@@ -1117,70 +1120,67 @@ describe('gate K — current revocation visibility', () => {
   const revocations: ReadonlyArray<
     readonly [string, 'membership' | 'user', () => readonly [string, readonly unknown[]]]
   > = [
-      [
-        'membership revoked',
-        'membership',
-        () => [
-          // revoked_at and revoked_by move together — memberships carries the same revocation
-          // consistency CHECK users does.
-          "UPDATE memberships SET status = 'revoked', revoked_at = now(), revoked_by = $2 WHERE id = $1",
-          [fixtureA.membershipId, 'test:revoker'],
-        ],
+    [
+      'membership revoked',
+      'membership',
+      () => [
+        // revoked_at and revoked_by move together — memberships carries the same revocation
+        // consistency CHECK users does.
+        "UPDATE memberships SET status = 'revoked', revoked_at = now(), revoked_by = $2 WHERE id = $1",
+        [fixtureA.membershipId, 'test:revoker'],
       ],
-      [
-        'membership suspended',
-        'membership',
-        () => [
-          "UPDATE memberships SET status = 'suspended' WHERE id = $1",
-          [fixtureA.membershipId],
-        ],
+    ],
+    [
+      'membership suspended',
+      'membership',
+      () => ["UPDATE memberships SET status = 'suspended' WHERE id = $1", [fixtureA.membershipId]],
+    ],
+    [
+      'membership expired',
+      'membership',
+      () => [
+        "UPDATE memberships SET effective_to = now() - interval '1 second' WHERE id = $1",
+        [fixtureA.membershipId],
       ],
-      [
-        'membership expired',
-        'membership',
-        () => [
-          "UPDATE memberships SET effective_to = now() - interval '1 second' WHERE id = $1",
-          [fixtureA.membershipId],
-        ],
+    ],
+    [
+      'membership not yet effective',
+      'membership',
+      () => [
+        "UPDATE memberships SET effective_from = now() + interval '1 day' WHERE id = $1",
+        [fixtureA.membershipId],
       ],
-      [
-        'membership not yet effective',
-        'membership',
-        () => [
-          "UPDATE memberships SET effective_from = now() + interval '1 day' WHERE id = $1",
-          [fixtureA.membershipId],
-        ],
+    ],
+    [
+      'membership moved to another node',
+      'membership',
+      () => [
+        'UPDATE memberships SET organization_node_id = $2 WHERE id = $1',
+        [fixtureA.membershipId, fixtureA.regionNodeId],
       ],
-      [
-        'membership moved to another node',
-        'membership',
-        () => [
-          'UPDATE memberships SET organization_node_id = $2 WHERE id = $1',
-          [fixtureA.membershipId, fixtureA.regionNodeId],
-        ],
+    ],
+    [
+      'user revoked',
+      'user',
+      () => [
+        "UPDATE users SET status = 'revoked', revoked_at = now(), revoked_by = $2 WHERE id = $1",
+        [fixtureA.userId, 'test:revoker'],
       ],
-      [
-        'user revoked',
-        'user',
-        () => [
-          "UPDATE users SET status = 'revoked', revoked_at = now(), revoked_by = $2 WHERE id = $1",
-          [fixtureA.userId, 'test:revoker'],
-        ],
+    ],
+    [
+      'user returned to pending',
+      'user',
+      () => ["UPDATE users SET status = 'pending' WHERE id = $1", [fixtureA.userId]],
+    ],
+    [
+      'user expired',
+      'user',
+      () => [
+        "UPDATE users SET effective_to = now() - interval '1 second' WHERE id = $1",
+        [fixtureA.userId],
       ],
-      [
-        'user returned to pending',
-        'user',
-        () => ["UPDATE users SET status = 'pending' WHERE id = $1", [fixtureA.userId]],
-      ],
-      [
-        'user expired',
-        'user',
-        () => [
-          "UPDATE users SET effective_to = now() - interval '1 second' WHERE id = $1",
-          [fixtureA.userId],
-        ],
-      ],
-    ];
+    ],
+  ];
 
   for (const [label, target, statement] of revocations) {
     it(`observes ${label} on the next statement of an already-open transaction`, async () => {
@@ -1430,10 +1430,9 @@ describe('gate O — kill-switch provenance', () => {
           engaged_by: string;
           engaged_by_type: string;
           tenant_id: string;
-        }>(
-          'SELECT engaged_by, engaged_by_type, tenant_id::text FROM kill_switches WHERE id = $1',
-          [id],
-        );
+        }>('SELECT engaged_by, engaged_by_type, tenant_id::text FROM kill_switches WHERE id = $1', [
+          id,
+        ]);
         const row = recorded.rows[0]!;
         expect(row.engaged_by, label).toBe(`user:${fixtureA.userId}`);
         expect(row.engaged_by_type, label).toBe('human');

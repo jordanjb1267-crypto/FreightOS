@@ -81,17 +81,6 @@ export async function installBinding(app: Client, binding: string): Promise<void
   await app.query('SELECT app.begin_verified_session($1)', [binding]);
 }
 
-/** A binding minted for this connection and installed into the transaction already open on it. */
-export async function establishVerifiedSession(
-  app: Client,
-  admin: Client,
-  request: Omit<MintRequest, 'targetBackendPid'>,
-): Promise<string> {
-  const binding = await mintBinding(admin, { ...request, targetBackendPid: await backendPid(app) });
-  await installBinding(app, binding);
-  return binding;
-}
-
 /** The six authoritative accessors, read in one statement. */
 export interface ResolvedContext {
   tenantId: string | null;
