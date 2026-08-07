@@ -686,3 +686,81 @@ isolation level, not of this design, and one the ADR must state rather than impl
   `app.is_control_plane()` and take no part in the cycle.
 - The static graph check must assert role-disjointness directly, because the runtime symptom of a
   regression is a **backend stack overflow**, not a diagnosable error.
+
+---
+
+## 15. Isolation contract — measured before it is encoded
+
+The `READ COMMITTED` enforcement is load-bearing, so every fact it rests on was measured on
+PostgreSQL 16.13 rather than taken from the manual.
+
+### 15.1 What `transaction_isolation` actually reports
+
+| `BEGIN …`                          | `current_setting('transaction_isolation')` |
+| ---------------------------------- | ------------------------------------------ |
+| (default)                          | `read committed`                           |
+| `ISOLATION LEVEL READ COMMITTED`   | `read committed`                           |
+| `ISOLATION LEVEL REPEATABLE READ`  | `repeatable read`                          |
+| `ISOLATION LEVEL SERIALIZABLE`     | `serializable`                             |
+| `ISOLATION LEVEL READ UNCOMMITTED` | **`read uncommitted`**                     |
+
+**`READ UNCOMMITTED` is reported literally — it is not normalised to `read committed`.** PostgreSQL
+implements it _as_ read committed semantically, but the GUC keeps the requested name.
+
+**Contract decision: accept `read committed` only, reject `read uncommitted`.** The rejection is
+about contract exactness rather than a semantic difference — the narrowest explicit contract, as
+instructed. Recorded so nobody later "fixes" it believing the two are interchangeable: semantically
+they are, nominally they are not, and the check is on the name.
+
+### 15.2 Isolation cannot be changed after any query — stronger than assumed
+
+```
+BEGIN; CREATE TEMP TABLE …; INSERT …; SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+  → ERROR:  SET TRANSACTION ISOLATION LEVEL must be called before any query
+
+BEGIN; SELECT 1; SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+  → ERROR:  SET TRANSACTION ISOLATION LEVEL must be called before any query
+```
+
+The restriction is "before any query", not "before any _write_". So once
+`app.begin_verified_session` has run — it performs an `UPDATE`, and would in any case have executed
+at least one query — the isolation level of that transaction is immutable. The post-install
+mutation test is therefore expected to fail with this exact error, and that is the control working.
+
+### 15.3 A connection default DOES reach the transaction — first measurement was wrong
+
+| Route                                                                        | Reported inside `BEGIN` |
+| ---------------------------------------------------------------------------- | ----------------------- |
+| `SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ` | `repeatable read`       |
+| `SET default_transaction_isolation = 'repeatable read'`                      | `repeatable read`       |
+
+An earlier run of this measurement reported `read committed` and appeared to show that a session
+default could **not** reach the transaction — which would have meant the connection-default bypass
+did not exist and needed no test. That result was an artefact of sending `SET …; BEGIN; SELECT …;`
+as one multi-statement simple query, which PostgreSQL executes as a single implicit transaction
+block. Re-measured with the statements sent separately on the same connection, the default reaches
+the transaction exactly as expected.
+
+Recording the wrong result alongside the right one because the failure mode is instructive: the
+first measurement would have justified _omitting_ a required control on the grounds that its threat
+did not exist.
+
+**Consequence:** checking `current_setting('transaction_isolation')` inside
+`app.begin_verified_session` is exactly the right probe. It reflects the effective level whatever
+its origin — `BEGIN ISOLATION LEVEL …`, `SET SESSION CHARACTERISTICS`, or
+`default_transaction_isolation` — so the connection-default bypass is covered by the same single
+check, with no separate control needed.
+
+### 15.4 The contract, stated for the ADR
+
+> Verified application sessions are restricted to PostgreSQL `READ COMMITTED` isolation. Mutable
+> principal and membership state is re-evaluated under each consequential statement's current
+> `READ COMMITTED` snapshot. A revocation committed before the next statement begins is therefore
+> observable by that statement. A statement already executing may complete under the snapshot it
+> acquired at statement start.
+>
+> `REPEATABLE READ` and `SERIALIZABLE` are intentionally unsupported for SR-2 verified application
+> sessions: under those levels the transaction may retain a pre-revocation snapshot until it ends,
+> which would make the revocation property caller-controllable. `READ UNCOMMITTED` is rejected on
+> contract exactness, not semantics. Workloads that require the stronger isolation levels need a
+> separate authorization and revocation design; SR-2 is not weakened now for them.
