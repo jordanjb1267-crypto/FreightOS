@@ -885,3 +885,54 @@ The direction is specific enough to hand over intact:
 
 Everything else in this document stands. The security properties are established and measured; the
 resolution cost of establishing them is not yet fit to ship.
+
+## 11. Exact-head CI, green
+
+Run [31219733765](https://github.com/jordanjb1267-crypto/FreightOS/actions/runs/31219733765), job
+`verify`, head `b8010d7b383d680a24cd6e0cee10b1cd46dc29c0`. Conclusion **success**, 21:21:53Z →
+21:23:20Z. PostgreSQL 16-alpine service container (16.14) against 16.13 locally.
+
+Every number below is the runner's own `Tests` summary line, copied from the CI log rather than
+counted from anything.
+
+```
+pnpm format:check      pass
+pnpm lint              pass
+pnpm typecheck         pass
+sha256sum -c SHA256SUMS.txt          pass
+HANDOFF_VALIDATION=PASS  SEQUENCING_DOCTRINE=PASS  HORIZON_1_STOP_RULE=PASS
+DEFERRED_PRODUCTS_DISABLED=PASS  SAFETY_BOUNDARY=PASS
+PROVENANCE=PASS
+SCOPE_VALIDATION=PASS  HORIZON_1_ONLY=PASS  DEFERRED_MODULES_DISABLED=PASS
+AUTONOMY_CEILING=PASS  SAFETY_BOUNDARY=PASS  BILLING_DISABLED=PASS  PACKAGE_LAYERING=PASS
+
+pnpm test           Test Files  15 passed (15)      Tests  286 passed (286)
+pnpm test:coverage  Test Files  15 passed (15)      Tests  286 passed (286)
+                    All files   100 % stmts | 98.42 % branch | 100 % funcs | 100 % lines
+pnpm test:integration
+                    Test Files  14 passed (14)      Tests  519 passed (519)
+                    Duration    32.76s (tests 90.27s)
+```
+
+Zero failed, zero skipped, in both projects, on the exact head. The previous CI state recorded in
+§4 — 76 integration failures across five suites — is superseded; those were the enterprise-node
+contradiction, and §9 records how each of the 26 that remained at the recorded baseline was
+resolved.
+
+### Gate ledger
+
+| Gate                             | State                                                    |
+| -------------------------------- | -------------------------------------------------------- |
+| integration green, 0 skips       | **met**                                                  |
+| follow-on requirements complete  | **met** — `SR2_FOLLOW_ON_REQUIREMENTS.md`, four sections |
+| raw-GUC allowlist green          | **met** — `SR2_RAW_GUC_ALLOWLIST.md`, forbidden uses 0   |
+| static fences final              | **met** — 14, up from 13                                 |
+| ADR final                        | **met** — `adr/0027-verified-actor-binding.md`           |
+| full local gate green            | **met** — `pnpm verify` end to end                       |
+| final database gate green        | **met** — 100/100                                        |
+| exact-head CI green              | **met** — this section                                   |
+| **performance measured**         | **met, and it FAILS** — §10                              |
+| independent adversarial rereview | **not done**                                             |
+
+`SR_2_VERIFIED_ACTOR_BINDING=READY_FOR_FINAL_REREVIEW` is **not** emitted. Two of the ten are
+outstanding and one of them is a measured failure, not a missing artefact.
