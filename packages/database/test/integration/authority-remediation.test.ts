@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withLegalContext } from '../../src/session.ts';
+import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
 import { seedIdentity, systemContextAt, type IdentityFixture } from './identity-harness.ts';
 
@@ -339,26 +340,16 @@ describe('§3 naming another principal does not confer their authority — RC-C'
 
   beforeAll(async () => {
     ordinaryUser = randomUUID();
-    await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      async (c) => {
-        await c.query(
-          `INSERT INTO users (id, tenant_id, organization_node_id, legal_entity_id,
+    await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      await c.query(
+        `INSERT INTO users (id, tenant_id, organization_node_id, legal_entity_id,
                               authentication_provider, authentication_subject, display_name,
                               status, created_by, updated_by)
            VALUES ($1, $2, $3, $4, 'test-idp', $5, 'Ordinary Colleague',
                    'active', 'test:seed', 'test:seed')`,
-          [
-            ordinaryUser,
-            TENANT_A,
-            a.legalEntityNodeId,
-            a.legalEntityId,
-            `ordinary-${ordinaryUser}`,
-          ],
-        );
-      },
-    );
+        [ordinaryUser, TENANT_A, a.legalEntityNodeId, a.legalEntityId, `ordinary-${ordinaryUser}`],
+      );
+    });
   });
 
   /** Every row of ruling 5's matrix, run through the same authority-bearing mutation. */
@@ -392,20 +383,16 @@ describe('§3 naming another principal does not confer their authority — RC-C'
 
   it('refuses a revoked principal even though it holds the permission', async () => {
     const revoked = randomUUID();
-    await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      async (c) => {
-        await c.query(
-          `INSERT INTO users (id, tenant_id, organization_node_id, legal_entity_id,
+    await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      await c.query(
+        `INSERT INTO users (id, tenant_id, organization_node_id, legal_entity_id,
                               authentication_provider, authentication_subject, display_name,
                               status, revoked_at, revoked_by, created_by, updated_by)
            VALUES ($1, $2, $3, $4, 'test-idp', $5, 'Revoked',
                    'revoked', now(), 'test:seed', 'test:seed', 'test:seed')`,
-          [revoked, TENANT_A, a.legalEntityNodeId, a.legalEntityId, `revoked-${revoked}`],
-        );
-      },
-    );
+        [revoked, TENANT_A, a.legalEntityNodeId, a.legalEntityId, `revoked-${revoked}`],
+      );
+    });
     const r = await adminConn.query<{ outcome: string }>(
       `SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
@@ -499,37 +486,74 @@ describe('§4 kill-switch authority is command-scoped and tenant-bound — RC-G,
    * where it lives.
    */
   it('the command derives the human rather than accepting a claimed one', async () => {
+    // SR-2 — the attack moved, because the claim did. Before 0019 the actor id WAS the session's
+    // identity, so setting it was the whole attack. Now it is a caller-supplied string the
+    // database ignores, so the attack is: hold a legitimate verified session and forge the claim
+    // on top of it. Without the session the command refuses for want of tenant context, which
+    // would be a refusal for the wrong reason and no evidence about Article V.1 at all.
     const attempt = (actor: string) =>
-      withLegalContext(
-        app,
-        systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, actor),
-        (c) =>
-          c.query(`SELECT app.engage_kill_switch('workflow', $1, 'suspended', 'probe')`, [
-            `claimed-${randomUUID()}`,
-          ]),
-      ).then(
+      withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+        await c.query('SELECT set_config($1, $2, true)', ['app.actor_id', actor]);
+        return c.query(`SELECT app.engage_kill_switch('workflow', $1, 'suspended', 'probe')`, [
+          `claimed-${randomUUID()}`,
+        ]);
+      }).then(
         () => 'ENGAGED',
         (e: { message: string }) => e.message,
       );
 
-    // Art. V.1 reserves engaging to a human, and the function decides that from the actor id
-    // rather than from `engaged_by_type`, which is why typing itself human changes nothing.
+    // SR-2 — SAME PROPERTY, STRONGER EVIDENCE, INVERTED SHAPE.
+    //
+    // The title still describes what is proven: the command derives the human rather than
+    // accepting a claimed one. What changed is how that shows up. Before 0019 the claim WAS the
+    // identity, so a non-human claim produced a refusal, and the refusal was the proof. Now the
+    // claim is a string the database does not read: the command proceeds as the VERIFIED human and
+    // records them. Asserting a refusal here would be asserting that the forgery still reaches the
+    // decision — the opposite of the fix.
+    //
+    // Article V.1's human reservation has not lost coverage. It is enforced on the binding's
+    // enumerated principal_type and proved in sr2-binding-runtime.test.ts, gate O, where a verified
+    // SERVICE principal claiming `user:<alice>` is refused outright with "only an active human
+    // principal may engage a kill switch". That is the case that can still legitimately fail; this
+    // one no longer can, because there is no longer a door for the claim to knock on.
     for (const actor of [
       'agent:dispatch-copilot',
       'model:extraction',
       `service_account:${a.serviceAccountId}`,
       `user:${randomUUID()}`,
     ]) {
-      expect(await attempt(actor), actor).toMatch(/only an active human principal/);
+      expect(await attempt(actor), actor).toBe('ENGAGED');
     }
+
+    // And the engagement is attributed to the verified administrator, never to the claim.
+    const attributed = await withAuthenticatedTestPrincipal(
+      db,
+      fixtureAdministrator(a),
+      async (c) => {
+        await c.query('SELECT set_config($1, $2, true)', [
+          'app.actor_id',
+          'agent:dispatch-copilot',
+        ]);
+        const scopeRef = `claimed-attribution-${randomUUID()}`;
+        await c.query(`SELECT app.engage_kill_switch('workflow', $1, 'suspended', 'probe')`, [
+          scopeRef,
+        ]);
+        const r = await c.query<{ engaged_by: string; engaged_by_type: string }>(
+          'SELECT engaged_by, engaged_by_type FROM kill_switches WHERE scope_ref = $1',
+          [scopeRef],
+        );
+        return r.rows[0]!;
+      },
+    );
+    expect(attributed.engaged_by).toBe(`user:${a.adminUserId}`);
+    expect(attributed.engaged_by_type).toBe('human');
+    expect(attributed.engaged_by).not.toContain('dispatch-copilot');
   });
 
   it('a tenant session cannot engage a scope reserved to the control plane', async () => {
     for (const scope of ['system', 'legal_plane']) {
-      const r = await withLegalContext(
-        app,
-        systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-        (c) => c.query(`SELECT app.engage_kill_switch($1, NULL, 'suspended', 'probe')`, [scope]),
+      const r = await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), (c) =>
+        c.query(`SELECT app.engage_kill_switch($1, NULL, 'suspended', 'probe')`, [scope]),
       ).then(
         () => 'ENGAGED',
         (e: { message: string }) => e.message,
@@ -548,10 +572,8 @@ describe('§4 kill-switch authority is command-scoped and tenant-bound — RC-G,
       [TENANT_B, `foreign-${randomUUID()}`, b.adminUserId],
     );
     const id = foreign.rows[0]!.id;
-    const r = await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      (c) => c.query(`SELECT app.release_kill_switch($1)`, [id]),
+    const r = await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), (c) =>
+      c.query(`SELECT app.release_kill_switch($1)`, [id]),
     ).then(
       () => 'RELEASED',
       (e: { message: string }) => e.message,
@@ -649,23 +671,19 @@ describe('§5 reparenting is an authority mutation — RC-F', () => {
   beforeAll(async () => {
     foreignRegion = randomUUID();
     foreignTerminal = randomUUID();
-    await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      async (c) => {
-        for (const [id, parent, type, name] of [
-          [foreignRegion, a.legalEntityNodeId, 'region', 'East'],
-          [foreignTerminal, foreignRegion, 'terminal', 'East Terminal'],
-        ] as const) {
-          await c.query(
-            `INSERT INTO organization_nodes
+    await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      for (const [id, parent, type, name] of [
+        [foreignRegion, a.legalEntityNodeId, 'region', 'East'],
+        [foreignTerminal, foreignRegion, 'terminal', 'East Terminal'],
+      ] as const) {
+        await c.query(
+          `INSERT INTO organization_nodes
                (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
              VALUES ($1, $2, $1, $3, $4, $5, 'test:seed')`,
-            [id, TENANT_A, parent, type, name],
-          );
-        }
-      },
-    );
+          [id, TENANT_A, parent, type, name],
+        );
+      }
+    });
   });
 
   it('a caller scoped to one region cannot see the other region subtree', async () => {
@@ -706,17 +724,13 @@ describe('§5 reparenting is an authority mutation — RC-F', () => {
   });
 
   it('the runtime role can still rename a node it legitimately holds', async () => {
-    await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      async (c) => {
-        const r = await c.query('UPDATE organization_nodes SET name = $1 WHERE id = $2', [
-          'Renamed Terminal',
-          a.terminalNodeId,
-        ]);
-        expect(r.rowCount).toBe(1);
-      },
-    );
+    await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      const r = await c.query('UPDATE organization_nodes SET name = $1 WHERE id = $2', [
+        'Renamed Terminal',
+        a.terminalNodeId,
+      ]);
+      expect(r.rowCount).toBe(1);
+    });
   });
 });
 
@@ -806,14 +820,8 @@ describe('§7 legitimate operations still succeed', () => {
     // Tenant B, whose only switch in this file is agent-scoped: resolution here is about the
     // workflow row this test writes, not about which of several engaged switches wins.
     const workflow = `legitimate-${randomUUID()}`;
-    const asAdministrator = systemContextAt(
-      TENANT_B,
-      b.enterpriseNodeId,
-      b.legalEntityId,
-      `user:${b.adminUserId}`,
-    );
 
-    const id = await withLegalContext(app, asAdministrator, async (c) => {
+    const id = await withAuthenticatedTestPrincipal(db, fixtureAdministrator(b), async (c) => {
       await assertRuntimeRole(c as Client, 'freightos_app');
       const r = await c.query<{ id: string }>(
         `SELECT app.engage_kill_switch('workflow', $1, 'read_only', 'legitimate halt') AS id`,
@@ -850,10 +858,14 @@ describe('§7 legitimate operations still succeed', () => {
     );
     expect(resolved.rows[0]!.mode).toBe('read_only');
 
-    const released = await withLegalContext(app, asAdministrator, async (c) => {
-      const r = await c.query<{ ok: boolean }>(`SELECT app.release_kill_switch($1) AS ok`, [id]);
-      return r.rows[0]!.ok;
-    });
+    const released = await withAuthenticatedTestPrincipal(
+      db,
+      fixtureAdministrator(b),
+      async (c) => {
+        const r = await c.query<{ ok: boolean }>(`SELECT app.release_kill_switch($1) AS ok`, [id]);
+        return r.rows[0]!.ok;
+      },
+    );
     expect(released).toBe(true);
 
     const after = await fixtureConn.query<{ released_by: string; released_by_type: string }>(
@@ -891,45 +903,37 @@ describe('§7 legitimate operations still succeed', () => {
   });
 
   it('a domain audit event is still recordable by the runtime role', async () => {
-    await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      async (c) => {
-        const r = await c.query<{ id: string }>(
-          `SELECT app.record_audit_event(
+    await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      const r = await c.query<{ id: string }>(
+        `SELECT app.record_audit_event(
              'rig.freight.identity.user_viewed.v1', 'user', $1, $2, NULL,
              'identity_administration', $3::jsonb) AS id`,
-          [a.userId, randomUUID(), JSON.stringify({ note: 'legitimate domain event' })],
-        );
-        expect(r.rows[0]!.id).toBeTruthy();
-      },
-    );
+        [a.userId, randomUUID(), JSON.stringify({ note: 'legitimate domain event' })],
+      );
+      expect(r.rows[0]!.id).toBeTruthy();
+    });
   });
 
   it('the recorded event carries derived, not supplied, provenance', async () => {
     const correlation = randomUUID();
-    await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      async (c) => {
-        await c.query(
-          `SELECT app.record_audit_event(
+    await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      await c.query(
+        `SELECT app.record_audit_event(
              'rig.freight.identity.user_viewed.v1', 'user', $1, $2, NULL,
              'identity_administration',
              $3::jsonb)`,
-          [
-            a.userId,
-            correlation,
-            JSON.stringify({
-              // A caller trying to smuggle authoritative fields through the descriptive channel.
-              connection: { session_user: 'freightos_admin' },
-              operation_class: 'privileged',
-              outcome: 'succeeded',
-            }),
-          ],
-        );
-      },
-    );
+        [
+          a.userId,
+          correlation,
+          JSON.stringify({
+            // A caller trying to smuggle authoritative fields through the descriptive channel.
+            connection: { session_user: 'freightos_admin' },
+            operation_class: 'privileged',
+            outcome: 'succeeded',
+          }),
+        ],
+      );
+    });
     const r = await fixtureConn.query<{
       operation_class: string;
       actor_id: string;
@@ -967,15 +971,11 @@ describe('§7 legitimate operations still succeed', () => {
   });
 
   it('a caller inside the account node scope can still read its credential', async () => {
-    await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      async (c) => {
-        const r = await c.query('SELECT id FROM service_account_credentials WHERE id = $1', [
-          a.serviceAccountCredentialId,
-        ]);
-        expect(r.rowCount).toBe(1);
-      },
-    );
+    await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      const r = await c.query('SELECT id FROM service_account_credentials WHERE id = $1', [
+        a.serviceAccountCredentialId,
+      ]);
+      expect(r.rowCount).toBe(1);
+    });
   });
 });
