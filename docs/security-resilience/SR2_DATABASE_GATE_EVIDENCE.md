@@ -1258,5 +1258,39 @@ everything.
 | context capability matrix        | **MET**                                                                             |
 | independent adversarial rereview | **complete — two findings, both fixed, both now gated**                             |
 
+### 14.5 Re-run on the final head
+
+The probes above ran against `409f35c`. Fixing R-01 and R-02 changed the code, so cleanliness could
+not be carried forward from a superseded head — the probes were re-executed against
+`71a19358e10e8507c83c2eb1fe5da11b0187844d`:
+
+```
+RECHECK A3  prepared statement, generic plan: first=2  after revocation=0
+RECHECK A4  cursor: first fetch=1  remaining=1  fresh statement after revocation=0
+RECHECK A5  nodes fn=3 direct=3   service accounts fn=1 direct=1
+RECHECK A6  unbound: verified_scope_node_ids 0 rows, verified_scope_service_account_ids 0 rows
+RECHECK A6  verified_binding_scope_node_ids => permission denied for function
+RECHECK A6  capability predicates: write=null read=null
+```
+
+A6's last two lines are the fix visible from the outside: what previously returned rows to any
+caller is now refused outright, and the capability predicates answer NULL rather than `true` to a
+session with no binding.
+
+Exact-head CI on that commit: run
+[31224516591](https://github.com/jordanjb1267-crypto/FreightOS/actions/runs/31224516591), job
+`verify`, `head_sha` confirmed, conclusion **success**. From the runner's own summary lines in the
+CI log:
+
+```
+pnpm test           Test Files  15 passed (15)      Tests  289 passed (289)
+pnpm test:coverage  Test Files  15 passed (15)      Tests  289 passed (289)
+                    All files   100 % stmts | 98.42 % branch | 100 % funcs | 100 % lines
+pnpm test:integration
+                    Test Files  14 passed (14)      Tests  535 passed (535)
+```
+
+Every step green, secret scan included, on PostgreSQL 16.14 against 16.13 locally.
+
 The rereview earning two findings is the point. A rereview that confirms everything has told you
 nothing about the code and something about the rereview.
