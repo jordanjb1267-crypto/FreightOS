@@ -490,6 +490,80 @@ describe('§4 kill-switch authority is command-scoped and tenant-bound — RC-G,
     await app.query('ROLLBACK');
   });
 
+  /**
+   * The command path, not the table path.
+   *
+   * Every other test in this section attacks `kill_switches` directly, which is why all of them
+   * kept passing while `app.engage_kill_switch` and `app.release_kill_switch` were refusing
+   * everybody for an unrelated reason. A control installed as a replacement has to be attacked
+   * where it lives.
+   */
+  it('the command derives the human rather than accepting a claimed one', async () => {
+    const attempt = (actor: string) =>
+      withLegalContext(
+        app,
+        systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, actor),
+        (c) =>
+          c.query(`SELECT app.engage_kill_switch('workflow', $1, 'suspended', 'probe')`, [
+            `claimed-${randomUUID()}`,
+          ]),
+      ).then(
+        () => 'ENGAGED',
+        (e: { message: string }) => e.message,
+      );
+
+    // Art. V.1 reserves engaging to a human, and the function decides that from the actor id
+    // rather than from `engaged_by_type`, which is why typing itself human changes nothing.
+    for (const actor of [
+      'agent:dispatch-copilot',
+      'model:extraction',
+      `service_account:${a.serviceAccountId}`,
+      `user:${randomUUID()}`,
+    ]) {
+      expect(await attempt(actor), actor).toMatch(/only an active human principal/);
+    }
+  });
+
+  it('a tenant session cannot engage a scope reserved to the control plane', async () => {
+    for (const scope of ['system', 'legal_plane']) {
+      const r = await withLegalContext(
+        app,
+        systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
+        (c) => c.query(`SELECT app.engage_kill_switch($1, NULL, 'suspended', 'probe')`, [scope]),
+      ).then(
+        () => 'ENGAGED',
+        (e: { message: string }) => e.message,
+      );
+      expect(r, scope).toMatch(/may only be engaged by the control plane/);
+    }
+  });
+
+  it('the command refuses a release of a switch belonging to another tenant', async () => {
+    const foreign = await fixtureConn.query<{ id: string }>(
+      `INSERT INTO kill_switches (tenant_id, scope, scope_ref, mode, reason,
+         engaged_by, engaged_by_type, created_by)
+       VALUES ($1::uuid, 'workflow', $2::text, 'suspended', 'B only',
+               'user:' || $3, 'human', 'test')
+       RETURNING id`,
+      [TENANT_B, `foreign-${randomUUID()}`, b.adminUserId],
+    );
+    const id = foreign.rows[0]!.id;
+    const r = await withLegalContext(
+      app,
+      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
+      (c) => c.query(`SELECT app.release_kill_switch($1)`, [id]),
+    ).then(
+      () => 'RELEASED',
+      (e: { message: string }) => e.message,
+    );
+    expect(r).toMatch(/is not releasable by this tenant/);
+    const still = await fixtureConn.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM kill_switches WHERE id = $1 AND released_at IS NULL`,
+      [id],
+    );
+    expect(Number(still.rows[0]!.n)).toBe(1);
+  });
+
   it('an agent-driven session cannot engage a switch by typing human', async () => {
     await app.query('BEGIN');
     await app.query(
@@ -711,6 +785,111 @@ describe('§6 credential lifecycle is bound to the subject scope — RC-J', () =
 // so a database that refused everything could not pass this file.
 // ---------------------------------------------------------------------------
 describe('§7 legitimate operations still succeed', () => {
+  /**
+   * The control that was missing, and the omission that let a real regression ship.
+   *
+   * §4 revoked table-wide INSERT and UPDATE on kill_switches from freightos_app and installed
+   * `app.engage_kill_switch` / `app.release_kill_switch` as the only remaining way for a tenant to
+   * work one. Nothing in this file — or anywhere else — ever called either command. Both consult
+   * `app.current_human_principal()` first, that function is a definer owned by
+   * freightos_hierarchy_owner, and the owner had no SELECT on `users`, so both raised
+   * `permission denied for table users` for every caller. The hole was closed and no door was
+   * left, and every §4 test still passed because each one exercises the direct-table path.
+   *
+   * A suite that only proves refusals cannot tell a working boundary from a broken database. This
+   * is the positive control that says which one it is.
+   */
+  it('a tenant can engage and release its own kill switch through the command', async () => {
+    // Its own workflow scope_ref, so this neither shadows nor is shadowed by the switches §4
+    // leaves engaged — precedence between scopes is resolve_kill_switch_mode's subject, not this
+    // test's, and entangling the two would make a failure here ambiguous.
+    // Tenant B, whose only switch in this file is agent-scoped: resolution here is about the
+    // workflow row this test writes, not about which of several engaged switches wins.
+    const workflow = `legitimate-${randomUUID()}`;
+    const asAdministrator = systemContextAt(
+      TENANT_B,
+      b.enterpriseNodeId,
+      b.legalEntityId,
+      `user:${b.adminUserId}`,
+    );
+
+    const id = await withLegalContext(app, asAdministrator, async (c) => {
+      await assertRuntimeRole(c as Client, 'freightos_app');
+      const r = await c.query<{ id: string }>(
+        `SELECT app.engage_kill_switch('workflow', $1, 'read_only', 'legitimate halt') AS id`,
+        [workflow],
+      );
+      return r.rows[0]!.id;
+    });
+    expect(id).toBeTruthy();
+
+    // Engaged, and with provenance derived from the session rather than supplied by the caller.
+    const engaged = await fixtureConn.query<{
+      tenant_id: string;
+      mode: string;
+      engaged_by: string;
+      engaged_by_type: string;
+      released_at: string | null;
+    }>(
+      `SELECT tenant_id::text, mode::text, engaged_by, engaged_by_type, released_at
+         FROM kill_switches WHERE id = $1`,
+      [id],
+    );
+    expect(engaged.rows[0]).toEqual({
+      tenant_id: TENANT_B,
+      mode: 'read_only',
+      engaged_by: `user:${b.adminUserId}`,
+      engaged_by_type: 'human',
+      released_at: null,
+    });
+
+    // It is real rather than merely recorded: it resolves for the workflow it names.
+    const resolved = await fixtureConn.query<{ mode: string }>(
+      `SELECT app.resolve_kill_switch_mode($1, NULL, $2, NULL, NULL, NULL, NULL, NULL) AS mode`,
+      [TENANT_B, workflow],
+    );
+    expect(resolved.rows[0]!.mode).toBe('read_only');
+
+    const released = await withLegalContext(app, asAdministrator, async (c) => {
+      const r = await c.query<{ ok: boolean }>(`SELECT app.release_kill_switch($1) AS ok`, [id]);
+      return r.rows[0]!.ok;
+    });
+    expect(released).toBe(true);
+
+    const after = await fixtureConn.query<{ released_by: string; released_by_type: string }>(
+      `SELECT released_by, released_by_type FROM kill_switches
+        WHERE id = $1 AND released_at IS NOT NULL`,
+      [id],
+    );
+    expect(after.rows[0]).toEqual({
+      released_by: `user:${b.adminUserId}`,
+      released_by_type: 'human',
+    });
+    const afterResolve = await fixtureConn.query<{ mode: string }>(
+      `SELECT app.resolve_kill_switch_mode($1, NULL, $2, NULL, NULL, NULL, NULL, NULL) AS mode`,
+      [TENANT_B, workflow],
+    );
+    expect(afterResolve.rows[0]!.mode).toBe('enabled');
+  });
+
+  it('the human-principal predicate the two commands rest on can read what it must', async () => {
+    // Stated as a privilege fact as well as a behavioural one, because the behavioural version
+    // above is the one that broke and a grant is the thing that fixes it.
+    const r = await fixtureConn.query<{ ok: boolean }>(
+      `SELECT has_table_privilege('freightos_hierarchy_owner', 'users', 'SELECT') AS ok`,
+    );
+    expect(r.rows[0]!.ok).toBe(true);
+
+    // And nothing wider on that table came with it — read only, no write of any kind. Its other
+    // grants belong to 0007, for the closure triggers it owns, and are not 0018's business.
+    const onUsers = await fixtureConn.query<{ p: string }>(
+      `SELECT privilege_type AS p FROM information_schema.table_privileges
+        WHERE grantee = 'freightos_hierarchy_owner' AND table_name = 'users'
+        ORDER BY privilege_type`,
+    );
+    expect(onUsers.rows.map((x) => x.p)).toEqual(['SELECT']);
+  });
+
   it('a domain audit event is still recordable by the runtime role', async () => {
     await withLegalContext(
       app,

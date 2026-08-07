@@ -336,6 +336,10 @@ DROP FUNCTION IF EXISTS app.engage_kill_switch(
   app.kill_switch_scope, text, app.kill_switch_mode, text);
 DROP FUNCTION IF EXISTS app.current_human_principal();
 
+-- The read that function needed goes back with it. Dropped after the function, not before: a
+-- revert that removed the grant first would leave a live definer that cannot read what it asks for.
+REVOKE SELECT ON users FROM freightos_hierarchy_owner;
+
 DROP POLICY kill_switches_write ON kill_switches;
 DROP POLICY kill_switches_release ON kill_switches;
 CREATE POLICY kill_switches_write ON kill_switches

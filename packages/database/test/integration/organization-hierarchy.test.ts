@@ -793,8 +793,11 @@ describe('the closure cannot be written by what it authorizes — F-02', () => {
     }
 
     // The definer's whole reach: the closure it maintains, the node depths the move pass rewrites,
-    // and one read of legal_entities that 0015's kill-switch tenant check needs (F-12). Nothing
-    // else, and nothing writable outside the closure.
+    // one read of legal_entities that 0015's kill-switch tenant check needs (F-12), and one read
+    // of users that 0018 §4's app.current_human_principal() needs to decide whether the session's
+    // actor is a real active human before a kill switch may be engaged or released. Nothing else,
+    // and nothing writable outside the closure — this list is the guard against a grant arriving
+    // quietly, so a new entry belongs here only with the sentence that says why.
     const grants = await admin.query<{ table_name: string; privilege_type: string }>(
       `SELECT table_name, privilege_type FROM information_schema.table_privileges
         WHERE grantee = 'freightos_hierarchy_owner' ORDER BY table_name, privilege_type`,
@@ -807,6 +810,7 @@ describe('the closure cannot be written by what it authorizes — F-02', () => {
       { table_name: 'organization_node_closure', privilege_type: 'UPDATE' },
       { table_name: 'organization_nodes', privilege_type: 'SELECT' },
       { table_name: 'organization_nodes', privilege_type: 'UPDATE' },
+      { table_name: 'users', privilege_type: 'SELECT' },
     ]);
   });
 

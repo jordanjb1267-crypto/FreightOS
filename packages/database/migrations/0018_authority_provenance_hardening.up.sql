@@ -482,6 +482,15 @@ CREATE POLICY kill_switches_release ON kill_switches
 -- standing CREATE on schema app is a privilege the definer has no further use for.
 GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
 
+-- app.current_human_principal() below runs as this owner and reads `users` to decide whether the
+-- session's actor is a real, active human of the current tenant. Without this the function raises
+-- `permission denied for table users` on every call, and because engage/release both consult it
+-- FIRST, the two commands this section installs as the ONLY remaining way for a tenant to work a
+-- kill switch would refuse everybody — the hole closed and no door left. The read is the narrowest
+-- thing that works: SELECT only, on one table, to a NOLOGIN role no session can connect as, and
+-- the function's own predicate still confines the answer to the current tenant's active users.
+GRANT SELECT ON users TO freightos_hierarchy_owner;
+
 /**
  * The human principal behind the current session, or NULL if there is not one.
  *
@@ -789,6 +798,26 @@ BEGIN
           OR NOT EXISTS (SELECT 1 FROM unnest(p.proconfig) c WHERE c LIKE 'search_path=%'));
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION '0018 §8: % is not SECURITY DEFINER with a pinned search_path', v_bad;
+  END IF;
+
+  -- §4, the other direction. Revoking a privilege and installing a command in its place only
+  -- helps if the command works, and this one runs as an owner that has to read `users` to find
+  -- the human behind the session. Asserting the closure without asserting the replacement is how
+  -- a hole gets closed with no door left, so both are checked here.
+  IF NOT has_table_privilege('freightos_hierarchy_owner', 'users', 'SELECT') THEN
+    RAISE EXCEPTION
+      '0018 §4: freightos_hierarchy_owner cannot read users, so app.current_human_principal() '
+      'raises and both kill-switch commands refuse every caller';
+  END IF;
+
+  -- And nothing wider on that table rode along with it. Its other grants are 0007's, for the
+  -- closure triggers it owns, and are not this migration's business.
+  SELECT string_agg(DISTINCT privilege_type, ', ') INTO v_bad
+    FROM information_schema.role_table_grants
+   WHERE grantee = 'freightos_hierarchy_owner' AND table_name = 'users'
+     AND privilege_type <> 'SELECT';
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0018 §4: freightos_hierarchy_owner unexpectedly holds % on users', v_bad;
   END IF;
 END
 $$;

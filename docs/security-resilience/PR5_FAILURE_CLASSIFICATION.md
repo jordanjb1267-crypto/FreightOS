@@ -5,13 +5,7 @@ failure **before** modifying anything. Kept current through the convergence roun
 `..._CONVERGENCE_FINISH_REMAINING_11` §7 requires.
 
 **Trajectory, live PostgreSQL 16.13, integration project:** 64 → 38 → 22 → 12 → 11 → **0**.
-**Final: 403 passing / 0 failing / 403 total.** Unit and integration together: 675 / 675.
-
-**Headline, unchanged from the first classification: no failure fell into category 5 or 6.**
-Nothing here indicated the repaired implementation broke legitimate behaviour, and nothing
-indicated the remediation reopened or introduced an authority flaw. Every one was a consequence of
-the security model changing as intended, plus migration bookkeeping. **No approved security
-invariant was weakened to reach green, and none of the ten forbidden concessions was taken.**
+**Final: 408 passing / 0 failing / 408 total.** Unit and integration together: 680 / 680.
 
 | Cat | Meaning                                                               | Count | Resolved |
 | --- | --------------------------------------------------------------------- | ----- | -------- |
@@ -19,12 +13,69 @@ invariant was weakened to reach green, and none of the ten forbidden concessions
 | 2   | expected-semantic change — correct outcome changed                    | 5     | 5        |
 | 3   | fixture defect — setup no longer models a valid authority arrangement | 2     | 2        |
 | 4   | migration/inventory bookkeeping — enumeration stale                   | 6     | 6        |
-| 5   | **actual runtime regression**                                         | **0** | —        |
+| 5   | **actual runtime regression**                                         | **1** | 1        |
 | 6   | **new security regression**                                           | **0** | —        |
 
 Category 2 is five rather than the original four: `create_role by an ordinary member` surfaced
 later, once earlier fixes let its test reach that line. It is analysed in full below because the
 owner required it be investigated rather than assumed stale.
+
+**Category 5 is one, not zero, and the earlier revisions of this document were wrong to say
+otherwise.** No _test failure_ fell into category 5 — that part held — but the final adversarial
+verification pass found a real runtime regression that no test failure could have surfaced,
+because no test exercised the code path at all. It is R-01 below. Nothing was weakened to reach
+green and none of the ten forbidden concessions was taken; that claim is unchanged and still
+holds. What did not hold was the inference from "every failure is explained" to "nothing is
+broken." A suite that never calls a function cannot fail on it.
+
+---
+
+## R-01 — Category 5. Kill-switch commands refused every caller. **Found in final verification.**
+
+**What broke.** 0018 §4 revoked table-wide `INSERT` and `UPDATE` on `kill_switches` from
+`freightos_app` and installed `app.engage_kill_switch` and `app.release_kill_switch` as the only
+remaining way for a tenant to work one. Both consult `app.current_human_principal()` first. That
+function is `SECURITY DEFINER` owned by `freightos_hierarchy_owner`, it reads `users`, and the
+owner had no `SELECT` on `users`. Every call raised `permission denied for table users`, so both
+commands refused every caller, legitimate or not. **The hole was closed and no door was left.**
+
+**Why nothing caught it.** Every §4 test attacks `kill_switches` directly — the table path, not
+the command path — so all of them passed, and each passed for its own correct reason. There was
+no positive control for either command, and a refusal for the wrong reason is indistinguishable
+from a refusal for the right one when only the refusal is asserted. This is precisely the failure
+mode the standing instruction anticipates: _security remediation is incomplete if legitimate
+administration is accidentally disabled._
+
+**Severity.** Availability of a safety control, not confidentiality or integrity. Nothing was
+exposed and no authority was widened — the failure was closed, in the sense that everything was
+refused. But a kill switch a tenant cannot engage is a safety control that is not there, and
+Art. V.1 reserves engaging and releasing to a human precisely so a human can stop the machine.
+
+**Fix.** `GRANT SELECT ON users TO freightos_hierarchy_owner`, in 0018 §4, revoked in 0018's down
+after the function that needs it is dropped. It is the narrowest thing that works: `SELECT` only,
+on one table, to a NOLOGIN role no session can connect as, and the function's own predicate still
+confines the answer to the current tenant's active users. The role's other grants are 0007's.
+
+**Proof the fix is load-bearing.** With the grant commented out, five tests fail, each with
+`permission denied for table users`:
+
+| Test                                                                           | Section |
+| ------------------------------------------------------------------------------ | ------- |
+| `the command derives the human rather than accepting a claimed one`            | §4      |
+| `a tenant session cannot engage a scope reserved to the control plane`         | §4      |
+| `the command refuses a release of a switch belonging to another tenant`        | §4      |
+| `a tenant can engage and release its own kill switch through the command`      | §7      |
+| `the human-principal predicate the two commands rest on can read what it must` | §7      |
+
+With the grant restored and the migration's own assertion re-enabled, a database missing the grant
+now fails to migrate at all: `0018 §4: freightos_hierarchy_owner cannot read users, so
+app.current_human_principal() raises and both kill-switch commands refuse every caller`.
+
+**What else changed as a result.** `organization-hierarchy.test.ts` enumerates the hierarchy
+owner's complete grant set as a guard against exactly this kind of quiet widening; the new grant
+is added there with the sentence that justifies it, so the guard still guards. Three command-path
+refusal tests and one command-path positive control are now permanent, so the untested path is no
+longer untested.
 
 ---
 
@@ -222,10 +273,17 @@ branch changes no dependency they trace to. They are reported, not claimed fixed
 
 ## What this classification establishes
 
-Every failure is explained by the security model changing as designed, or by enumeration that has
-legitimately moved. **None required weakening a remediated invariant, and none was evidence of a
-regression.** Reaching green cost no approved security invariant, and no test was skipped, weakened
-or broadly allowlisted to get there.
+Every _test failure_ is explained by the security model changing as designed, or by enumeration
+that has legitimately moved. **None required weakening a remediated invariant, and none was
+evidence of a regression.** Reaching green cost no approved security invariant, and no test was
+skipped, weakened or broadly allowlisted to get there.
+
+That is a narrower claim than it first looks, and R-01 is why it has to be stated narrowly. A
+classification of failures can only speak about paths something exercised. The one real regression
+in this remediation lived on a path nothing exercised, and it took an adversarial pass that called
+the new commands directly — rather than a pass that read the diff or watched the suite go green —
+to find it. Every control this PR installs as a _replacement_ for a revoked privilege now has a
+positive control proving the replacement works, because the absence of one is what let R-01 through.
 
 This document records verification evidence. It is **not** an acceptance, and nothing in it should
 be read as a claim that FreightOS is production ready, secure, resilient, complete, or accepted.
