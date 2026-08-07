@@ -65,6 +65,42 @@ function adminContext() {
   return systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`);
 }
 
+/**
+ * Move a node through the trusted command — 0018 §10b.
+ *
+ * Reparenting rewrites the closure and therefore changes which resources a scoped caller reaches,
+ * so it is an authority mutation and the runtime role no longer holds the privilege to do it. The
+ * structural invariants these tests are about — permitted parenthood, cycle rejection, the depth
+ * bound, the serialising advisory lock — still live in 0007's triggers and still fire on this path.
+ * The command adds the authority question they never asked; it does not replace them.
+ *
+ * Denials and failures are raised with the boundary's own message so the assertions that used to
+ * match a trigger's error text keep matching it.
+ */
+async function moveNode(
+  client: Client,
+  nodeId: string,
+  parentId: string,
+  opts: { tenantId?: string; actor?: string } = {},
+): Promise<void> {
+  const r = await client.query<{ outcome: string; message: string | null }>(
+    'SELECT * FROM admin.move_organization_node($1, $2, $3, $4, $5, $6, $7)',
+    [
+      opts.tenantId ?? TENANT_A,
+      nodeId,
+      parentId,
+      opts.actor ?? `user:${a.adminUserId}`,
+      'human',
+      'identity_administration',
+      randomUUID(),
+    ],
+  );
+  const row = r.rows[0]!;
+  if (row.outcome !== 'succeeded') {
+    throw new Error(row.message ?? `move ${row.outcome}`);
+  }
+}
+
 describe('four-level traversal', () => {
   it('records the depth of each level', async () => {
     const rows = await withLegalContext(app, adminContext(), async (c) => {
@@ -216,24 +252,13 @@ describe('hierarchy invariants', () => {
       addNode(c as Client, a.regionNodeId, 'business_unit', 'Cycle bait'),
     );
 
-    await expect(
-      withLegalContext(app, adminContext(), async (c) => {
-        await c.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [
-          descendant,
-          a.regionNodeId,
-        ]);
-      }),
-    ).rejects.toThrow(/cycle rejected/);
+    await expect(moveNode(admin, a.regionNodeId, descendant)).rejects.toThrow(/cycle rejected/);
   });
 
   it('rejects a self-parent', async () => {
-    await expect(
-      withLegalContext(app, adminContext(), async (c) => {
-        await c.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $1', [
-          a.regionNodeId,
-        ]);
-      }),
-    ).rejects.toThrow(/not_own_parent|cycle rejected/);
+    await expect(moveNode(admin, a.regionNodeId, a.regionNodeId)).rejects.toThrow(
+      /not_own_parent|cycle rejected/,
+    );
   });
 
   it('accepts a chain down to exactly the depth bound', async () => {
@@ -274,31 +299,31 @@ describe('hierarchy invariants', () => {
       return root;
     });
 
-    await expect(
-      withLegalContext(app, adminContext(), async (c) => {
-        await c.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [
-          deepNodeId,
-          tallRoot,
-        ]);
-      }),
-    ).rejects.toThrow(/depth bound of 16 exceeded/);
+    await expect(moveNode(admin, tallRoot, deepNodeId)).rejects.toThrow(
+      /depth bound of 16 exceeded/,
+    );
   });
 });
 
 describe('moving a subtree', () => {
   it('re-parents the subtree, re-depths it, and rebuilds the closure', async () => {
-    const moved = await withLegalContext(app, adminContext(), async (c) => {
+    // Built and committed first: the move runs on a separate administrative connection, and an
+    // uncommitted subtree is invisible to it. That separation is the model working, not a test
+    // inconvenience — the runtime role builds the tree, the trusted command repositions it.
+    const built = await withLegalContext(app, adminContext(), async (c) => {
       const client = c as Client;
       const branch = await addNode(client, a.legalEntityNodeId, 'business_unit', 'Movable BU');
       const child = await addNode(client, branch, 'region', 'Movable region');
       const grandchild = await addNode(client, child, 'terminal', 'Movable yard');
+      return { branch, child, grandchild };
+    });
 
-      // Move the branch one level deeper, under the region.
-      await client.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [
-        a.regionNodeId,
-        branch,
-      ]);
+    // Move the branch one level deeper, under the region — through the trusted command.
+    await moveNode(admin, built.branch, a.regionNodeId);
 
+    const moved = await withLegalContext(app, adminContext(), async (c) => {
+      const client = c as Client;
+      const { branch, child, grandchild } = built;
       const depths = await client.query<{ id: string; depth: number }>(
         'SELECT id, depth FROM organization_nodes WHERE id = ANY($1) ORDER BY depth',
         [[branch, child, grandchild]],
@@ -726,12 +751,7 @@ describe('the closure cannot be written by what it authorizes — F-02', () => {
     ]);
 
     // And a move rewrites it — the trigger's detach/reattach pass, still working as a definer.
-    await withLegalContext(app, adminContext(), (c) =>
-      (c as Client).query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [
-        a.legalEntityNodeId,
-        nodeId,
-      ]),
-    );
+    await moveNode(admin, nodeId, a.legalEntityNodeId);
     const moved = await withLegalContext(app, adminContext(), async (c) => {
       const r = await c.query<{ ancestor_id: string; depth: number }>(
         `SELECT ancestor_id, depth FROM organization_node_closure
@@ -846,8 +866,29 @@ describe('concurrent hierarchy mutation — F-03', () => {
     });
   }
 
-  /** An independent connection carrying the tenant administrator's context, left in a transaction. */
+  /**
+   * An independent ADMINISTRATIVE connection, left in an open transaction.
+   *
+   * One real connection per logical transaction, never two logical transactions multiplexed onto
+   * one: the whole point of these tests is that two concurrent transactions contend for
+   * app.lock_organization_hierarchy, and a shared connection would serialise them before the lock
+   * ever saw them. The connection is freightos_admin because 0018 §6 took the reparent privilege
+   * away from the runtime role — the lock is taken inside 0007's trigger either way, so its timing
+   * and ordering behaviour is unchanged.
+   */
   async function openSession() {
+    const client = db.connectAs('freightos_admin');
+    await client.connect();
+    await client.query('BEGIN');
+    return client;
+  }
+
+  /**
+   * An independent RUNTIME session, for the concurrency cases that write organization_nodes
+   * directly rather than moving an existing node. The administrative connection cannot serve these:
+   * ADR-0020 §7 gives it no USAGE on public, so a domain table is not even nameable from it.
+   */
+  async function openRuntimeSession() {
     const client = db.connectAs('freightos_app');
     await client.connect();
     await client.query('BEGIN');
@@ -872,7 +913,7 @@ describe('concurrent hierarchy mutation — F-03', () => {
   }
 
   const move = (client: Client, nodeId: string, parentId: string) =>
-    client.query('UPDATE organization_nodes SET parent_id = $1 WHERE id = $2', [parentId, nodeId]);
+    moveNode(client, nodeId, parentId);
 
   it('refuses the second of two moves that would together form a cycle', async () => {
     const { left, right } = await branchPair();
@@ -978,8 +1019,10 @@ describe('concurrent hierarchy mutation — F-03', () => {
   });
 
   it('lets only one of two concurrent roots exist for a tenant', async () => {
-    const one = await openSession();
-    const two = await openSession();
+    // Runtime sessions: this case writes organization_nodes directly rather than moving a node,
+    // and creating a node is still the runtime role's job — only repositioning one was taken away.
+    const one = await openRuntimeSession();
+    const two = await openRuntimeSession();
     const insertRoot = (client: Client) => {
       const id = randomUUID();
       return client.query(
