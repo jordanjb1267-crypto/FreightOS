@@ -1178,6 +1178,42 @@ describe('concurrent hierarchy mutation — F-03', () => {
 describe('a protected control cannot be un-declared by a descendant — F-08', () => {
   const POLICY = 'f08_policy';
 
+  /**
+   * Create a binding through the PRIVILEGED fixture path — SR-2, F8-E.
+   *
+   * These tests need a protected control to EXIST at the enterprise root so they can prove a
+   * descendant cannot weaken or omit it. That existence is fixture, not the assertion: the
+   * assertion is the refusal, and it runs as the verified runtime administrator through `bindAt`
+   * below.
+   *
+   * No runtime principal can legitimately create a root binding today — the enterprise root is
+   * above the legal-entity boundary every human membership must sit under. Who MAY legitimately
+   * declare an Enterprise control is the confirmed and unimplemented
+   * TENANT_ROOT_POLICY_AUTHORITY capability, and this fixture is emphatically NOT an answer to it.
+   * A privileged connection writing the row proves nothing about product authority; it only puts
+   * the world into the state the enforcement test needs.
+   */
+  async function bindAtPrivileged(
+    nodeId: string,
+    legalEntityId: string | null,
+    controlKey: string,
+    restrictiveness: number,
+    protectedCategory: string | null,
+  ) {
+    return withLegalContext(
+      admin,
+      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
+      (c) =>
+        (c as Client).query(
+          `INSERT INTO policy_bindings
+           (tenant_id, organization_node_id, legal_entity_id, policy_key, policy_version,
+            control_key, control_value, restrictiveness, direction, protected_category, created_by)
+         VALUES ($1, $2, $3, $4, '1.0.0', $5, 'value', $6, 'local_override', $7, 'test')`,
+          [TENANT_A, nodeId, legalEntityId, POLICY, controlKey, restrictiveness, protectedCategory],
+        ),
+    );
+  }
+
   async function bindAt(
     nodeId: string,
     legalEntityId: string | null,
@@ -1200,7 +1236,7 @@ describe('a protected control cannot be un-declared by a descendant — F-08', (
     // The reproduction. Before the fix this INSERT succeeded and the terminal node ran at
     // restrictiveness 1 under an enterprise-wide control declared at 9.
     const control = `f08_omitted_${randomUUID().slice(0, 8)}`;
-    await bindAt(a.enterpriseNodeId, null, control, 9, 'legal');
+    await bindAtPrivileged(a.enterpriseNodeId, null, control, 9, 'legal');
     await expect(bindAt(a.terminalNodeId, a.legalEntityId, control, 1, null)).rejects.toThrow(
       /may not change or omit it/i,
     );
@@ -1210,7 +1246,7 @@ describe('a protected control cannot be un-declared by a descendant — F-08', (
     // Relabelling would work the same way: name a different category and the weakening check runs
     // against a control the ancestor never protected under that name.
     const control = `f08_relabel_${randomUUID().slice(0, 8)}`;
-    await bindAt(a.enterpriseNodeId, null, control, 9, 'legal');
+    await bindAtPrivileged(a.enterpriseNodeId, null, control, 9, 'legal');
     await expect(
       bindAt(a.terminalNodeId, a.legalEntityId, control, 1, 'residency'),
     ).rejects.toThrow(/may not change or omit it/i);
@@ -1218,7 +1254,7 @@ describe('a protected control cannot be un-declared by a descendant — F-08', (
 
   it('still refuses the weakening when the category IS named', async () => {
     const control = `f08_named_${randomUUID().slice(0, 8)}`;
-    await bindAt(a.enterpriseNodeId, null, control, 9, 'legal');
+    await bindAtPrivileged(a.enterpriseNodeId, null, control, 9, 'legal');
     await expect(bindAt(a.terminalNodeId, a.legalEntityId, control, 1, 'legal')).rejects.toThrow(
       /may not be weakened/i,
     );
@@ -1226,7 +1262,7 @@ describe('a protected control cannot be un-declared by a descendant — F-08', (
 
   it('permits a descendant that names the category and tightens', async () => {
     const control = `f08_tighten_${randomUUID().slice(0, 8)}`;
-    await bindAt(a.enterpriseNodeId, null, control, 5, 'legal');
+    await bindAtPrivileged(a.enterpriseNodeId, null, control, 5, 'legal');
     await expect(
       bindAt(a.terminalNodeId, a.legalEntityId, control, 9, 'legal'),
     ).resolves.toBeTruthy();
@@ -1246,7 +1282,7 @@ describe('a protected control cannot be un-declared by a descendant — F-08', (
   it('leaves an unprotected control weakenable', async () => {
     // The guard must stay off where it belongs off, or every control becomes protected by accident.
     const control = `f08_ordinary_${randomUUID().slice(0, 8)}`;
-    await bindAt(a.enterpriseNodeId, null, control, 9, null);
+    await bindAtPrivileged(a.enterpriseNodeId, null, control, 9, null);
     await expect(bindAt(a.terminalNodeId, a.legalEntityId, control, 1, null)).resolves.toBeTruthy();
   });
 
