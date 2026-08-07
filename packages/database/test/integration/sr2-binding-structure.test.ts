@@ -35,13 +35,22 @@ const SR2_FUNCTIONS = [
   'admin.issue_session_binding(text,uuid,uuid,uuid,uuid,text,text,integer,text,integer)',
 ] as const;
 
-/** The five accessors 0019 hands to the binding owner. */
+/**
+ * The seven accessors 0019 hands to the binding owner.
+ *
+ * The last two arrived after the first version of §6 shipped five and stopped, leaving the legal
+ * plane on a caller-set GUC while the actor had moved to the binding — a session unable to name
+ * another person but still able to name another legal plane. They belong in every assertion the
+ * other five appear in, which is what this list is for.
+ */
 const BINDING_OWNER_ACCESSORS = [
   'app.current_tenant_id()',
   'app.current_actor_id()',
   'app.current_organization_node_id()',
   'app.current_legal_entity_id()',
   'app.current_user_id()',
+  'app.current_legal_authority_class()',
+  'app.current_operating_context()',
 ] as const;
 
 /** Every table the bootstrap graph reads, and therefore every table needing candidate C. */
@@ -149,7 +158,7 @@ describe('gate A — structure', () => {
     }
   });
 
-  it('makes the five accessors binding-owner definers with a pinned search_path', async () => {
+  it('makes all seven accessors binding-owner definers with a pinned search_path', async () => {
     const facts = await functionFacts();
     for (const signature of BINDING_OWNER_ACCESSORS) {
       const fn = facts.get(signature)!;

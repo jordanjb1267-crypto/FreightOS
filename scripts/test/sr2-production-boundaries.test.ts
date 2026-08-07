@@ -143,7 +143,14 @@ describe('SR-2 production boundaries', () => {
   });
 
   it('writes the legacy identity GUCs from exactly one module, and not as authentication', () => {
-    const writers = filesContaining(/set_config\(\s*'app\.(actor_id|tenant_id)/);
+    // Covers the legal plane as well as the actor and tenant. After the §6 completion,
+    // app.current_legal_authority_class() and app.current_operating_context() resolve from the
+    // binding through the fully revalidated principal, so writing their GUCs cannot confer the
+    // legal plane on a freightos_app session — but a production module reaching for them would
+    // still be a module trying to establish authority by assertion, which is what this catches.
+    const writers = filesContaining(
+      /set_config\(\s*'app\.(actor_id|tenant_id|legal_authority_class|operating_context|organization_node_id|legal_entity_id)/,
+    );
     // src/session.ts is the legacy path. It is retained for the bootstrap, migration and
     // control-plane routes, which run as roles the 0019 accessors deliberately still serve from the
     // GUC branch. For `freightos_app` these GUCs are no longer read at all, so nothing it writes is
