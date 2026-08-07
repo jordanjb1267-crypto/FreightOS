@@ -186,7 +186,7 @@ const asVerifiedAdministrator = <T>(work: (c: Queryable) => Promise<T>): Promise
 
 describe('cross-tenant isolation', () => {
   it('shows a tenant only its own organization nodes', async () => {
-    const rows = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+    const rows = await asVerifiedAdministrator(async (c) => {
       const r = await c.query<{ id: string }>('SELECT id FROM organization_nodes');
       return r.rows.map((x) => x.id);
     });
@@ -210,7 +210,7 @@ describe('cross-tenant isolation', () => {
       ['service_account_permissions', b.serviceAccountId],
     ];
 
-    await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+    await asVerifiedAdministrator(async (c) => {
       for (const [table, id] of targets) {
         const column =
           table.endsWith('_permissions') && table !== 'role_permissions'
@@ -226,7 +226,7 @@ describe('cross-tenant isolation', () => {
 
   it('refuses to write a row belonging to another tenant', async () => {
     await expect(
-      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      asVerifiedAdministrator(async (c) => {
         const id = randomUUID();
         await c.query(
           `INSERT INTO organization_nodes
@@ -239,7 +239,7 @@ describe('cross-tenant isolation', () => {
   });
 
   it('cannot update another tenant row', async () => {
-    const updated = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+    const updated = await asVerifiedAdministrator(async (c) => {
       const r = await c.query('UPDATE organization_nodes SET name = $1 WHERE id = $2', [
         'hijacked',
         b.enterpriseNodeId,
@@ -260,7 +260,7 @@ describe('cross-tenant isolation', () => {
 
   it('cannot attach a child to another tenant parent node', async () => {
     await expect(
-      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      asVerifiedAdministrator(async (c) => {
         const id = randomUUID();
         await c.query(
           `INSERT INTO organization_nodes
@@ -281,7 +281,7 @@ describe('cross-tenant isolation', () => {
     // the governing-legal-entity check rejects the disagreement, and the composite foreign key on
     // (tenant_id, legal_entity_id) would make the cross-tenant reference unrepresentable anyway.
     await expect(
-      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      asVerifiedAdministrator(async (c) => {
         await c.query(
           `INSERT INTO service_accounts
              (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
@@ -467,7 +467,7 @@ describe('organization-node and legal-entity must agree', () => {
   it('rejects a row naming a node the stated legal entity does not govern', async () => {
     // The enterprise root sits above the legal-entity boundary, so nothing governs it.
     await expect(
-      withLegalContext(app, systemContext(TENANT_A), async (c) => {
+      asVerifiedAdministrator(async (c) => {
         await c.query(
           `INSERT INTO service_accounts
              (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
@@ -635,7 +635,7 @@ describe('the capability matrix agrees with the database', () => {
 
 describe('a carrier appointment makes carrier_agent provable', () => {
   it('reports an active appointment as of an explicit instant', async () => {
-    const active = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+    const active = await asVerifiedAdministrator(async (c) => {
       const r = await c.query<{ ok: boolean }>(
         'SELECT app.has_active_carrier_appointment($1, $2, $3, now()) AS ok',
         [TENANT_A, a.legalEntityId, 'carrier-1'],
@@ -646,7 +646,7 @@ describe('a carrier appointment makes carrier_agent provable', () => {
   });
 
   it('reports nothing for a carrier with no appointment', async () => {
-    const active = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+    const active = await asVerifiedAdministrator(async (c) => {
       const r = await c.query<{ ok: boolean }>(
         'SELECT app.has_active_carrier_appointment($1, $2, $3, now()) AS ok',
         [TENANT_A, a.legalEntityId, 'carrier-unknown'],
@@ -670,7 +670,7 @@ describe('a carrier appointment makes carrier_agent provable', () => {
       },
     );
 
-    const active = await withLegalContext(app, systemContext(TENANT_A), async (c) => {
+    const active = await asVerifiedAdministrator(async (c) => {
       const r = await c.query<{ ok: boolean }>(
         'SELECT app.has_active_carrier_appointment($1, $2, $3, now()) AS ok',
         [TENANT_A, a.legalEntityId, 'carrier-1'],
