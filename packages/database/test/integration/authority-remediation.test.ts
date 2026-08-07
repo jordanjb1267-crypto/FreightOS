@@ -285,15 +285,19 @@ describe('§2 retry suppression cannot be manufactured — RC-A', () => {
     expect(created.rows[0]!.outcome).not.toBe('denied');
   });
 
-  it('a replay under another tenant cannot claim this tenantated correlation id', async () => {
+  it("a correlation id is scoped to its tenant, so one tenant cannot pre-empt another", async () => {
+    // The same correlation id, used by both tenants for the same action. Before 0018 the
+    // idempotency lookup filtered on correlation id and action alone, so whichever tenant went
+    // first silently vetoed the other. The authoritative record is keyed on the tenant too.
     const correlation = randomUUID();
-    const first = await adminConn.query<{ outcome: string }>(
-      `SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)`,
+    const first = await adminConn.query<{ outcome: string; message: string | null }>(
+      `SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         TENANT_A,
-        a.userId,
         a.regionNodeId,
         a.legalEntityId,
+        `shared_corr_${randomUUID().replace(/-/g, '').slice(0, 8)}`,
+        'Tenant A role',
         `user:${a.adminUserId}`,
         ...AS_ADMIN,
         correlation,
@@ -301,15 +305,14 @@ describe('§2 retry suppression cannot be manufactured — RC-A', () => {
     );
     expect(first.rows[0]!.outcome).toBe('succeeded');
 
-    // Same correlation id, different tenant. Tenant B's operation must not be suppressed by
-    // tenant A's record.
-    const second = await adminConn.query<{ outcome: string }>(
-      `SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)`,
+    const second = await adminConn.query<{ outcome: string; message: string | null }>(
+      `SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         TENANT_B,
-        b.userId,
         b.regionNodeId,
         b.legalEntityId,
+        `shared_corr_${randomUUID().replace(/-/g, '').slice(0, 8)}`,
+        'Tenant B role',
         `user:${b.adminUserId}`,
         ...AS_ADMIN,
         correlation,

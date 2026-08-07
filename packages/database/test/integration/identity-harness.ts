@@ -318,14 +318,24 @@ async function seedIdentityWith(
     },
   );
 
-  // Phase 4b — the authorization graph, through the governed boundary — R2-01.
+  // Phase 4b — the authorization graph, through the governed boundary — R2-01, and now 0018 §3.
   //
   // Five tables the application role can no longer write at all: roles, role_permissions,
-  // memberships, membership_roles, service_account_permissions. The administrator is named as the
-  // actor, and the boundary verifies it is a real active user of this tenant before anything is
-  // written. A fixture that could still reach these tables directly would be testing a database
-  // nobody deploys.
-  const actor = `user:${adminUserId}`;
+  // memberships, membership_roles, service_account_permissions. A fixture that could still reach
+  // these tables directly would be testing a database nobody deploys.
+  //
+  // The bootstrap chain runs as the approved PLATFORM actor, not as the administrator — 0018 §3.
+  // Naming a real active user is no longer authority; the actor must independently hold the
+  // permission the operation requires. The first administrator of a tenant cannot: the role that
+  // would carry it does not exist yet, and the membership that would attach it is what is being
+  // created. That circularity is precisely what `system:tenant-provisioning` is the approved
+  // answer to, and it is a closed allowlist rather than any well-formed system: string.
+  //
+  // Once the administrator holds identity.role.write, later operations name the human. The seed
+  // proves both halves: `bootstrap` gets the tenant off the ground, and the tests in
+  // authority-remediation.test.ts §7 prove the human path works afterwards.
+  const bootstrap = 'system:tenant-provisioning';
+  const asPlatform = ['system', 'identity_administration'] as const;
   const asAdmin = ['human', 'identity_administration'] as const;
 
   const role = await privileged(
@@ -337,39 +347,87 @@ async function seedIdentityWith(
       legalEntityId,
       'fleet_administrator',
       'Fleet Administrator',
-      actor,
-      ...asAdmin,
+      bootstrap,
+      ...asPlatform,
       randomUUID(),
     ],
   );
   const roleId = role['role_id'] as string;
 
-  await privileged(admin, 'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)', [
-    tenantId,
-    roleId,
+  // The administrator role carries what an administrator actually needs. Before 0018 §3 the
+  // boundary asked only whether the actor was a real active user, so a role with one read
+  // permission was indistinguishable from one with none — the fixture never noticed. It does now:
+  // every later operation that names the human requires the matching write permission.
+  for (const permission of [
     'identity.user.read',
-    actor,
-    ...asAdmin,
-    randomUUID(),
-  ]);
+    'identity.role.write',
+    'identity.membership.write',
+    'identity.service_account.write',
+  ]) {
+    await privileged(
+      admin,
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
+      [tenantId, roleId, permission, bootstrap, ...asPlatform, randomUUID()],
+    );
+  }
+
+  // The administrator's own membership and role. Without it the administrator holds no permission
+  // at all, which before 0018 §3 made no difference — the boundary asked only whether the actor
+  // was a real active user — and now makes every human-authorised operation fail. Provisioning it
+  // is the platform actor's job, and it is the last thing the platform actor does: everything
+  // after this point can name the human.
+  const adminMembership = await privileged(
+    admin,
+    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+    [
+      tenantId,
+      adminUserId,
+      // The legal-entity node, not the enterprise above it: a membership must name a node the
+      // legal entity actually governs, and the closure makes everything below it in scope.
+      legalEntityNodeId,
+      legalEntityId,
+      bootstrap,
+      ...asPlatform,
+      randomUUID(),
+    ],
+  );
+  await privileged(
+    admin,
+    'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
+    [
+      tenantId,
+      adminMembership['membership_id'] as string,
+      roleId,
+      bootstrap,
+      ...asPlatform,
+      randomUUID(),
+    ],
+  );
 
   const membership = await privileged(
     admin,
     'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
-    [tenantId, direct.userId, terminalNodeId, legalEntityId, actor, ...asAdmin, randomUUID()],
+    [tenantId, direct.userId, terminalNodeId, legalEntityId, bootstrap, ...asPlatform, randomUUID()],
   );
   const membershipId = membership['membership_id'] as string;
 
   const membershipRole = await privileged(
     admin,
     'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-    [tenantId, membershipId, roleId, actor, ...asAdmin, randomUUID()],
+    [tenantId, membershipId, roleId, bootstrap, ...asPlatform, randomUUID()],
   );
 
   await privileged(
     admin,
     'SELECT * FROM admin.grant_service_account_permission($1, $2, $3, $4, $5, $6, $7)',
-    [tenantId, direct.serviceAccountId, 'identity.user.read', actor, ...asAdmin, randomUUID()],
+    [
+      tenantId,
+      direct.serviceAccountId,
+      'identity.user.read',
+      bootstrap,
+      ...asPlatform,
+      randomUUID(),
+    ],
   );
 
   return {
