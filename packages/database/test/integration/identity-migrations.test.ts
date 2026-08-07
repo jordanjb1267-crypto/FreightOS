@@ -400,8 +400,19 @@ describe('apply from the accepted Phase 0 baseline', () => {
       [TENANT_A, randomUUID(), randomUUID()],
     );
 
-    const result = await migrateUp(client, loadMigrations(MIGRATIONS_DIR));
-    expect(result.applied).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+    // The exact ordered set the manifest carries above the accepted Phase 0 baseline, taken from
+    // disk rather than written down — owner ruling §5. A count would be satisfied by any
+    // migration; this is satisfied only by these, in this order, with no gap and no repeat.
+    // `loadMigrations` has already refused a non-contiguous sequence or a missing down path.
+    const migrations = loadMigrations(MIGRATIONS_DIR);
+    const expected = migrations.map((m) => m.version).filter((v) => v > 4);
+    expect(expected).toEqual([...expected].sort((x, y) => x - y));
+    expect(new Set(expected).size).toBe(expected.length);
+    expect(expected[0]).toBe(5);
+    expect(expected.at(-1)).toBe(migrations.length);
+
+    const result = await migrateUp(client, migrations);
+    expect(result.applied).toEqual(expected);
 
     const tenant = await fixtures.query<{
       name: string;

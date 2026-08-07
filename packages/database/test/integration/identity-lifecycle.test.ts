@@ -465,37 +465,64 @@ describe('self-elevation is refused', () => {
   });
 
   it('refuses an administrator widening its own membership', async () => {
-    // The administrator needs a membership to widen, granted by somebody else first.
-    // Granted BY the operator, not by the administrator: a self-granted membership is refused, which
-    // is the next test's subject and would make this one fail for the wrong reason.
-    const membershipId = await withLegalContext(
-      fixture,
-      adminContext(`user:${a.userId}`),
-      async (c) => {
-        const r = await (c as Client).query<{ id: string }>(
-          `INSERT INTO memberships
-             (tenant_id, organization_node_id, legal_entity_id, user_id, status, created_by)
-           VALUES ($1, $2, $3, $4, 'suspended', 'test')
-           RETURNING id`,
-          [TENANT_A, a.legalEntityNodeId, a.legalEntityId, a.adminUserId],
-        );
-        return r.rows[0]!.id;
-      },
-    );
+    // The subject is the administrator's OWN membership, updated — never a second one inserted
+    // beside it. The fixture now gives the administrator a real membership (it has to: the 0018 §3
+    // gate resolves its permissions through one), so an inserted duplicate at the same node
+    // collides with memberships_one_active_per_user_node before the guard is ever reached, and a
+    // duplicate at another node would not be the membership its authority actually rests on.
+    const setStatus = (status: string) =>
+      boundary('SELECT * FROM admin.set_membership_status($1, $2, $3, $4, $5, $6, $7)', [
+        TENANT_A,
+        a.adminMembershipId,
+        status,
+        `user:${a.adminUserId}`,
+        ...AS_ADMIN,
+        randomUUID(),
+      ]);
 
-    const result = await boundary(
-      'SELECT * FROM admin.set_membership_status($1, $2, $3, $4, $5, $6, $7)',
-      [TENANT_A, membershipId, 'active', `user:${a.adminUserId}`, ...AS_ADMIN, randomUUID()],
+    // The administrator is active and therefore authorized, so this passes 0018 §3's permission
+    // gate and the 0010 guard stops it during the mutation — `failed`, not `denied`. Any change to
+    // its own membership that is not a narrowing is refused, including one that leaves the status
+    // where it is: the guard draws its line at the direction of travel, not at the end state.
+    const notNarrowing = await setStatus('active');
+    expect(notNarrowing.outcome).toBe('failed');
+    expect(notNarrowing.message).toMatch(/may only narrow its own membership/);
+
+    // Widening proper — suspended back to active. From that state the administrator no longer
+    // holds identity.membership.write, so the boundary would refuse it at the gate and the guard
+    // would go untested. Drive the guard where it lives instead: a direct UPDATE in the
+    // administrator's name, with no permission involved at all.
+    await asSystem(async (c) => {
+      await c.query(`UPDATE memberships SET status = 'suspended' WHERE id = $1`, [
+        a.adminMembershipId,
+      ]);
+    });
+    await expect(
+      withLegalContext(fixture, adminContext(`user:${a.adminUserId}`), (c) =>
+        (c as Client).query(`UPDATE memberships SET status = 'active' WHERE id = $1`, [
+          a.adminMembershipId,
+        ]),
+      ),
+    ).rejects.toThrow(/may only narrow its own membership/);
+
+    // Restored by somebody else — which is the point: another person may widen it, the holder
+    // may not. `asSystem` acts as the administrator, so this runs as the operator.
+    await withLegalContext(fixture, adminContext(`user:${a.userId}`), (c) =>
+      (c as Client).query(`UPDATE memberships SET status = 'active' WHERE id = $1`, [
+        a.adminMembershipId,
+      ]),
     );
-    expect(result.outcome).toBe('failed');
-    expect(result.message).toMatch(/may only narrow its own membership/);
 
     // And narrowing its own membership is still allowed, which is the distinction the guard draws.
-    const narrowing = await boundary(
-      'SELECT * FROM admin.revoke_membership($1, $2, $3, $4, $5, $6)',
-      [TENANT_A, membershipId, `user:${a.adminUserId}`, ...AS_ADMIN, randomUUID()],
-    );
+    const narrowing = await setStatus('suspended');
     expect(narrowing.outcome).toBe('succeeded');
+
+    // Rewound so the rest of the file still has an authorized administrator.
+    await withLegalContext(fixture, adminContext(`user:${a.userId}`), (c) =>
+      (c as Client).query(`UPDATE memberships SET status = 'active' WHERE id = $1`, [
+        a.adminMembershipId,
+      ]),
+    );
   });
 
   it('refuses an administrator granting itself a role', async () => {

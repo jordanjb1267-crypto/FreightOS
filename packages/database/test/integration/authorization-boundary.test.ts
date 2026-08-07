@@ -445,8 +445,10 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
     expect(gated.outcome).toBe('denied');
     expect(gated.message).toMatch(/does not hold/);
 
-    // Indirect: create a role, then assign it to yourself. The creation is legitimate; the
-    // self-assignment is what the guard refuses, so the manoeuvre stops one step in.
+    // Indirect: create a role, then assign it to yourself. Creating the role is setup, not the
+    // attack, so it runs as the administrator, which genuinely holds identity.role.write. Before
+    // 0018 §3 the operator could create it too — the gate had no permission argument and any
+    // active member passed — and that is authority the remediation removed on purpose.
     const created = await call(
       'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
       [
@@ -455,14 +457,16 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
         a.legalEntityId,
         `self_assign_${randomUUID().slice(0, 8)}`,
         'Self assign',
-        `user:${a.userId}`,
+        `user:${a.adminUserId}`,
         ...AS_ADMIN,
         randomUUID(),
       ],
     );
     expect(created.outcome).toBe('succeeded');
 
-    const assigned = await call(
+    // The operator aiming that role at its own membership never reaches the guard: the gate
+    // refuses it first, before any row is touched.
+    const assignedByOperator = await call(
       'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
       [
         TENANT_A,
@@ -473,8 +477,32 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
         randomUUID(),
       ],
     );
+    expect(assignedByOperator.outcome).toBe('denied');
+    expect(assignedByOperator.message).toMatch(/does not hold/);
+
+    // And the guard, on an actor that does pass the gate: the administrator assigning the new
+    // role to its OWN membership is stopped during the mutation, not before it.
+    const assigned = await call(
+      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
+      [
+        TENANT_A,
+        a.adminMembershipId,
+        created.payload['role_id'],
+        `user:${a.adminUserId}`,
+        ...AS_ADMIN,
+        randomUUID(),
+      ],
+    );
     expect(assigned.outcome).toBe('failed');
     expect(assigned.message).toMatch(/may not grant itself a role/);
+
+    // Nothing landed: the role exists, but neither membership carries it.
+    const landed = await fixtureConn.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM membership_roles
+        WHERE tenant_id = $1 AND role_id = $2`,
+      [TENANT_A, created.payload['role_id']],
+    );
+    expect(Number(landed.rows[0]!.count)).toBe(0);
   });
 
   it('replays rather than repeats under the same correlation id', async () => {

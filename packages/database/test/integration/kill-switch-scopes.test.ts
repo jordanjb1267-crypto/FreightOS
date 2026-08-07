@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { loadMigrations, migrateDown, migrateUp } from '../../src/migrator.ts';
+import { type Migration, loadMigrations, migrateDown, migrateUp } from '../../src/migrator.ts';
 import { MIGRATIONS_DIR } from '../../src/paths.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
 
@@ -18,6 +18,25 @@ import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
  * Phase 3 (OQ-14, P-17). Nothing here claims protection that has not been built.
  */
 const db = new TestDatabase('freightos_test_kill_switch_scopes');
+
+/**
+ * Every migration version above a baseline, ascending, read from the manifest on disk.
+ *
+ * The revert assertions below name the exact ordered set rather than a count, and take it from
+ * here so that adding a migration cannot silently satisfy them — a count of "one more than last
+ * time" proves nothing about which one, or about whether it can come back off.
+ */
+function versionsAbove(migrations: readonly Migration[], baseline: number): number[] {
+  return migrations.map((m) => m.version).filter((v) => v > baseline);
+}
+
+/** `app.kill_switch_scope`'s members in ordinal order — the enum's state, not its size. */
+async function enumLabels(client: Client): Promise<string[]> {
+  const r = await client.query<{ label: string }>(
+    `SELECT unnest(enum_range(NULL::app.kill_switch_scope))::text AS label`,
+  );
+  return r.rows.map((x) => x.label);
+}
 
 const LEGAL_ENTITY_A = '33333333-3333-4333-8333-333333333333';
 const LEGAL_ENTITY_B = '44444444-4444-4444-8444-444444444444';
@@ -133,14 +152,25 @@ describe('the standing autonomous_mobility suspension', () => {
     try {
       await appClient.query('BEGIN');
       await appClient.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
-      await expect(
-        appClient.query(
+      // Asserted by SQLSTATE, not by message text. Two layers can refuse this write and both are
+      // correct: PostgreSQL raises insufficient_privilege for a missing table privilege and for a
+      // row-level policy violation alike. 0018 §4 revoked INSERT and UPDATE on kill_switches from
+      // freightos_app outright, so the privilege layer now refuses first and the policy behind it
+      // never gets the chance — strictly earlier than before. Matching the message would pin which
+      // layer wins, which is not the property under test; that the write cannot happen is.
+      const refusal = await appClient
+        .query(
           `INSERT INTO kill_switches
              (scope, scope_ref, tenant_id, mode, reason, engaged_by_type, engaged_by, created_by)
            VALUES ('operating_context', 'carrier', NULL, 'suspended', 'tenant halt', 'human',
                    'tenant:operator', 'tenant:operator')`,
-        ),
-      ).rejects.toThrow(/row-level security/i);
+        )
+        .then(
+          () => null,
+          (e: { code?: string }) => e,
+        );
+      expect(refusal, 'the insert must be refused, not applied').not.toBeNull();
+      expect(refusal?.code).toBe('42501');
       await appClient.query('ROLLBACK');
     } finally {
       await appClient.end();
@@ -451,24 +481,55 @@ describe('Phase 0 records resolve identically across the migration', () => {
 
   it('reverts and re-applies the OQ-19 pair cleanly', async () => {
     const migrations = loadMigrations(MIGRATIONS_DIR);
+    const above = versionsAbove(migrations, 13);
+
+    // The manifest, not a written-down count. Every version above the baseline, in order, with no
+    // gap and no duplicate, each one carrying a down path — `loadMigrations` refuses to return a
+    // manifest that breaks any of those, and this states the property it proved.
+    expect(above).toEqual([...above].sort((x, y) => x - y));
+    expect(new Set(above).size).toBe(above.length);
+    expect(above[0]).toBe(14);
+    expect(above.at(-1)).toBe(migrations.length);
+    for (const version of above) {
+      expect(
+        migrations.find((m) => m.version === version)?.downSql,
+        `down for ${version}`,
+      ).toBeTruthy();
+    }
+
+    // The enum as the forward path leaves it, captured rather than transcribed: what the
+    // re-apply has to reproduce is this exact type, and writing it out by hand would only prove
+    // the transcription. 0014 inserts the two values AFTER 'legal_plane', so ordinal position is
+    // part of the state and an append would be a different type with the same members.
+    const forward = await enumLabels(client);
 
     // Nothing in this database uses a new scope value other than the 0016 seed, and 0016's down
     // removes exactly that row — so the enum rebuild in 0014's down has nothing blocking it.
     const reverted = await migrateDown(client, migrations, 13);
-    expect(reverted.reverted).toEqual([17, 16, 15, 14]);
+    expect(reverted.reverted).toEqual([...above].reverse());
 
-    const scopes = await client.query<{ label: string }>(
-      `SELECT unnest(enum_range(NULL::app.kill_switch_scope))::text AS label`,
-    );
-    expect(scopes.rows).toHaveLength(7);
-    expect(scopes.rows.map((x) => x.label)).not.toContain('legal_entity');
+    // The exact enum state at the baseline, not a count: the two OQ-19 values are gone and the
+    // seven Phase 0 values are back, in their original order.
+    expect(await enumLabels(client)).toEqual([
+      'system',
+      'legal_plane',
+      'tenant',
+      'workflow',
+      'agent',
+      'tool',
+      'integration',
+    ]);
 
     for (const [label, params] of MATRIX) {
       expect(await resolveOn(client, params, false), label).toBe(before[label]);
     }
 
     const reapplied = await migrateUp(client, migrations);
-    expect(reapplied.applied).toEqual([14, 15, 16, 17]);
+    expect(reapplied.applied).toEqual(above);
+
+    // And the exact enum state after re-apply, against what was captured before the revert.
+    // Forward → revert → forward returns the type itself, ordinals included — not just its size.
+    expect(await enumLabels(client)).toEqual(forward);
 
     for (const [label, params] of MATRIX) {
       expect(await resolveOn(client, params, true), label).toBe(before[label]);
@@ -512,7 +573,7 @@ describe('Phase 0 records resolve identically across the migration', () => {
     // Recovery is to re-apply once the blocking rows are dealt with, which is what the runbook
     // records. Re-applying here also leaves the database in the state the file started in.
     const recovered = await migrateUp(client, migrations);
-    expect(recovered.applied).toEqual([15, 16, 17]);
+    expect(recovered.applied).toEqual(versionsAbove(migrations, 14));
   });
 });
 

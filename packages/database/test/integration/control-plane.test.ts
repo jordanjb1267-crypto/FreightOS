@@ -180,6 +180,13 @@ describe('the shape ADR-0020 requires', () => {
         'revoke_role_permission',
         'revoke_service_account_permission',
         'set_membership_status',
+        // 0018: authority provenance hardening. `claim_operation` is the idempotency claim the
+        // boundary writes in the same transaction as the work — the ledger no longer decides
+        // whether an operation already happened. `move_organization_node` is the governed way to
+        // reparent, added because 0018 §6 took UPDATE (parent_id) away from freightos_app:
+        // moving a node rewrites the closure and therefore changes who has authority over what.
+        'claim_operation',
+        'move_organization_node',
       ].sort(),
     );
   });
@@ -377,7 +384,11 @@ describe('the administrative connection reaches tables only through functions', 
     // Two users: the operator the fixture works through and the administrator that seeded it.
     // A tenant's first administrator is a user like any other, and an access review has to see it.
     expect(result.payload!['users']).toBe(2);
-    expect(result.payload!['memberships']).toBe(1);
+    // Two memberships, one per user. The administrator holds its own now — 0018 §3 resolves an
+    // administrator's authority through the same membership → role → permission chain as anybody
+    // else, so an administrator without a membership would simply be unauthorized. An access
+    // review that could not see the administrator's own grant would be describing the wrong tenant.
+    expect(result.payload!['memberships']).toBe(2);
     expect(result.payload!['service_accounts']).toBe(1);
   });
 
@@ -650,32 +661,25 @@ describe('the privileged audit trail is append-only', () => {
   });
 
   it('keeps every Phase 0 audit row valid — operation_class defaults to domain', async () => {
-    const id = await withLegalContext(
-      app,
-      {
-        tenantId: TENANT_A,
-        legalAuthorityClass: 'carrier_agent',
-        operatingContext: 'carrier',
-        actorId: 'test:actor',
-        legalEntityId: a.legalEntityId,
-        carrierId: 'carrier-1',
-        carrierAppointmentId: 'appointment-1',
-      },
-      async (c) => {
-        // Exactly the Phase 0 insert shape: no purpose, no outcome, no operation_class.
-        const r = await c.query<{ id: string; operation_class: string }>(
-          `INSERT INTO audit_events
-             (tenant_id, legal_entity_id, legal_authority_class, operating_context, actor_type,
-              actor_id, event_type, resource_type, correlation_id, created_by)
-           VALUES ($1, $2, 'carrier_agent', 'carrier', 'human', 'test:actor',
-                   'rig.freight.shipment.created.v1', 'shipment', $3, 'test:actor')
-           RETURNING id, operation_class`,
-          [TENANT_A, a.legalEntityId, randomUUID()],
-        );
-        return r.rows[0]!;
-      },
+    // On the table owner, like every other constraint test in this block. The subject is the
+    // COLUMN DEFAULT 0006 added — a property of the table, not of who may write to it — and 0018
+    // §1 revoked INSERT on audit_events from both runtime roles precisely so that no session can
+    // compose its own provenance. Running this as freightos_app would now be asserting the
+    // opposite of the remediated invariant, so it moves to the owner rather than the grant
+    // coming back. Where a runtime write goes instead is app.record_audit_event, proved in
+    // ledger.test.ts and in authority-remediation.test.ts §1.
+    //
+    // Exactly the Phase 0 insert shape: no purpose, no outcome, no operation_class.
+    const r = await admin.query<{ id: string; operation_class: string }>(
+      `INSERT INTO audit_events
+         (tenant_id, legal_entity_id, legal_authority_class, operating_context, actor_type,
+          actor_id, event_type, resource_type, correlation_id, created_by)
+       VALUES ($1, $2, 'carrier_agent', 'carrier', 'human', 'test:actor',
+               'rig.freight.shipment.created.v1', 'shipment', $3, 'test:actor')
+       RETURNING id, operation_class`,
+      [TENANT_A, a.legalEntityId, randomUUID()],
     );
-    expect(id.operation_class).toBe('domain');
+    expect(r.rows[0]!.operation_class).toBe('domain');
   });
 });
 
@@ -1062,10 +1066,23 @@ describe('the role graph, described accurately — R2-05', () => {
       'freightos_migrator -> freightos_admin admin=true inherit=false set=true',
       'freightos_migrator -> freightos_admin_owner admin=true inherit=false set=true',
       'freightos_migrator -> freightos_app admin=true inherit=false set=false',
+      // 0018 §1's audit writer, on the same terms as the other definer owners: administered by
+      // the migrator, never inherited, SET only so `ALTER FUNCTION ... OWNER TO` can reach it.
+      'freightos_migrator -> freightos_audit_writer admin=true inherit=false set=true',
       'freightos_migrator -> freightos_control_plane admin=true inherit=false set=false',
       'freightos_migrator -> freightos_hierarchy_owner admin=true inherit=false set=true',
       'freightos_migrator -> freightos_identity_guard admin=true inherit=false set=true',
     ]);
+
+    // And what the list does NOT contain, said out loud: the audit writer is not a control-plane
+    // member. The other three definer owners are, because they read across tenants to decide.
+    // This one only appends a row it was handed, so control-plane membership would be authority
+    // it has no use for — and the whole point of 0018 §1 is that nothing composes its own
+    // provenance with more reach than the write needs.
+    expect(edges).not.toContain(
+      'freightos_audit_writer -> freightos_control_plane admin=false inherit=true set=true',
+    );
+    expect(edges.filter((e) => e.startsWith('freightos_audit_writer ->'))).toEqual([]);
   });
 
   it('distinguishes inherited authority from SET ROLE reachability', async () => {
@@ -1089,6 +1106,9 @@ describe('the role graph, described accurately — R2-05', () => {
     expect(r.rows.filter((x) => x.reachable).map((x) => x.rolname)).toEqual([
       'freightos_admin',
       'freightos_admin_owner',
+      // 0018 §1. The migrator has to reach it to create and own app.record_audit_event; it is
+      // NOLOGIN, so this is the only way in, and nothing else in the graph has a path to it.
+      'freightos_audit_writer',
       // Reachable TRANSITIVELY, through freightos_admin_owner. Not a direct grant — the direct
       // membership is SET FALSE — and not inherited, but reachable by a deliberate two-step
       // SET ROLE. The documentation said "cannot"; "does not inherit" is what was proved.

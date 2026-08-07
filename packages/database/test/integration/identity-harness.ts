@@ -47,6 +47,8 @@ export interface IdentityFixture {
   readonly adminUserId: string;
   /** The administrator's OWN role, distinct from the role under test — 0018 §3 fixture doctrine. */
   readonly adminRoleId: string;
+  /** The administrator's OWN membership, so a test can aim a self-elevation attempt at it. */
+  readonly adminMembershipId: string;
   readonly enterpriseNodeId: string;
   readonly legalEntityNodeId: string;
   readonly regionNodeId: string;
@@ -338,7 +340,6 @@ async function seedIdentityWith(
   // authority-remediation.test.ts §7 prove the human path works afterwards.
   const bootstrap = 'system:tenant-provisioning';
   const asPlatform = ['system', 'identity_administration'] as const;
-  const asAdmin = ['human', 'identity_administration'] as const;
 
   const role = await privileged(
     admin,
@@ -420,23 +421,25 @@ async function seedIdentityWith(
       randomUUID(),
     ],
   );
+  const adminMembershipId = adminMembership['membership_id'] as string;
   await privileged(
     admin,
     'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-    [
-      tenantId,
-      adminMembership['membership_id'] as string,
-      adminRoleId,
-      bootstrap,
-      ...asPlatform,
-      randomUUID(),
-    ],
+    [tenantId, adminMembershipId, adminRoleId, bootstrap, ...asPlatform, randomUUID()],
   );
 
   const membership = await privileged(
     admin,
     'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
-    [tenantId, direct.userId, terminalNodeId, legalEntityId, bootstrap, ...asPlatform, randomUUID()],
+    [
+      tenantId,
+      direct.userId,
+      terminalNodeId,
+      legalEntityId,
+      bootstrap,
+      ...asPlatform,
+      randomUUID(),
+    ],
   );
   const membershipId = membership['membership_id'] as string;
 
@@ -463,6 +466,7 @@ async function seedIdentityWith(
     tenantId,
     adminUserId,
     adminRoleId,
+    adminMembershipId,
     enterpriseNodeId,
     legalEntityNodeId,
     regionNodeId,

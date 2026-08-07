@@ -212,9 +212,7 @@ describe('§1 audit provenance cannot be forged by the runtime role — RC-B', (
       'DELETE FROM audit_events',
       'TRUNCATE audit_events',
     ]) {
-      await expect(
-        app.query(sql, sql.includes('$1') ? ['succeeded'] : []),
-      ).rejects.toThrow();
+      await expect(app.query(sql, sql.includes('$1') ? ['succeeded'] : [])).rejects.toThrow();
       await app.query('ROLLBACK');
       await app.query('BEGIN');
     }
@@ -285,7 +283,7 @@ describe('§2 retry suppression cannot be manufactured — RC-A', () => {
     expect(created.rows[0]!.outcome).not.toBe('denied');
   });
 
-  it("a correlation id is scoped to its tenant, so one tenant cannot pre-empt another", async () => {
+  it('a correlation id is scoped to its tenant, so one tenant cannot pre-empt another', async () => {
     // The same correlation id, used by both tenants for the same action. Before 0018 the
     // idempotency lookup filtered on correlation id and action alone, so whichever tenant went
     // first silently vetoed the other. The authoritative record is keyed on the tenant too.
@@ -351,7 +349,13 @@ describe('§3 naming another principal does not confer their authority — RC-C'
                               status, created_by, updated_by)
            VALUES ($1, $2, $3, $4, 'test-idp', $5, 'Ordinary Colleague',
                    'active', 'test:seed', 'test:seed')`,
-          [ordinaryUser, TENANT_A, a.legalEntityNodeId, a.legalEntityId, `ordinary-${ordinaryUser}`],
+          [
+            ordinaryUser,
+            TENANT_A,
+            a.legalEntityNodeId,
+            a.legalEntityId,
+            `ordinary-${ordinaryUser}`,
+          ],
         );
       },
     );
