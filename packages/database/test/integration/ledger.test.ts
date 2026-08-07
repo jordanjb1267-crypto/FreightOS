@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { withLegalContext } from '../../src/session.ts';
-import { LEGAL_ENTITY, TENANT_A, TENANT_B, TestDatabase, carrierContext } from './harness.ts';
+import { LEGAL_ENTITY, TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
+import type { IdentityFixture } from './identity-harness.ts';
+import { seedVerifiedFixture } from './sr2-harness.ts';
+import { fixtureOperator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
+import type { Queryable } from '../../src/session.ts';
 
 async function insertAudit(client: Client, overrides: Record<string, unknown> = {}) {
   const row = {
@@ -58,14 +61,31 @@ let app: Client;
  */
 let owner: Client;
 
+/**
+ * Authority now comes from a verified binding, not from a context object the caller filled in.
+ *
+ * The assertions below are unchanged: they were always about append-only enforcement, tenant
+ * isolation and outbox semantics, never about how the session announced who it was.
+ */
+const asTenantA = <T>(work: (c: Queryable) => Promise<T>): Promise<T> =>
+  withAuthenticatedTestPrincipal(db, fixtureOperator(fixtureA), work);
+const asTenantB = <T>(work: (c: Queryable) => Promise<T>): Promise<T> =>
+  withAuthenticatedTestPrincipal(db, fixtureOperator(fixtureB), work);
+
+let fixtureA: IdentityFixture;
+let fixtureB: IdentityFixture;
+
 beforeAll(async () => {
   await db.reset();
   await db.seedTenants();
+  // Provisioning, not authentication — a binding needs a principal that already exists.
+  fixtureA = await seedVerifiedFixture(db, TENANT_A);
+  fixtureB = await seedVerifiedFixture(db, TENANT_B);
   app = db.connectAs('freightos_app');
   await app.connect();
   owner = db.connectAs('postgres');
   await owner.connect();
-}, 60_000);
+}, 180_000);
 
 afterAll(async () => {
   await app?.end();
@@ -78,8 +98,10 @@ describe('append-only audit ledger', () => {
     // rather than accepting an assertion of it, so an unrecognised prefix is refused outright —
     // which is what stops an agent typing itself 'human'. The fixture's own 'test:actor' is not a
     // principal form and is correctly rejected.
-    const context = { ...carrierContext(TENANT_A), actorId: 'system:test-harness' };
-    const id = await withLegalContext(app, context, async (c) => {
+    // The actor is no longer the caller's to choose. Before SR-2 this line set
+    // `actorId: 'system:test-harness'` and the ledger recorded it; the recorded actor is now
+    // whatever the verified binding resolves to, which is the whole point of SEC-01.
+    const id = await asTenantA(async (c) => {
       const r = await (c as Client).query<{ id: string }>(
         `SELECT app.record_audit_event(
            'rig.freight.shipment.created.v1', 'shipment', $1, $2, NULL, NULL, '{}'::jsonb) AS id`,
@@ -92,7 +114,7 @@ describe('append-only audit ledger', () => {
 
   it('refuses a direct compose by the runtime role — 0018 §1', async () => {
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      asTenantA(async (c) => {
         await insertAudit(c as Client);
       }),
     ).rejects.toThrow(/permission denied/i);
@@ -100,7 +122,7 @@ describe('append-only audit ledger', () => {
 
   it('rejects UPDATE — Constitution Art. II.1', async () => {
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      asTenantA(async (c) => {
         await c.query(`UPDATE audit_events SET payload = '{"tampered":true}'::jsonb`);
       }),
     ).rejects.toThrow(/append-only|permission denied/i);
@@ -108,7 +130,7 @@ describe('append-only audit ledger', () => {
 
   it('rejects DELETE', async () => {
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      asTenantA(async (c) => {
         await c.query('DELETE FROM audit_events');
       }),
     ).rejects.toThrow(/append-only|permission denied/i);
@@ -116,7 +138,7 @@ describe('append-only audit ledger', () => {
 
   it('rejects TRUNCATE — the hole a row-level trigger alone would leave open', async () => {
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      asTenantA(async (c) => {
         await c.query('TRUNCATE audit_events');
       }),
     ).rejects.toThrow(/append-only|permission denied/i);
@@ -194,7 +216,7 @@ describe('transactional outbox', () => {
   }
 
   it('writes an event as pending', async () => {
-    const status = await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+    const status = await asTenantA(async (c) => {
       const r = await insertOutbox(c as Client, randomUUID());
       return r.rows[0]!.status as string;
     });
@@ -204,13 +226,13 @@ describe('transactional outbox', () => {
   it('rolls the event back with the transaction that produced it', async () => {
     const eventId = randomUUID();
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      asTenantA(async (c) => {
         await insertOutbox(c as Client, eventId);
         throw new Error('domain failure');
       }),
     ).rejects.toThrow('domain failure');
 
-    const found = await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+    const found = await asTenantA(async (c) => {
       const r = await c.query('SELECT id FROM outbox_events WHERE event_id = $1', [eventId]);
       return r.rowCount;
     });
@@ -220,11 +242,11 @@ describe('transactional outbox', () => {
 
   it('makes event_id unique so redelivery is idempotent', async () => {
     const eventId = randomUUID();
-    await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+    await asTenantA(async (c) => {
       await insertOutbox(c as Client, eventId);
     });
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      asTenantA(async (c) => {
         await insertOutbox(c as Client, eventId);
       }),
     ).rejects.toThrow(/duplicate key|outbox_events_event_id_key/);
@@ -232,11 +254,11 @@ describe('transactional outbox', () => {
 
   it('permits delivery bookkeeping but freezes the envelope', async () => {
     const eventId = randomUUID();
-    await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+    await asTenantA(async (c) => {
       await insertOutbox(c as Client, eventId);
     });
 
-    const attempts = await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+    const attempts = await asTenantA(async (c) => {
       const r = await c.query(
         `UPDATE outbox_events SET attempts = attempts + 1, status = 'in_flight'
          WHERE event_id = $1 RETURNING attempts`,
@@ -247,7 +269,7 @@ describe('transactional outbox', () => {
     expect(attempts).toBe(1);
 
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      asTenantA(async (c) => {
         await c.query(
           `UPDATE outbox_events SET payload = '{"rewritten":true}'::jsonb WHERE event_id = $1`,
           [eventId],
@@ -258,11 +280,11 @@ describe('transactional outbox', () => {
 
   it('keeps published status and timestamp consistent', async () => {
     const eventId = randomUUID();
-    await withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+    await asTenantA(async (c) => {
       await insertOutbox(c as Client, eventId);
     });
     await expect(
-      withLegalContext(app, carrierContext(TENANT_A), async (c) => {
+      asTenantA(async (c) => {
         await c.query(`UPDATE outbox_events SET status = 'published' WHERE event_id = $1`, [
           eventId,
         ]);
@@ -271,7 +293,7 @@ describe('transactional outbox', () => {
   });
 
   it('isolates outbox rows by tenant', async () => {
-    const rows = await withLegalContext(app, carrierContext(TENANT_B), async (c) => {
+    const rows = await asTenantB(async (c) => {
       const r = await c.query('SELECT id FROM outbox_events');
       return r.rowCount;
     });
