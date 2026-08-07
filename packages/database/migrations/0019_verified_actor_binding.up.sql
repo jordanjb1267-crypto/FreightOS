@@ -256,6 +256,22 @@ ALTER FUNCTION app.verified_binding_node_scope_ok(uuid) OWNER TO freightos_bindi
 -- The same treatment is applied to users and memberships, not only the closure. Making those two
 -- bootstrap-only for everybody would have removed revalidation from ordinary reads of the identity
 -- tables — the same hole, one table over.
+--
+-- CYCLE 5, measured after the first version of this migration was committed. The treatment must
+-- cover EVERY table app.verified_principal() reads, not only the three that the closure analysis
+-- surfaced. verified_principal() also reads service_accounts for its service branch, and
+-- service_accounts_read was still TO PUBLIC consuming app.current_tenant_id(). session_user stays
+-- 'freightos_app' inside a SECURITY DEFINER, so the accessor took its verified branch again:
+--
+--   freightos_app SELECT -> app.current_tenant_id() -> app.verified_principal()
+--     -> plans its body, reads service_accounts as freightos_binding_owner
+--     -> service_accounts_read (TO PUBLIC, so it APPLIES to the binding owner)
+--     -> app.current_tenant_id() -> app.verified_principal() -> ...
+--
+-- PostgreSQL reported this as `stack depth limit exceeded` with alternating
+-- `SQL function "verified_principal" during startup` context frames — never as a recursion
+-- diagnostic. That is the reason §10 asserts the disjointness structurally instead of trusting a
+-- runtime smoke test to reveal it.
 -- ---------------------------------------------------------------------------
 
 DROP POLICY organization_node_closure_read ON organization_node_closure;
@@ -287,6 +303,18 @@ CREATE POLICY memberships_read ON memberships FOR SELECT
     (app.is_control_plane() OR tenant_id = app.current_tenant_id())
     AND app.organization_node_scope_ok(organization_node_id));
 CREATE POLICY memberships_bootstrap_read ON memberships FOR SELECT
+  TO freightos_binding_owner
+  USING (tenant_id = app.verified_binding_tenant_scope()
+         AND app.verified_binding_node_scope_ok(organization_node_id));
+
+DROP POLICY service_accounts_read ON service_accounts;
+CREATE POLICY service_accounts_read ON service_accounts FOR SELECT
+  TO freightos_app, freightos_admin_owner, freightos_hierarchy_owner,
+     freightos_identity_guard, freightos_migrator
+  USING (
+    (app.is_control_plane() OR tenant_id = app.current_tenant_id())
+    AND app.organization_node_scope_ok(organization_node_id));
+CREATE POLICY service_accounts_bootstrap_read ON service_accounts FOR SELECT
   TO freightos_binding_owner
   USING (tenant_id = app.verified_binding_tenant_scope()
          AND app.verified_binding_node_scope_ok(organization_node_id));
@@ -380,49 +408,80 @@ GRANT SELECT ON service_accounts TO freightos_binding_owner;
 --
 -- Redefining these six gives all 52 existing RLS policies verified semantics without editing one
 -- of them.
+--
+-- WHY ALL FIVE ARE NOW SECURITY DEFINER OWNED BY THE BINDING OWNER.
+--
+-- Measured, after the first version of this migration was committed: PostgreSQL performs the
+-- EXECUTE privilege check for a function at expression-initialisation time, for EVERY function node
+-- in the tree — including the arm of a CASE that will not be taken. So a plain invoker-rights
+-- accessor naming app.verified_principal() in its freightos_app arm made the accessor unusable for
+-- every OTHER role, which holds no EXECUTE on it:
+--
+--   freightos_control_plane=> SELECT app.current_tenant_id();
+--   ERROR:  permission denied for function verified_principal
+--
+-- That is a fail-closed regression for legitimate callers, and it broke the control plane outright.
+-- The alternatives were to widen EXECUTE on app.verified_principal() to a hand-maintained list of
+-- every role in the cluster — a list that goes stale the first time a migration adds a role — or to
+-- move the privilege to where the resolution actually happens. The second is the standard
+-- SECURITY DEFINER idiom and is what app.current_human_principal() has done since 0018: the caller
+-- needs no privilege on the resolver, because the accessor IS the trust boundary.
+--
+-- The carve-out is unaffected: SECURITY DEFINER changes current_user, never session_user, so
+-- `session_user = 'freightos_app'` still means what it meant. Nothing in these bodies reads a
+-- table, so running them as the binding owner confers no reach on the caller.
+--
+-- Recorded residual (performance, not security): a SECURITY DEFINER function is not inlinable, so
+-- these accessors now cost a function invocation per RLS predicate evaluation rather than being
+-- folded into the qual. The dominant cost was already app.verified_principal() itself, which is a
+-- definer and was never inlinable. Not addressed here.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION app.current_tenant_id() RETURNS uuid
-LANGUAGE sql STABLE
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (app.verified_principal()).tenant_id
               ELSE nullif(current_setting('app.tenant_id', true), '')::uuid
          END
 $$;
+ALTER FUNCTION app.current_tenant_id() OWNER TO freightos_binding_owner;
 
 CREATE OR REPLACE FUNCTION app.current_actor_id() RETURNS text
-LANGUAGE sql STABLE
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (app.verified_principal()).actor_id
               ELSE nullif(current_setting('app.actor_id', true), '')
          END
 $$;
+ALTER FUNCTION app.current_actor_id() OWNER TO freightos_binding_owner;
 
 CREATE OR REPLACE FUNCTION app.current_organization_node_id() RETURNS uuid
-LANGUAGE sql STABLE
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (app.verified_principal()).organization_node_id
               ELSE nullif(current_setting('app.organization_node_id', true), '')::uuid
          END
 $$;
+ALTER FUNCTION app.current_organization_node_id() OWNER TO freightos_binding_owner;
 
 CREATE OR REPLACE FUNCTION app.current_legal_entity_id() RETURNS uuid
-LANGUAGE sql STABLE
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (app.verified_principal()).legal_entity_id
               ELSE nullif(current_setting('app.legal_entity_id', true), '')::uuid
          END
 $$;
+ALTER FUNCTION app.current_legal_entity_id() OWNER TO freightos_binding_owner;
 
 -- Human-only by construction: a service principal returns NULL here rather than being treated as
 -- a person. That is what stops a service identity acquiring human authorization by principal-type
 -- manipulation — the type is an enumerated CHECK on the binding row, not a string in a GUC.
 CREATE OR REPLACE FUNCTION app.current_user_id() RETURNS uuid
-LANGUAGE sql STABLE
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (SELECT p.user_id FROM app.verified_principal() p
@@ -433,6 +492,7 @@ AS $$
                      '')::uuid
          END
 $$;
+ALTER FUNCTION app.current_user_id() OWNER TO freightos_binding_owner;
 
 -- Art. V.1's human reservation, now resting on the verified binding rather than on a parsed GUC.
 -- The membership and status revalidation already happened inside app.verified_principal().
@@ -443,14 +503,19 @@ $$;
 -- CREATE OR REPLACE also requires CREATE on the schema even when the function already exists, and
 -- 0018 deliberately takes that privilege back after using it. So it is lent again here and
 -- returned immediately below — the same borrow-and-return 0018 performs.
+--
+-- The verified arm delegates to app.current_user_id() rather than naming app.verified_principal()
+-- directly. This function is a SECURITY DEFINER owned by freightos_hierarchy_owner, so a direct
+-- reference would run the same EXECUTE check against THAT owner and fail the same way the invoker
+-- accessors did. app.current_user_id() is the function whose contract is already exactly "the
+-- verified human user id, or NULL for a service principal", and it is reachable by every caller.
 GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
 SET LOCAL ROLE freightos_hierarchy_owner;
 CREATE OR REPLACE FUNCTION app.current_human_principal() RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
-              THEN (SELECT p.user_id FROM app.verified_principal() p
-                     WHERE p.principal_type = 'human')
+              THEN app.current_user_id()
               ELSE (SELECT u.id
                       FROM users u
                      WHERE u.tenant_id = app.current_tenant_id()
@@ -728,26 +793,101 @@ BEGIN
     RAISE EXCEPTION '0019 §10: % is not a NOLOGIN-owned definer with a pinned search_path', v_bad;
   END IF;
 
-  -- CLOSURE_BOOTSTRAP=C, asserted structurally. The runtime symptom of losing role-disjointness is
-  -- a backend stack overflow, so it is checked here rather than left to be discovered at runtime.
-  IF EXISTS (SELECT 1 FROM pg_policy p
-              WHERE p.polrelid = 'organization_node_closure'::regclass
-                AND p.polname = 'organization_node_closure_read'
-                AND (p.polroles IS NULL OR 0 = ANY(p.polroles)
-                     OR 'freightos_binding_owner'::regrole = ANY(p.polroles)))
-  THEN
+  -- The five accessors carry the EXECUTE privilege for app.verified_principal() on behalf of every
+  -- caller, so each must actually be a definer owned by the binding owner. If one of these silently
+  -- reverted to invoker rights, every role other than freightos_app would lose the accessor.
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_roles r ON r.oid = p.proowner
+   WHERE (n.nspname, p.proname) IN (
+           ('app','current_tenant_id'), ('app','current_actor_id'),
+           ('app','current_organization_node_id'), ('app','current_legal_entity_id'),
+           ('app','current_user_id'))
+     AND (NOT p.prosecdef OR r.rolname <> 'freightos_binding_owner'
+          OR NOT EXISTS (SELECT 1 FROM unnest(p.proconfig) c
+                          WHERE c = 'search_path=pg_catalog, public'));
+  IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION
-      '0019 §4: the authoritative closure policy is applicable to freightos_binding_owner — '
-      'candidate C requires role-disjointness and this reintroduces the recursion';
+      '0019 §6: % is not a binding-owner SECURITY DEFINER with a pinned search_path — '
+      'every non-runtime role would lose the accessor', v_bad;
   END IF;
 
-  IF EXISTS (SELECT 1 FROM pg_policy p
-              WHERE p.polrelid = 'organization_node_closure'::regclass
-                AND p.polname = 'organization_node_closure_bootstrap_read'
-                AND (p.polroles IS NULL OR 0 = ANY(p.polroles)
-                     OR 'freightos_app'::regrole = ANY(p.polroles)))
-  THEN
-    RAISE EXCEPTION '0019 §4: the bootstrap closure policy is applicable to freightos_app';
+  -- Positive control for the same property. These five are the universal entry point for all 52 RLS
+  -- policies and MUST stay reachable by every role; a fail-closed accessor is as much a defect as an
+  -- open one, and it is what the invoker-rights version of §6 produced.
+  --
+  -- app.current_human_principal() is deliberately NOT in this list. 0018 narrowed it to
+  -- freightos_app and its own owner — the two kill-switch definers that call it run AS that owner —
+  -- and §9 re-applies that narrowing because the baseline capture found PUBLIC EXECUTE surviving on
+  -- it. Its reachability is asserted separately, just below.
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE (n.nspname, p.proname) IN (
+           ('app','current_tenant_id'), ('app','current_actor_id'),
+           ('app','current_organization_node_id'), ('app','current_legal_entity_id'),
+           ('app','current_user_id'))
+     AND NOT has_function_privilege('public', p.oid, 'EXECUTE');
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0019 §6: PUBLIC lost EXECUTE on accessor % — callers would fail closed', v_bad;
+  END IF;
+
+  -- Both legitimate doors to the narrowed accessor stay open.
+  IF NOT has_function_privilege('freightos_app', 'app.current_human_principal()', 'EXECUTE')
+     OR NOT has_function_privilege('freightos_hierarchy_owner',
+                                   'app.current_human_principal()', 'EXECUTE') THEN
+    RAISE EXCEPTION
+      '0019 §9: app.current_human_principal() is unreachable by freightos_app or by the kill-switch '
+      'definer owner — the human reservation would refuse everybody, as in R-01';
+  END IF;
+
+  -- CLOSURE_BOOTSTRAP=C, asserted structurally, over EVERY table reachable from the bootstrap
+  -- graph rather than only the closure. The runtime symptom of losing role-disjointness is a
+  -- backend stack overflow with no recursion diagnostic, and cycle 5 was missed precisely because
+  -- this check named three tables while app.verified_principal() reads four.
+  --
+  -- Read-applicable policies only (polcmd 'r' and '*'): the write policies on these tables also
+  -- name the authoritative accessors, but the binding owner holds SELECT and nothing else, so they
+  -- are never pulled into its plans.
+  SELECT string_agg(format('%s.%s', c.relname, p.polname), ', ') INTO v_bad
+    FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+   WHERE c.relname IN ('organization_node_closure', 'users', 'memberships', 'service_accounts')
+     AND p.polcmd IN ('r', '*')
+     AND (p.polroles IS NULL OR 0 = ANY(p.polroles)
+          OR 'freightos_binding_owner'::regrole = ANY(p.polroles))
+     -- Parenthesised: `~` and `||` share precedence and associate left, so an unbracketed
+     -- concatenation would bind as `(qual ~ 'a') || 'b'` and fail as a text/boolean mismatch.
+     AND pg_get_expr(p.polqual, p.polrelid) ~
+           ('app\.(current_tenant_id|current_actor_id|current_organization_node_id'
+            || '|current_legal_entity_id|current_user_id|current_human_principal'
+            || '|organization_node_scope_ok|legal_entity_scope_ok)');
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION
+      '0019 §4: policy %s is readable by freightos_binding_owner AND consumes an authoritative '
+      'accessor — candidate C requires role-disjointness and this reintroduces the recursion',
+      v_bad;
+  END IF;
+
+  -- Each of those four tables must actually have a bootstrap door, or verified_principal() would
+  -- resolve nothing and every runtime session would fail closed for the wrong reason.
+  SELECT string_agg(t, ', ') INTO v_bad
+    FROM unnest(ARRAY['organization_node_closure', 'users', 'memberships', 'service_accounts']) t
+   WHERE NOT EXISTS (
+           SELECT 1 FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+            WHERE c.relname = t AND p.polcmd IN ('r', '*')
+              AND p.polroles = ARRAY['freightos_binding_owner'::regrole::oid]);
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0019 §4: % has no binding-owner-only bootstrap read policy', v_bad;
+  END IF;
+
+  -- And no bootstrap door may be open to the runtime role, which would give ordinary reads
+  -- binding-only scope semantics instead of revalidated ones.
+  SELECT string_agg(format('%s.%s', c.relname, p.polname), ', ') INTO v_bad
+    FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+   WHERE p.polname LIKE '%\_bootstrap\_read'
+     AND (p.polroles IS NULL OR 0 = ANY(p.polroles)
+          OR 'freightos_app'::regrole = ANY(p.polroles));
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0019 §4: bootstrap policy % is applicable to freightos_app', v_bad;
   END IF;
 
   -- The binding owner must not be control plane, or the bootstrap policies would be satisfied by
