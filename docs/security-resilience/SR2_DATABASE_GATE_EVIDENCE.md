@@ -5,6 +5,12 @@ PostgreSQL 16.13 (`PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1) on x86_64-pc
 driven as `freightos_migrator` or as one of the runtime roles. Nothing in this document was
 produced by a superuser session, and nothing was inferred from the migration text.
 
+The gate has since also run unchanged on CI's PostgreSQL **16.14**
+(`starting PostgreSQL 16.14 on x86_64-pc-linux-musl`, `postgres:16-alpine`) — see §4. The two
+minor versions agree on every case, which matters because three of the properties here turn on
+version-specific behaviour: expression-initialisation ACL checks, `pg_shdepend` cross-database role
+dependencies, and `CREATE OR REPLACE` resetting `prosecdef` and `proconfig`.
+
 ## 1. Three defects found before the gate could start
 
 The prior report said 0019 "applies, reverts and re-applies cleanly". That was true and
@@ -333,14 +339,50 @@ whole migration had rolled back. No half-lent state has ever been observable.
 - Base: `main` @ `37f5b673cba1589b8a754fd36caef05472854052`
 - PR #9, draft, unmerged
 
-Full suite at the gate commit:
+Full suite locally at the gate commit:
 
 ```
  Test Files  9 failed | 18 passed (27)
       Tests  12 failed | 473 passed | 295 skipped (780)
 ```
 
-Unit: 272/272. SR-2 gates: 100/100. `migrations.test.ts` 20/20, `kill-switch-scopes.test.ts` 33/33.
+### CI on the exact head `aa7ce0d`
+
+`format:check`, `lint`, `typecheck`, `validate:handoff`, `validate:provenance` and `validate:scope`
+all pass. Unit and coverage:
+
+```
+ Test Files  14 passed (14)
+      Tests  272 passed (272)
+```
+
+with coverage `All files | 100 | 98.42 | 100 | 100`, above every configured threshold.
+
+Integration:
+
+```
+ Test Files  9 failed | 4 passed (13)
+      Tests  12 failed | 201 passed | 295 skipped (508)
+```
+
+**Both gate files pass in CI, with zero skips, on a different minor version:**
+
+```
+ ✓ |integration| packages/database/test/integration/sr2-binding-structure.test.ts (32 tests) 3916ms
+ ✓ |integration| packages/database/test/integration/sr2-binding-runtime.test.ts (68 tests) 7812ms
+```
+
+`migrations.test.ts` 20/20 and `kill-switch-scopes.test.ts` 33/33 pass there too.
+
+The three defects are gone from CI, confirmed by absence rather than by assertion: across the whole
+job log there are **zero** occurrences of `stack depth limit exceeded`, `permission denied for
+function verified_principal`, and `cannot be dropped because some objects depend on it`, and zero
+occurrences of `25P02`. The one `permission denied for schema admin` in the PostgreSQL server log is
+gate B's negative control — `freightos_app` attempting `admin.issue_session_binding` — and is the
+refusal that case asserts.
+
+The local and CI failure sets are identical, case for case: the same 12 named tests and the same six
+suites. Nothing is flaky and nothing is environment-specific.
 
 **The 12 failures and 295 skips are one cause, declared in advance.** Migration 0019 makes
 `freightos_app` fail closed without an installed binding. Every existing integration test installs
