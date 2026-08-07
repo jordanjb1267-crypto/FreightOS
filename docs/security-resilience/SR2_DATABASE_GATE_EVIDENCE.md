@@ -602,3 +602,76 @@ Some of these are likely A1 in the owner's taxonomy — a permission chain attac
 the legal-entity node does not need enterprise reach to be exercised — but which ones are A1 and
 which are A2 cannot be settled before the ruling, because A2's disposition depends on whether the
 capability is deferrable at all.
+
+## 8. Classification of the remaining 27, and a second confirmed requirement
+
+### The two-step experiment that reclassified organization-hierarchy
+
+Worth preserving, because fixture names were not sufficient to classify authority semantics.
+
+**Step 1 — scope correction alone.** `adminContext()` changed from the enterprise root to the
+administrator's valid legal-entity-governed node. Result: **39 failures → 39 failures.** The
+enterprise-node claim was not the dominant cause.
+
+**Step 2 — real verified-session routing**, on the same file. Result: **39 → 14.** So 25 of the 39
+were missing verified runtime identity, not authority scope.
+
+Most of organization-hierarchy is H1/H3. `four-level traversal`, `hierarchy invariants`,
+`moving a subtree`, `F-13` archival and most of `F-03` are green with no assertion changed.
+
+The same lesson repeated in identity-rls: `shows a tenant only its own organization nodes` — which I
+had flagged as tenant-wide read because it expects all four nodes of the tenant tree — **passes**
+under the verified administrator. It was R1 all along. Two suspected tenant-wide requirements
+dissolved on measurement; neither survived contact with a real session.
+
+### CONFIRMED P2 — Enterprise-root policy declaration
+
+```
+it('binds a control at the enterprise root with a null legal entity', ...)
+  → bind(c, a.enterpriseNodeId, null, 'data_residency', 'eu_only', 5, 'residency')
+  → new row violates row-level security policy for table "policy_bindings"
+```
+
+A verified legal-entity-scoped administrator cannot write a `policy_bindings` row at the enterprise
+root, because the root is above its node scope.
+
+**The handoff requires the capability**, and this is a different capability from the one already
+recorded. `04_ENTERPRISE_SCALE_AND_TENANCY.md`:
+
+> line 20: Policies inherit downward. A child may tighten a restriction but cannot weaken legal,
+> safety, **enterprise-minimum**, security, residency, or approval controls.
+>
+> line 22: Every effective policy records inherited source and local override.
+>
+> line 53 (mega-carrier targets): **Enterprise-wide policy updates**
+
+An "enterprise-minimum" control that inherits downward has to be declared somewhere above the legal
+entities it constrains, and "every effective policy records inherited source" is exactly what the
+dependent test asserts — that the terminal names the root as its source.
+
+`TENANT_ROOT_POLICY_AUTHORITY=REQUIRED_BY_HANDOFF_AND_UNIMPLEMENTED`
+
+### Why this is NOT the same marker as the administrator one
+
+The owner's distinction holds and the evidence supports keeping them apart:
+
+- **Capability A** — `TENANT_WIDE_RUNTIME_ADMIN_AUTHORITY` — asks _who may administer across legal
+  entities_. It is about the human's membership scope.
+- **Capability B** — `TENANT_ROOT_POLICY_AUTHORITY` — asks _where a policy may apply_. A control
+  bound at the root could legitimately be created through a control-plane or command path without
+  any human holding enterprise-wide membership.
+
+They may share an authority architecture eventually. SR-2 must not assume it, and does not.
+
+### Status of the remaining 27 at this commit
+
+Classification is partially complete and is NOT being asserted as final:
+
+| Suite                  | Remaining | Reading so far                                                                                                                                                                      |
+| ---------------------- | --------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| organization-hierarchy |        14 | 8 are `policy_bindings` RLS write refusals — the root declaration above plus dependents; 6 unread (F-02 ×1, F-03 ×2, and 3 downstream assertions)                                   |
+| identity-rls           |        13 | tests _about_ scope, which build their own narrower contexts deliberately; F-05's "operating context is not a credential" group must keep proving a system context confers no reach |
+
+Confirmed counts so far: **H1/H3 ≈ 25 migrated green · R1 ≈ 12 migrated green · P2 = 1 confirmed ·
+Class 2 (administrator authority) = 0.** No test has been narrowed, no assertion weakened, and no
+skip introduced.
