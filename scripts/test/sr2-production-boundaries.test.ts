@@ -139,7 +139,38 @@ describe('SR-2 production boundaries', () => {
     // installed binding WITHOUT revalidating it. That is correct for the bootstrap graph and wrong
     // for anything else: after a revocation they still answer, while every authoritative accessor
     // has already gone to NULL. They are database-internal primitives.
-    expect(filesContaining(/verified_binding_(tenant_scope|node_scope_ok|context)/)).toEqual([]);
+    expect(
+      filesContaining(/verified_binding_(tenant_scope|node_scope_ok|context|scope_node_ids)/),
+    ).toEqual([]);
+  });
+
+  it('keeps the statement-scoped policy primitives out of application code', () => {
+    // P-01. app.verified_scope_node_ids() and app.verified_scope_service_account_ids() exist so a
+    // policy can resolve the caller's scope ONCE per statement instead of once per row. They are
+    // policy primitives, not an authorization API: calling one from application code would be a
+    // module deciding for itself what it may reach, and would bypass the policies that are the
+    // only reason the answer is trustworthy.
+    expect(filesContaining(/verified_scope_(node_ids|service_account_ids)/)).toEqual([]);
+  });
+
+  it('keeps the capability predicates out of application code', () => {
+    // C-01. app.identity_read_context_ok() and app.identity_write_context_ok() are ADR-0019's
+    // matrix expressed as RLS. Application code asking them and then acting on the answer would be
+    // enforcement moved out of the database and into a caller that can decide not to ask.
+    expect(filesContaining(/identity_(read|write)_context_ok/)).toEqual([]);
+  });
+
+  it('installs no principal cache anywhere in production code', () => {
+    // P-01's forbidden remedy, fenced. Statement scope is safe because an InitPlan is re-evaluated
+    // by the next statement. Anything that remembers a resolved principal for the transaction or
+    // the session reintroduces exactly the revocation hole SR-2 closed, and it would most likely
+    // arrive as a well-meaning memo in the binding service.
+    const caches = SOURCES.filter((f) =>
+      /(verifiedPrincipal|currentPrincipal|resolvedPrincipal|principalCache)[\s\S]{0,60}(cache|memo|Map<|WeakMap)/i.test(
+        f.code,
+      ),
+    ).map((f) => f.path);
+    expect(caches).toEqual([]);
   });
 
   it('writes the legacy identity GUCs from exactly one module, and not as authentication', () => {

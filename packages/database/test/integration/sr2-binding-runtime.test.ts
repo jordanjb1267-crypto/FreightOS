@@ -1793,3 +1793,217 @@ describe('gate V — statement-scoped authorization resolution', () => {
     });
   });
 });
+
+/**
+ * Gate W — the context capability matrix cannot be moved by a claim. C-01.
+ *
+ * 0021 made ADR-0019's "Identity and organization" row executable: software_only/system writes,
+ * software_only/{shipper_owned,facility_operator} and carrier_agent/carrier read, everything else
+ * nothing. The cell is decided by app.current_legal_authority_class() and
+ * app.current_operating_context(), which 0019 §6 made binding-derived — so the question this gate
+ * asks is whether a session can talk its way into a different cell.
+ *
+ * Every case here writes strictly IN SCOPE. Node scope, legal-entity scope and tenant isolation all
+ * permit the row, so the only thing that can refuse it is the capability term, and the only thing
+ * that can allow it is the binding.
+ */
+describe('gate W — capability matrix under forgery', () => {
+  /** In-scope for Alice: her own terminal node and her own legal entity. */
+  const inScopeInsert = (app: Client, key: string) =>
+    app.query(
+      `INSERT INTO service_accounts
+         (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
+       VALUES ($1, $2, $3, $4, 'Gate W', 'integration', 'test')`,
+      [TENANT_A, fixtureA.terminalNodeId, fixtureA.legalEntityId, key],
+    );
+
+  /** Alice, bound under an explicit class and context, with an optional forged claim on top. */
+  async function asContext(
+    legalAuthorityClass: string,
+    operatingContext: string,
+    forge: Readonly<Record<string, string>>,
+    key: string,
+  ): Promise<{ wrote: boolean; message: string; readable: number; class: string | null }> {
+    return withAppAndAdmin(async (app, admin) => {
+      const binding = await mintBinding(admin, {
+        ...alice(),
+        legalAuthorityClass,
+        operatingContext,
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, binding);
+      if (Object.keys(forge).length > 0) await forgeLegacyClaims(app, forge);
+
+      const seen = await app.query<{ klass: string | null }>(
+        'SELECT app.current_legal_authority_class()::text AS klass',
+      );
+      const readable = await app.query('SELECT id FROM users');
+      const outcome = await inScopeInsert(app, key).then(
+        () => ({ wrote: true, message: '' }),
+        (e: Error) => ({ wrote: false, message: e.message }),
+      );
+      await app.query('ROLLBACK');
+      return {
+        ...outcome,
+        readable: readable.rowCount ?? 0,
+        class: seen.rows[0]!.klass,
+      };
+    });
+  }
+
+  it('writes identity under software_only/system — the positive control', async () => {
+    const r = await asContext(
+      'software_only',
+      'system',
+      {},
+      `gatew_system_${randomUUID().replace(/-/g, '')}`,
+    );
+    expect(r.wrote, r.message).toBe(true);
+  });
+
+  it('refuses the identical write under every other permitted pairing', async () => {
+    // The three the matrix gives READ to reach row-level security, so the refusal is attributable
+    // to the capability term and to nothing else.
+    for (const [klass, context] of [
+      ['carrier_agent', 'carrier'],
+      ['software_only', 'facility_operator'],
+      ['software_only', 'shipper_owned'],
+    ] as const) {
+      const r = await asContext(
+        klass,
+        context,
+        {},
+        `gatew_${context}_${randomUUID().replace(/-/g, '')}`,
+      );
+      expect(r.wrote, `${klass}/${context} wrote an identity row`).toBe(false);
+      expect(r.message, `${klass}/${context}`).toMatch(/row-level security/i);
+    }
+    // The two the matrix gives NOTHING to are refused twice over, and the first refusal wins: with
+    // the read denied, assert_governing_legal_entity cannot see the legal entity it must resolve
+    // and says so before row-level security is reached. Over-determined is still closed, and this
+    // asserts the refusal rather than pretending to know which gate produced it.
+    for (const [klass, context] of [
+      ['software_only', 'autonomous_mobility'],
+      ['brokerage', 'brokerage'],
+    ] as const) {
+      const r = await asContext(
+        klass,
+        context,
+        {},
+        `gatew_${context}_${randomUUID().replace(/-/g, '')}`,
+      );
+      expect(r.wrote, `${klass}/${context} wrote an identity row`).toBe(false);
+      expect(r.message, `${klass}/${context}`).toMatch(
+        /row-level security|sits above the legal-entity boundary/i,
+      );
+    }
+  });
+
+  it('keeps the read the matrix grants, and withholds the one it does not', async () => {
+    // Without this the case above is indistinguishable from a predicate that refuses everybody —
+    // the R-01 failure, which passed every negative test that existed at the time.
+    for (const [klass, context] of [
+      ['software_only', 'system'],
+      ['carrier_agent', 'carrier'],
+      ['software_only', 'facility_operator'],
+      ['software_only', 'shipper_owned'],
+    ] as const) {
+      const r = await asContext(klass, context, {}, `gatew_read_${randomUUID().replace(/-/g, '')}`);
+      expect(r.readable, `${klass}/${context} lost a read the matrix grants`).toBeGreaterThan(0);
+    }
+    for (const [klass, context] of [
+      ['software_only', 'autonomous_mobility'],
+      ['brokerage', 'brokerage'],
+    ] as const) {
+      const r = await asContext(
+        klass,
+        context,
+        {},
+        `gatew_noread_${randomUUID().replace(/-/g, '')}`,
+      );
+      expect(r.readable, `${klass}/${context} kept a read the matrix denies`).toBe(0);
+    }
+  });
+
+  it('does not let a forged operating context move the cell', async () => {
+    // Bound as facility_operator, claiming system. The claim is the only thing that differs from
+    // the positive control above.
+    const r = await asContext(
+      'software_only',
+      'facility_operator',
+      { 'app.operating_context': 'system' },
+      `gatew_forge_ctx_${randomUUID().replace(/-/g, '')}`,
+    );
+    expect(r.wrote, 'a raw operating-context claim bought an identity write').toBe(false);
+    expect(r.message).toMatch(/row-level security/i);
+  });
+
+  it('does not let a forged legal authority class move the cell', async () => {
+    const r = await asContext(
+      'carrier_agent',
+      'carrier',
+      { 'app.legal_authority_class': 'software_only', 'app.operating_context': 'system' },
+      `gatew_forge_class_${randomUUID().replace(/-/g, '')}`,
+    );
+    expect(r.wrote, 'a raw legal-authority claim bought an identity write').toBe(false);
+    expect(r.class, 'the accessor answered the claim rather than the binding').toBe(
+      'carrier_agent',
+    );
+  });
+
+  it('does not let a forged actor or node move the cell', async () => {
+    const r = await asContext(
+      'software_only',
+      'facility_operator',
+      {
+        'app.actor_id': `user:${fixtureA.adminUserId}`,
+        'app.organization_node_id': fixtureA.enterpriseNodeId,
+        'app.legal_entity_id': fixtureA.legalEntityId,
+        'app.tenant_id': TENANT_A,
+      },
+      `gatew_forge_actor_${randomUUID().replace(/-/g, '')}`,
+    );
+    expect(r.wrote, 'forged actor, node, entity and tenant bought an identity write').toBe(false);
+  });
+
+  it('does not let a service principal inherit the human write cell', async () => {
+    // The service account of tenant A, bound as software_only/system — the pairing that DOES write.
+    // A service principal is a different principal type, and the matrix row is about the context,
+    // so this must behave exactly as the human does under the same context: it writes. What it must
+    // not do is acquire anything more, which gate M already covers for human semantics.
+    await withAppAndAdmin(async (app, admin) => {
+      const binding = await mintBinding(admin, {
+        principalType: 'service',
+        principalId: fixtureA.serviceAccountId,
+        tenantId: TENANT_A,
+        organizationNodeId: fixtureA.regionNodeId,
+        legalEntityId: fixtureA.legalEntityId,
+        legalAuthorityClass: 'software_only',
+        operatingContext: 'facility_operator',
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, binding);
+      // Read BEFORE the refusal: PostgreSQL answers everything after an error in the same
+      // transaction with 25P02, so a read afterwards would report the abort rather than the fact.
+      const human = await app.query<{ id: string | null }>(
+        'SELECT app.current_user_id()::text AS id',
+      );
+      expect(human.rows[0]!.id, 'a service principal acquired human semantics').toBeNull();
+
+      const refused = await inScopeInsert(
+        app,
+        `gatew_service_${randomUUID().replace(/-/g, '')}`,
+      ).then(
+        () => null,
+        (e: Error) => e,
+      );
+      expect(refused, 'a facility_operator service principal wrote identity').not.toBeNull();
+      expect(refused!.message).toMatch(/row-level security|sits above the legal-entity boundary/i);
+      await app.query('ROLLBACK');
+    });
+  });
+});

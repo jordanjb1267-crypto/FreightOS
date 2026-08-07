@@ -936,3 +936,232 @@ resolved.
 
 `SR_2_VERIFIED_ACTOR_BINDING=READY_FOR_FINAL_REREVIEW` is **not** emitted. Two of the ten are
 outstanding and one of them is a measured failure, not a missing artefact.
+
+## 12. P-01 — the performance failure, and its remediation
+
+### 12.1 The measurement that failed
+
+Recorded in §10 and unchanged. Session establishment was fine at ~5 ms per verified transaction.
+Resolution was not.
+
+| Predicate                          |      verified |   legacy |   ratio |
+| ---------------------------------- | ------------: | -------: | ------: |
+| `app.verified_principal()`         |      2.543 ms |      n/a |       — |
+| `app.current_tenant_id()`          |      2.592 ms | 0.220 ms |     12× |
+| `app.organization_node_scope_ok()` | **28.201 ms** | 0.744 ms | **38×** |
+
+### 12.2 The call shape, derived and then confirmed
+
+Ten closure rows in the fixture tenant. `app.organization_node_scope_ok` resolves the principal once
+for its own `app.current_organization_node_id()`, and the closure's read policy then evaluates
+`tenant_id = app.current_tenant_id()` **once per closure row**:
+
+```
+2.6 ms  +  10 × 2.6 ms  =  28.6 ms          measured: 28.2 ms
+```
+
+The prediction matching the measurement to 1.4% is what made this a call-shape fault rather than
+generic overhead.
+
+| users in tenant |                    verified median | legacy median |
+| --------------: | ---------------------------------: | ------------: |
+|               2 |                              43 ms |       1.45 ms |
+|              10 |                             463 ms |       2.47 ms |
+|              50 |                   1,047 – 8,587 ms |       13.3 ms |
+|             200 | 3,556 ms median, **55,348 ms p95** |       24.3 ms |
+
+`EXPLAIN (ANALYZE, BUFFERS)` at fifty users: `Buffers: shared hit=23028` to return fifty rows.
+
+### 12.3 The rejected experiment, preserved
+
+The documented PostgreSQL RLS idiom — wrap the accessor in a scalar subquery so the planner hoists
+it into an InitPlan — applied to `users_read` in a scratch database: **1,047 ms → 987 ms**.
+
+It cannot work, and the reason is structural. `app.organization_node_scope_ok` takes a ROW argument,
+so `(SELECT app.organization_node_scope_ok(organization_node_id))` is correlated and still runs per
+row. Hoisting INSIDE the function fails too: PostgreSQL's `inline_function()` refuses any SQL
+function whose parse tree has `hasSubLinks`, so the body gets its own plan per call and its
+InitPlans are per-call InitPlans. Both halves are visible in one EXPLAIN — `app.is_control_plane()`
+has no sublink and inlines to `pg_has_role(...)`, while `app.organization_node_scope_ok` appears as a
+function call.
+
+**Variant A**, hoisting inside the three predicates: **1,047 ms → 525 ms**, still linear in rows.
+Rejected on the acceptance standard's own terms.
+
+### 12.4 The remediation — migration 0020
+
+The sublink moves out of the row-argument predicate and into the policy, where the planner can see
+it is uncorrelated:
+
+```
+app.organization_node_scope_ok(x) → app.is_control_plane() OR x IN (SELECT app.verified_scope_node_ids())
+app.service_account_scope_ok(x)   → x IN (SELECT app.verified_scope_service_account_ids())
+app.legal_entity_scope_ok(x)      → app.is_control_plane() OR x = (SELECT app.current_legal_entity_id())
+app.current_tenant_id()           → (SELECT app.current_tenant_id())
+```
+
+Thirty-eight of fifty-eight policies change. Every one is a mechanical transformation of a
+`pg_get_expr()` capture from a database migrated 1..19 — `sr2-baseline/pre-0020-policies.txt` — and
+the down migration restores that capture. Verified: up, down, re-capture, diff — **byte-identical,
+all fifty-eight**.
+
+All three new functions **take no argument**. A helper accepting an already-resolved context as a
+parameter would make a caller-supplied value an authority primitive, which is the mistake SR-2
+exists to remove. They resolve their own context from the binding, are invoker-rights so every
+policy on every table they read still applies, and return only ids the caller can already enumerate.
+
+### 12.5 A second instance, found by the gate
+
+`app.verified_principal()` reads `users` and `memberships` as `freightos_binding_owner` under
+0019's role-disjoint bootstrap policies — and those called `app.verified_binding_node_scope_ok()`
+**once per row of the table being scanned**. Measured: one `app.current_tenant_id()` cost **3,166
+shared buffers** once `users` held 152 rows and the planner chose a sequential scan, because each of
+those rows re-entered `session_binding` and the closure.
+
+`app.verified_binding_scope_node_ids()` is the Layer B answer: bootstrap-only, deliberately
+non-revalidating like the helper it replaces, owned by the binding owner, and already covered by the
+production fence forbidding `verified_binding_*` in application code.
+
+The gate found this, not the benchmark. That is what the gate is for.
+
+### 12.6 Final benchmark, on the shipped migration
+
+Medians and p95 over nine runs per size; whole verified transaction including mint and install.
+
+| users | verified median | verified p95 | legacy median | max buffers | plan exec |
+| ----: | --------------: | -----------: | ------------: | ----------: | --------: |
+|     2 |         13.1 ms |      46.6 ms |        1.3 ms |         134 |   8.15 ms |
+|    10 |         12.8 ms |      15.5 ms |        1.5 ms |          90 |   6.69 ms |
+|    50 |         12.1 ms |      15.4 ms |        1.9 ms |          87 |   6.47 ms |
+|   200 |     **11.4 ms** |  **17.9 ms** |        1.7 ms |         130 |   7.00 ms |
+
+Closure widened from 10 to 130 rows: buffers **130 → 132**, exec **7.25 → 7.74 ms**.
+
+`EXPLAIN` at every size shows `InitPlan 1 (returns $0)` at `loops=1` and `hashed SubPlan` at
+`loops=1`. The ~10 ms that remains over legacy is the **fixed** security cost of about four
+principal resolutions per statement, and it does not grow with rows or with closure size.
+
+Against the acceptance standard: no per-row principal revalidation, no per-closure-row
+revalidation, multiplicative blow-up eliminated, and the 200-row local read is 11.4 ms median
+against the 100 ms guard — from 3,556 ms median and 55,348 ms p95.
+
+### 12.7 Revocation after the optimization
+
+Statement scope is the only granularity that is safe here, and it is the granularity 0019 §5 already
+documents. Gate V's fourth case keeps the proof beside the optimization: with Alice's session open
+and one statement already served, a control-plane connection revokes her membership and commits;
+the **next statement in the same transaction** returns zero rows and
+`app.current_tenant_id()` returns NULL. Gate K's full revocation matrix — membership revoked,
+user revoked, effective window closed, node moved, and the positive control that reverses each —
+is unchanged and green.
+
+### 12.8 What the gate now asserts
+
+Four new cases, database gate **100 → 104**:
+
+| Case                                                                       | Property                                                                                                                    |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| resolves the principal outside the per-row filter                          | no authoritative accessor or scope predicate survives in a `Filter`, and an InitPlan exists so the resolution still happens |
+| does not grow the resolver work when the answer grows                      | 150 extra rows must not multiply buffers                                                                                    |
+| does not grow the resolver work when the closure grows                     | 30 extra nodes must not multiply buffers                                                                                    |
+| still loses authority on the next statement when the membership is revoked | statement-local, not transaction-local                                                                                      |
+
+Migration 0020 §4 additionally asserts from `pg_policy`, not from its own text: no policy may call a
+per-row scope predicate; none may resolve an accessor outside a subquery; the scope sets must be
+zero-argument invoker-rights STABLE set functions; the bootstrap policy set must still be four.
+
+---
+
+## 13. C-01 — the context capability matrix, audited and enforced
+
+### 13.1 The false positive, and why it survived four migrations
+
+`identity-rls > the capability matrix agrees with the database > gives a facility_operator session
+no identity write` claimed ADR-0019's matrix cell _Identity and organization ·
+`software_only`/`facility_operator` → `R (own)`_. It passed.
+
+It passed because the context it built named the **terminal** node and the row it wrote named the
+**legal-entity node above it**. Ordinary node scope produced the denial. The operating context was
+never consulted.
+
+### 13.2 The real reproduction
+
+A real verified `software_only`/`facility_operator` principal, writing `service_accounts` **inside
+its own node scope**, with `app.organization_node_scope_ok` and `app.legal_entity_scope_ok` both
+asserted true first:
+
+```
+INSERTED 6b3fa82f-3620-4b05-819b-dd323468e596
+```
+
+`service_accounts_insert` was tenant AND legal-entity scope AND node scope, with no
+legal-authority-class or operating-context term. **Zero of the fifteen identity tables carried one**,
+and nothing else in the schema did either.
+
+### 13.3 The generalised audit — the whole matrix, not one cell
+
+ADR-0019's matrix has twelve resource-group rows. Three have tables in this schema.
+
+| Resource group                                                                                                                                                                | ADR requirement                                                                                | Current enforcement                                                                                                                    | Positive control                    | Negative control                                                      | Gap                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Identity and organization** — write                                                                                                                                         | `software_only`/`system` only                                                                  | none — no policy carried a context term                                                                                                | gate W: system writes               | gate W: carrier, facility, shipper, autonomous, brokerage all refused | **CLOSED by 0021**                                                                                                                      |
+| **Identity and organization** — read                                                                                                                                          | system, shipper_owned, facility_operator, carrier R; autonomous_mobility and brokerage nothing | none                                                                                                                                   | gate W: four contexts keep the read | gate W: autonomous_mobility and brokerage read zero                   | **CLOSED by 0021**                                                                                                                      |
+| **Audit**                                                                                                                                                                     | R (own)                                                                                        | `freightos_app` holds SELECT and NOT INSERT/UPDATE; writes go through the trusted recorder; `reject_mutation` blocks UPDATE and DELETE | ledger tests                        | append-only tests                                                     | none — compliant                                                                                                                        |
+| **Kill switches**                                                                                                                                                             | system R/W, carrier tenant-scope W, others R                                                   | `freightos_app` holds SELECT and neither INSERT nor UPDATE — **stricter than the matrix**                                              | kill-switch read tests              | `is not writable by a tenant session`                                 | none — the Phase 3 deferral Phase 0 carry-forward item 1 records                                                                        |
+| Parties and locations, carrier and fleet, cost profiles, freight core, facility primitives, custody events, load opportunities, assignments and dispatch, autonomous mobility | various                                                                                        | **no tables exist yet**                                                                                                                | —                                   | —                                                                     | belongs to the migrations that create them; ADR-0019 already records it as "context-conditional RLS predicates, PR 2 onward, per table" |
+
+`outbox_events` is runtime-writable and is deliberately outside this audit: it is event
+infrastructure, not one of the matrix's resource groups.
+
+### 13.4 The missing control, and where it now lives — migration 0021
+
+```sql
+app.identity_write_context_ok()  -- software_only/system, or the control plane
+app.identity_read_context_ok()   -- + shipper_owned, facility_operator, carrier_agent/carrier
+```
+
+Both read `app.current_legal_authority_class()` and `app.current_operating_context()` — which 0019
+§6 made binding-derived, fully revalidated and fail-closed for `freightos_app`. **Not the legacy
+GUCs.** Both take no argument, so every policy calls them as `(SELECT ...)` and 0020's statement-
+scoped property is preserved; §3(d) re-asserts it.
+
+Thirty-nine identity policies gain the matching term. The bootstrap policies deliberately do not:
+they run as `freightos_binding_owner` and resolve the principal, so a context term there would route
+the resolver back through the accessors that depend on it. §3(b) asserts their absence rather than
+leaving it to reviewer memory. `organization_node_closure` is excluded as derived structure that
+feeds the scope machinery, and `permissions` as the global catalog that is deliberately not tenant
+data — both stated in the migration.
+
+### 13.5 Positive and negative controls, and the denial reason
+
+Gate W, seven cases, every one writing **strictly in scope** so that node scope, legal-entity scope
+and tenant isolation all permit the row and only the capability term can refuse it:
+
+- `software_only`/`system` writes — the positive control.
+- `carrier_agent`/`carrier`, `software_only`/`facility_operator`, `software_only`/`shipper_owned`
+  are refused, **on `row-level security`**, which is the capability term and nothing else.
+- `software_only`/`autonomous_mobility` and `brokerage`/`brokerage` are refused twice over: with
+  the read denied, `assert_governing_legal_entity` cannot resolve the entity it can no longer see
+  and speaks first. Over-determined is still closed, and the case asserts the refusal rather than
+  pretending to know which gate produced it.
+- Every context the matrix grants READ keeps it, and the two it does not read zero rows. Without
+  this the denials above would be indistinguishable from a predicate that refuses everybody — the
+  R-01 failure, which passed every negative test that existed at the time.
+- A forged `app.operating_context`, a forged `app.legal_authority_class`, and forged actor, node,
+  entity and tenant claims layered on a live binding move nothing; the accessor still answers the
+  binding.
+- A service principal under `facility_operator` is refused the same write, and
+  `app.current_user_id()` is still NULL for it.
+
+Three existing cases moved from `carrier_agent`/`carrier` to `software_only`/`system`, because after
+0021 a carrier session is refused every identity write and that would have masked the legal-entity
+scope those cases exist to prove. That is the same denial-reason discipline R-01 and the Category D
+migration already recorded.
+
+### 13.6 Scope decision
+
+ADR-0019 is Accepted and is not superseded by any later ADR or by the handoff, so this was treated
+as an SR-2 identity security blocker and implemented here rather than deferred.
+`CONTEXT_CAPABILITY_MATRIX_RLS` is therefore **CLOSED for every resource group that has tables**,
+and the remaining nine rows stay where ADR-0019 already put them: with the migrations that will
+create those tables.

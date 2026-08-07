@@ -213,43 +213,31 @@ modules on purpose, so the fixture path cannot quietly become the application's 
 
 ---
 
-## Addendum — a requirement confirmed by measurement during this migration
-
-Outside the four sections the owner specified, and recorded here rather than lost because it was
-found by SR-2's own work and is not SR-2's to fix.
+## Addendum — a requirement confirmed by measurement, and then CLOSED
 
 ```
-CONTEXT_CAPABILITY_MATRIX_RLS=REQUIRED_BY_ADR_0019_AND_UNIMPLEMENTED
+CONTEXT_CAPABILITY_MATRIX_RLS=ENFORCED_FOR_EVERY_RESOURCE_GROUP_WITH_TABLES
 ```
+
+Recorded here as a follow-on requirement when it was found, and moved out of that status when it was
+implemented. It never belonged with the three above: those are unresolved future design, whereas
+this was an accepted ADR the runtime did not enforce — an implementation contradiction.
 
 **Basis.** `adr/0019-software-only-operating-context-boundaries.md`, "The complete matrix", row
-_Identity and organization_, column `software_only`/`facility_operator`: **`R (own)`** — read, not
-write. The same ADR lists the obligation as outstanding, twice: "Context capability matrix as
-executable code" and "Context-conditional RLS predicates", both targeted at PR 2 onward.
+_Identity and organization_: `R/W` for `software_only`/`system`, `R (own)` for
+`software_only`/`shipper_owned` and `software_only`/`facility_operator`, `R` for
+`carrier_agent`/`carrier`, nothing for `software_only`/`autonomous_mobility`, `DENIED` for
+`brokerage`/`brokerage`.
 
-**Measured.** A real verified `software_only`/`facility_operator` principal writing `service_accounts`
-**inside its own node scope succeeds.** `service_accounts_insert` is tenant AND
-`legal_entity_scope_ok` AND `organization_node_scope_ok`, with no legal-authority-class or
-operating-context term, and nothing else in the schema carries one. The ADR's own RLS-consequences
-table lists additional predicates for freight core, facility primitives, carrier and fleet,
-economics and autonomous mobility — and none for identity tables.
+**Measured open.** A real verified `software_only`/`facility_operator` principal writing
+`service_accounts` inside its own node scope succeeded. No identity policy carried a
+legal-authority-class or operating-context term.
 
-**Why the gap was invisible.** `identity-rls > gives a facility_operator session no identity write`
-claimed to cover this cell and passed. It passed because the context it built named the terminal and
-the row it wrote named the legal-entity node above it: ordinary node scope refused it, and the
-operating context played no part. The test is now named
-`refuses a facility_operator identity write by node scope, and by nothing else`, asserts both halves,
-and records the current behaviour so the gap cannot be lost again.
+**Closed by migration 0021**, for every resource group that has tables. Audit, kill switches and the
+nine unbuilt groups are accounted for in `SR2_DATABASE_GATE_EVIDENCE.md` §13.3 — audit and kill
+switches are already compliant or stricter, and the nine stay with the migrations that will create
+their tables, which is where ADR-0019 already assigned them.
 
-**SR-2 does not implement it.** Adding an authority term to a policy to make an old test green is
-exactly what this PR must not do, and the obligation predates SR-2 by four migrations.
-
-**Future positive acceptance criteria.**
-
-1. A `facility_operator` principal, in scope, is refused an identity write, and the refusal is
-   attributable to the context rather than to node or legal-entity scope.
-2. The same principal retains every read the matrix grants it, and every facility-primitive write.
-3. A `carrier_agent`/`carrier` principal with the identical membership is unaffected — the positive
-   peer, without which the first assertion is indistinguishable from a broken predicate.
-4. ADR-0019 property 2 continues to hold: no matrix predicate is disjunctive with the tenant
-   predicate. Every one is an `AND`. Context narrows; it never widens.
+**This addendum is retained rather than deleted** because the way the gap survived is the reusable
+lesson: the test that claimed the cell passed for four migrations, on a row written outside the node
+its context named. A denial is only evidence when it is the right denial.

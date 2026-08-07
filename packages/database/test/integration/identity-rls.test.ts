@@ -558,7 +558,7 @@ describe('legal-entity scope', () => {
     // `app.legal_entity_scope_ok` is an exact comparison against the session's own entity, so the
     // isolating evidence is stated directly: the caller's node scope works, and the second entity
     // is still refused. Without the positive half, "everything is denied" would read as this.
-    const scope = await scopeAs(entityNodeMember, CARRIER, [
+    const scope = await scopeAs(entityNodeMember, SYSTEM, [
       secondEntity.entityId,
       a.terminalNodeId,
     ]);
@@ -567,9 +567,11 @@ describe('legal-entity scope', () => {
     expect(scope.is_cp).toBe(false);
 
     // And the write that names it is refused. Same tenant throughout — cross-tenant isolation is a
-    // different property and must not be what produces this denial.
+    // different property and must not be what produces this denial. The context is SYSTEM for the
+    // same reason: after 0021 a carrier_agent session is refused every identity write by the
+    // capability matrix, which would mask the legal-entity scope this case exists to prove.
     await expect(
-      acting(entityNodeMember, CARRIER, async (c) => {
+      acting(entityNodeMember, SYSTEM, async (c) => {
         await c.query(
           `INSERT INTO service_accounts
              (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
@@ -582,7 +584,9 @@ describe('legal-entity scope', () => {
   });
 
   it('permits the write when the session holds the named entity', async () => {
-    const id = await acting(entityNodeMember, CARRIER, async (c) => {
+    // SYSTEM, not CARRIER: ADR-0019 gives carrier_agent identity READ only, so a carrier session
+    // would be refused here for a reason that has nothing to do with the legal entity.
+    const id = await acting(entityNodeMember, SYSTEM, async (c) => {
       const r = await c.query<{ id: string }>(
         `INSERT INTO service_accounts
            (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
@@ -734,53 +738,82 @@ describe('the capability matrix agrees with the database', () => {
     }
   });
 
-  it('refuses a facility_operator identity write by node scope, and by nothing else', async () => {
+  it('refuses a facility_operator identity write for the ADR-0019 capability reason — C-01', async () => {
     // WHAT THIS USED TO CLAIM, AND WHY IT DID NOT HOLD.
     //
     // Named `gives a facility_operator session no identity write`, this asserted ADR-0019's matrix
-    // cell "Identity and organization | software_only/facility_operator → R (own)" — read, not
-    // write. It passed, and it passed for the wrong reason: the context it built named the TERMINAL
-    // and the row it wrote named the LEGAL-ENTITY NODE above it, so the refusal was ordinary node
-    // scope. The operating context played no part.
+    // cell "Identity and organization | software_only/facility_operator -> R (own)" — read, not
+    // write. It passed, and for the wrong reason: the context it built named the TERMINAL and the
+    // row it wrote named the LEGAL-ENTITY NODE above it, so the refusal was ordinary node scope and
+    // the operating context played no part. Measured under a real verified facility principal
+    // writing INSIDE its own scope, the insert SUCCEEDED.
     //
-    // Measured under a real verified facility_operator principal writing INSIDE its own scope, the
-    // insert SUCCEEDS. `service_accounts_insert` is tenant AND legal-entity scope AND node scope,
-    // with no legal-authority-class or operating-context term, and nothing else in the schema
-    // carries one. The ADR records the obligation itself — "Context capability matrix as executable
-    // code" and "Context-conditional RLS predicates", both still outstanding — and its RLS table
-    // lists additional predicates for freight, facility, fleet and economics tables but none for
-    // identity. So the cell is specified and unimplemented, and SR-2 does not implement it: adding
-    // an authority term to a policy to make an old test green is exactly what this PR must not do.
-    //
-    // CONTEXT_CAPABILITY_MATRIX_RLS=REQUIRED_BY_ADR_0019_AND_UNIMPLEMENTED.
-    //
-    // What this proves instead is the property that IS enforced and that F-05 is about: the
-    // facility context confers no scope, and takes none away either. Both halves are asserted so
-    // the day the matrix predicate lands, the second assertion fails and says why.
+    // Migration 0021 closes it. This case now writes strictly IN SCOPE, so node scope, legal-entity
+    // scope and tenant isolation all permit the row and the ONLY thing left to refuse it is the
+    // capability term. Both scope predicates are asserted true first, so the denial cannot be
+    // attributed to anything else.
+    const scope = await scopeAs(terminalMember, FACILITY, [a.legalEntityId, a.terminalNodeId]);
+    expect(scope.node_ok, 'the target node must be in scope or this proves nothing').toBe(true);
+    expect(scope.le_ok, 'the legal entity must be held or this proves nothing').toBe(true);
+    expect(scope.is_cp).toBe(false);
+
     await expect(
       acting(terminalMember, FACILITY, async (c) => {
         await c.query(
           `INSERT INTO service_accounts
-             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
-              created_by)
-           VALUES ($1, $2, $3, 'facility_above', 'Facility above', 'integration', 'test')`,
-          [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
+           VALUES ($1, $2, $3, 'facility_inside', 'Facility inside', 'integration', 'test')`,
+          [TENANT_A, a.terminalNodeId, a.legalEntityId],
         );
       }),
     ).rejects.toThrow(/row-level security/i);
 
-    const inScope = await acting(terminalMember, FACILITY, async (c) => {
+    // The matrix gives facility_operator READ over the same rows. A capability term that refused
+    // everything would pass the assertion above and be wrong.
+    const readable = await acting(
+      terminalMember,
+      FACILITY,
+      async (c) => (await c.query('SELECT id FROM users')).rowCount,
+    );
+    expect(readable, 'facility_operator keeps the read the matrix grants it').toBeGreaterThan(0);
+  });
+
+  it('permits the same in-scope identity write to software_only/system — C-01 positive control', async () => {
+    // The matrix's write column: software_only/system, and only that. Same member, same target,
+    // same statement — only the asserted context differs, which is what makes the denial above
+    // attributable to the context and to nothing else.
+    const id = await acting(terminalMember, SYSTEM, async (c) => {
       const r = await c.query<{ id: string }>(
         `INSERT INTO service_accounts
            (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
-         VALUES ($1, $2, $3, 'facility_inside', 'Facility inside', 'integration', 'test')
+         VALUES ($1, $2, $3, 'system_inside', 'System inside', 'integration', 'test')
          RETURNING id`,
         [TENANT_A, a.terminalNodeId, a.legalEntityId],
       );
       return r.rows[0]!.id;
     });
-    // Not an endorsement. The recorded current behaviour, so the gap above cannot be lost.
-    expect(inScope).toBeTruthy();
+    expect(id).toBeTruthy();
+  });
+
+  it('refuses the same in-scope identity write to carrier_agent/carrier — C-01', async () => {
+    // The matrix gives carrier_agent identity R, not R/W. The measured gap was not one cell.
+    await expect(
+      acting(terminalMember, CARRIER, async (c) => {
+        await c.query(
+          `INSERT INTO service_accounts
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
+           VALUES ($1, $2, $3, 'carrier_inside', 'Carrier inside', 'integration', 'test')`,
+          [TENANT_A, a.terminalNodeId, a.legalEntityId],
+        );
+      }),
+    ).rejects.toThrow(/row-level security/i);
+
+    const readable = await acting(
+      terminalMember,
+      CARRIER,
+      async (c) => (await c.query('SELECT id FROM users')).rowCount,
+    );
+    expect(readable, 'carrier_agent keeps the read the matrix grants it').toBeGreaterThan(0);
   });
 });
 
@@ -812,7 +845,7 @@ describe('a carrier appointment makes carrier_agent provable', () => {
     // and nobody below can. rowCount is asserted because RLS narrows an UPDATE to the visible rows
     // rather than refusing it: a revocation that reached nothing would leave the appointment active
     // and this test would then be measuring its own broken setup.
-    const revoked = await acting(entityNodeMember, CARRIER, async (c) => {
+    const revoked = await acting(entityNodeMember, SYSTEM, async (c) => {
       const r = await c.query(
         `UPDATE carrier_appointments
             SET status = 'revoked', revoked_at = now(), revoked_by = 'test:operator'

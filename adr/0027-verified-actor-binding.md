@@ -105,9 +105,11 @@ afterwards. A number that cannot be pointed at in a runner summary is not eviden
 part of the architecture record because the failure mode is a reporting failure, not a code failure.
 
 The same rule applies to claims about behaviour. `gives a facility_operator session no identity
-write` passed for four migrations while asserting a matrix cell the database does not implement; the
-only thing that established the truth was constructing the principal and running the write. Where
-this PR states what the database does, it states what was measured.
+write` passed for four migrations while asserting a matrix cell the database did not implement, on a
+row written outside the node its own context named; the only thing that established the truth was
+constructing the principal and running the write in scope. Where this PR states what the database
+does, it states what was measured — and the same discipline found the performance fault, the second
+instance of it inside the bootstrap graph, and the plan-shape evidence for both.
 
 ### 6. Plane separation
 
@@ -125,9 +127,11 @@ enterprise scope. **Policy scope is not actor scope**, and a change that satisfi
 the other is a regression whatever its test results say.
 
 The markers are recorded in `docs/security-resilience/SR2_FOLLOW_ON_REQUIREMENTS.md`:
-`TENANT_WIDE_RUNTIME_ADMIN_AUTHORITY`, `TENANT_ROOT_POLICY_AUTHORITY`,
-`PROVISIONING_TRUST_BOUNDARY`, and — found by measurement during SR-2 —
-`CONTEXT_CAPABILITY_MATRIX_RLS`.
+`TENANT_WIDE_RUNTIME_ADMIN_AUTHORITY`, `TENANT_ROOT_POLICY_AUTHORITY` and
+`PROVISIONING_TRUST_BOUNDARY`. A fourth, `CONTEXT_CAPABILITY_MATRIX_RLS`, was found by measurement
+during SR-2 and then closed by migration 0021 — it never belonged with the other three, which are
+unresolved future design, because an accepted ADR the runtime does not enforce is a contradiction
+rather than a question.
 
 ### 7. No authentication provider ships
 
@@ -136,9 +140,11 @@ SR-2 does not fabricate a production identity provider, and there is deliberatel
 `NODE_ENV === 'test'` switch anywhere: no production path becomes privileged because a variable says
 so. The test-only boundary is privileged because it is a file the production build never resolves.
 
-`scripts/test/sr2-production-boundaries.test.ts` enforces this and thirteen other properties from the
+`scripts/test/sr2-production-boundaries.test.ts` enforces this and sixteen other properties from the
 catalog and the file tree, including which single module may brand a principal, mint, install, or
-write a legacy identity GUC — and which test files may contain a raw GUC write at all.
+write a legacy identity GUC; which test files may contain a raw GUC write at all; that the
+statement-scoped policy primitives and the capability predicates stay out of application code; and
+that no production module installs a principal cache.
 
 ## Alternatives rejected
 
@@ -159,20 +165,30 @@ revoked principal loses authority mid-transaction rather than at next connect. C
 safe by construction, because a binding cannot outlive its transaction. The audit ledger records an
 actor the database resolved rather than one the caller supplied.
 
-**Cost, and it is not yet acceptable.** Session establishment is fine: about 5 ms per verified
-transaction, mostly two extra round trips. Resolution is not. `app.verified_principal()` costs
-~2.5 ms because it revalidates rather than remembers — which is the point — and the scope predicates
-call it once per row of every table they touch, including once per `organization_node_closure` row
-inside `app.organization_node_scope_ok`. Measured: that predicate costs **28.2 ms** against 0.74 ms
-on the legacy path, and `SELECT id FROM users` over fifty users takes **1.0–8.6 s** against 13 ms.
-Full numbers, the exact arithmetic, a remedy that was tried and did not work, and the reason the fix
-is deliberately not in this PR are in `docs/security-resilience/SR2_DATABASE_GATE_EVIDENCE.md` §10.
-**SR-2 is not ready to ship on this ground**, and the remedy is constrained by §2 above: any
-memoisation coarser than a statement destroys same-transaction revocation visibility.
+**Cost, measured, failed, and fixed.** Session establishment is about 5 ms per verified transaction,
+mostly two extra round trips, and that is fine. Resolution was not. `app.verified_principal()` costs
+~2.5 ms because it revalidates rather than remembers — which is the point — and the policies called
+it once per row of every table they touched, including once per `organization_node_closure` row
+inside `app.organization_node_scope_ok`. Measured: 28.2 ms for that one predicate against 0.74 ms on
+the legacy path, and `SELECT id FROM users` over fifty users at 1.0–8.6 s against 13 ms.
+
+Migration 0020 moved the sublink out of the row-argument predicate and into the policy, where the
+planner hoists it: 200 users now read in **11.4 ms median / 17.9 ms p95** against 3,556 ms median and
+55,348 ms p95, with buffers flat as rows and closure grow. Statement scope is the only granularity
+that is safe, and it is the granularity §2 above already required. §10 and §12 of
+`docs/security-resilience/SR2_DATABASE_GATE_EVIDENCE.md` carry the derivation, the rejected
+experiment, the final benchmark and the revocation proof.
 
 The bootstrap policies also add a second policy row to four tables and a permanent structural
 obligation: any new policy on those tables must keep the role sets disjoint, which migration §10
 asserts.
 
-**Deferred.** The production authentication adapter. All four planes above. Enforcement of
-ADR-0019's capability matrix on identity writes. None of them is a licence to widen this PR.
+**ADR-0019's capability matrix is enforced for the resource groups that have tables.** Migration
+0021 added `app.identity_write_context_ok()` and `app.identity_read_context_ok()`, both reading the
+binding-derived accessors rather than the legacy GUCs, to thirty-nine identity policies. That
+obligation predated SR-2 by four migrations and was measured open: a real verified
+`facility_operator` principal could write identity in scope. §13 carries the full matrix audit.
+
+**Deferred.** The production authentication adapter, and the three authority planes above. The nine
+ADR-0019 matrix rows whose tables do not exist yet stay with the migrations that will create them,
+which is where ADR-0019 already put them. None of these is a licence to widen this PR.
