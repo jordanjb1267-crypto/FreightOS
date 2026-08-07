@@ -3,17 +3,21 @@ import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withLegalContext } from '../../src/session.ts';
 import type { Queryable } from '../../src/session.ts';
-import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
+import {
+  fixtureAdministrator,
+  withAuthenticatedTestPrincipal,
+  type TestPrincipal,
+} from './verified-test-auth.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
 import {
   PR2_TABLES,
   PR2_TENANT_OWNED_TABLES,
-  carrierContextAt,
-  facilityContextAt,
   seedIdentity,
+  seedNarrowMember,
+  seedSecondLegalEntity,
   systemContext,
-  systemContextAt,
   type IdentityFixture,
+  type NarrowMember,
 } from './identity-harness.ts';
 
 /**
@@ -33,6 +37,79 @@ let app: Client;
 let a: IdentityFixture;
 let b: IdentityFixture;
 
+/**
+ * Three principals of tenant A, each holding exactly one membership and nothing else — SR-2, F-05.
+ *
+ * The scope suites cannot be written against the tenant administrator. It already reaches the whole
+ * legal entity, so a denial it produces proves only that the row was out of the TENANT, and a
+ * permission it produces proves nothing about the node predicate at all. Each of these sits at a
+ * different depth of the same chain, so "at or below" and "above" are decided by real memberships:
+ *
+ *   legal entity node   ← entityNodeMember   (sees the region and the terminal)
+ *     region node       ← regionMember       (sees the terminal, not the legal-entity node)
+ *       terminal node   ← terminalMember     (sees neither of the two above it)
+ *
+ * What they act AS is chosen per call. The mint records legal authority class and operating context
+ * as the authentication boundary asserts them, and neither is derived from the membership — which is
+ * precisely why the same member acting under three different contexts is the clean proof that
+ * context is not a credential.
+ */
+let entityNodeMember: NarrowMember;
+let regionMember: NarrowMember;
+let terminalMember: NarrowMember;
+/** A second legal entity in tenant A, so "an entity the caller does not hold" is not cross-tenant. */
+let secondEntity: { nodeId: string; entityId: string };
+
+const CARRIER: Pick<TestPrincipal, 'legalAuthorityClass' | 'operatingContext'> = {
+  legalAuthorityClass: 'carrier_agent',
+  operatingContext: 'carrier',
+};
+const SYSTEM: Pick<TestPrincipal, 'legalAuthorityClass' | 'operatingContext'> = {
+  legalAuthorityClass: 'software_only',
+  operatingContext: 'system',
+};
+const FACILITY: Pick<TestPrincipal, 'legalAuthorityClass' | 'operatingContext'> = {
+  legalAuthorityClass: 'software_only',
+  operatingContext: 'facility_operator',
+};
+
+/** Run `work` as a narrow member, acting under the given class and context. */
+function acting<T>(
+  member: NarrowMember,
+  as: Pick<TestPrincipal, 'legalAuthorityClass' | 'operatingContext'>,
+  work: (c: Queryable) => Promise<T>,
+): Promise<T> {
+  return withAuthenticatedTestPrincipal(
+    db,
+    {
+      kind: 'human',
+      principalId: member.userId,
+      tenantId: member.tenantId,
+      organizationNodeId: member.organizationNodeId,
+      legalEntityId: member.legalEntityId,
+      ...as,
+    },
+    work,
+  );
+}
+
+/** Both scope predicates plus the control-plane answer, read under a real verified session. */
+async function scopeAs(
+  member: NarrowMember,
+  as: Pick<TestPrincipal, 'legalAuthorityClass' | 'operatingContext'>,
+  ids: [string, string],
+): Promise<{ le_ok: boolean; node_ok: boolean; is_cp: boolean }> {
+  return acting(member, as, async (c) => {
+    const r = await c.query<{ le_ok: boolean; node_ok: boolean; is_cp: boolean }>(
+      `SELECT app.legal_entity_scope_ok($1)      AS le_ok,
+              app.organization_node_scope_ok($2) AS node_ok,
+              app.is_control_plane()             AS is_cp`,
+      ids,
+    );
+    return r.rows[0]!;
+  });
+}
+
 beforeAll(async () => {
   await db.reset();
   await db.seedTenants();
@@ -40,6 +117,19 @@ beforeAll(async () => {
   await app.connect();
   a = await seedIdentity(db, TENANT_A);
   b = await seedIdentity(db, TENANT_B);
+  entityNodeMember = await seedNarrowMember(db, a, {
+    organizationNodeId: a.legalEntityNodeId,
+    label: 'entity-node-member',
+  });
+  regionMember = await seedNarrowMember(db, a, {
+    organizationNodeId: a.regionNodeId,
+    label: 'region-member',
+  });
+  terminalMember = await seedNarrowMember(db, a, {
+    organizationNodeId: a.terminalNodeId,
+    label: 'terminal-member',
+  });
+  secondEntity = await seedSecondLegalEntity(db, a, 'Second Co');
 }, 60_000);
 
 afterAll(async () => {
@@ -156,23 +246,6 @@ describe('every PR 2 table is RLS-protected', () => {
 });
 
 /**
- * The tenant administrator for TENANT_A, holding the enterprise node and the tenant's legal
- * entity — F-05.
- *
- * The cross-tenant tests below deliberately keep the unscoped `systemContext`: they are about
- * tenant isolation, which does not depend on node scope, and using the narrower context keeps them
- * proving the thing they are named for. This one is used where a write has to get PAST row-level
- * security so that the constraint or trigger under test is what refuses it.
- */
-function adminContext() {
-  // SR-2 CLASS 1 — fixture correction. This named a.enterpriseNodeId, which no membership can
-  // carry: assert_governing_legal_entity requires a node the legal entity governs and the
-  // enterprise root sits above that boundary. The corrected scope is the administrator's real
-  // legal-entity-governed node. Every write this context exists to get past RLS for is beneath it.
-  return systemContextAt(TENANT_A, a.legalEntityNodeId, a.legalEntityId, `user:${a.adminUserId}`);
-}
-
-/**
  * A legitimate verified session for the seeded tenant-A administrator.
  *
  * Reads that assert RLS behaviour run through this: the point of the suite is what
@@ -190,8 +263,26 @@ describe('cross-tenant isolation', () => {
       const r = await c.query<{ id: string }>('SELECT id FROM organization_nodes');
       return r.rows.map((x) => x.id);
     });
-    expect(rows).toHaveLength(4);
-    expect(rows).not.toContain(b.enterpriseNodeId);
+    // Named rather than counted: the tenant's whole tree, and nothing of the other tenant's. A
+    // count would have to be revised every time the fixture grows a node, which is how a count
+    // quietly stops asserting anything.
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        a.enterpriseNodeId,
+        a.legalEntityNodeId,
+        a.regionNodeId,
+        a.terminalNodeId,
+        secondEntity.nodeId,
+      ]),
+    );
+    for (const foreign of [
+      b.enterpriseNodeId,
+      b.legalEntityNodeId,
+      b.regionNodeId,
+      b.terminalNodeId,
+    ]) {
+      expect(rows).not.toContain(foreign);
+    }
   });
 
   it('hides another tenant every PR 2 row, even asked for by primary key', async () => {
@@ -248,7 +339,10 @@ describe('cross-tenant isolation', () => {
     });
     expect(updated).toBe(0);
 
-    const check = await withLegalContext(app, systemContext(TENANT_B), async (c) => {
+    // Read back as tenant B's OWN verified administrator, not as a claimed tenant-B context. An
+    // UPDATE that RLS narrows to zero rows is indistinguishable from one that ran and was reverted
+    // unless somebody who can actually see the row says what it holds.
+    const check = await withAuthenticatedTestPrincipal(db, fixtureAdministrator(b), async (c) => {
       const r = await c.query<{ name: string }>(
         'SELECT name FROM organization_nodes WHERE id = $1',
         [b.enterpriseNodeId],
@@ -355,107 +449,149 @@ describe('missing context fails closed', () => {
     expect(rows).toBe(0);
   });
 
-  it('refuses to write a role when the caller administers no organization node', async () => {
-    await expect(
-      withLegalContext(
-        app,
-        {
-          tenantId: TENANT_A,
-          legalAuthorityClass: 'carrier_agent',
-          operatingContext: 'carrier',
-          actorId: 'test:actor',
-          legalEntityId: a.legalEntityId,
-          carrierId: 'carrier-1',
-          carrierAppointmentId: 'appointment-1',
-        },
-        async (c) => {
-          await c.query(
-            `INSERT INTO service_accounts
-               (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
-                created_by)
-             VALUES ($1, $2, $3, 'no_node_context', 'No node', 'integration', 'test')`,
-            [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
-          );
-        },
-      ),
-    ).rejects.toThrow(/row-level security/i);
+  it('refuses an identity write when the session has established no verified identity', async () => {
+    // The write half of fail-closed. It used to build a carrier context with a legal entity and no
+    // organization node and call that "administers no organization node"; after 0019 the runtime
+    // role does not read those GUCs at all, so the session has no tenant, no actor and no node —
+    // strictly less than the case it was written for, and the same conclusion has to hold.
+    await app.query('BEGIN');
+    try {
+      const resolved = await app.query<{ tenant: string | null; actor: string | null }>(
+        `SELECT app.current_tenant_id()::text AS tenant, app.current_actor_id() AS actor`,
+      );
+      // Stated first, because it is what makes the refusal below legible: nothing is resolvable.
+      expect(resolved.rows[0]!.tenant).toBeNull();
+      expect(resolved.rows[0]!.actor).toBeNull();
+
+      // Refused, and refused BEFORE row-level security gets to speak: with no tenant the closure is
+      // invisible, so `assert_governing_legal_entity` cannot find the entity governing the node and
+      // says so. Failing closed at the first gate that notices is the property; which gate that is
+      // is not. The organization_nodes attempt below has no such trigger and lands on RLS itself,
+      // so both refusal paths are evidenced rather than one being assumed from the other.
+      await expect(
+        app.query(
+          `INSERT INTO service_accounts
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
+           VALUES ($1, $2, $3, 'no_verified_identity', 'No identity', 'integration', 'test')`,
+          [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
+        ),
+      ).rejects.toThrow(/sits above the legal-entity boundary/i);
+    } finally {
+      await app.query('ROLLBACK');
+    }
+
+    await app.query('BEGIN');
+    try {
+      await expect(
+        app.query(
+          `INSERT INTO organization_nodes
+             (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+           VALUES ($1, $2, $1, $3, 'region', 'No identity', 'test')`,
+          [randomUUID(), TENANT_A, a.legalEntityNodeId],
+        ),
+      ).rejects.toThrow(/row-level security/i);
+    } finally {
+      await app.query('ROLLBACK');
+    }
   });
 });
 
 describe('organization-node scope', () => {
+  // Identities rather than counts. A count is a coarse assertion that a later fixture silently
+  // changes; naming the rows says which side of the boundary each one is on, which is the property.
+  const userIds = async (c: Queryable) =>
+    (await c.query<{ id: string }>('SELECT id FROM users')).rows.map((r) => r.id);
+
   it('shows users at or below the node the caller administers', async () => {
-    const fromRegion = await withLegalContext(
-      app,
-      carrierContextAt(TENANT_A, a.legalEntityId, a.regionNodeId),
-      async (c) => (await c.query('SELECT id FROM users')).rowCount,
-    );
-    expect(fromRegion).toBe(1);
+    const visible = await acting(regionMember, CARRIER, userIds);
+    // At the node.
+    expect(visible).toContain(regionMember.userId);
+    // Below it — the seeded operator sits on the terminal.
+    expect(visible).toContain(a.userId);
+    expect(visible).toContain(terminalMember.userId);
+    // Above it — the administrator and the entity-node member sit on the legal-entity node.
+    expect(visible).not.toContain(a.adminUserId);
+    expect(visible).not.toContain(entityNodeMember.userId);
   });
 
   it('hides a user that sits above the node the caller administers', async () => {
-    // The seeded user is on the terminal node; a caller administering the terminal sees it, and a
-    // caller administering nothing above it in that user's chain does not.
-    const fromTerminal = await withLegalContext(
-      app,
-      carrierContextAt(TENANT_A, a.legalEntityId, a.terminalNodeId),
-      async (c) => (await c.query('SELECT id FROM users')).rowCount,
-    );
-    expect(fromTerminal).toBe(1);
+    const visible = await acting(terminalMember, CARRIER, userIds);
+    expect(visible).toContain(a.userId);
+    expect(visible).toContain(terminalMember.userId);
+    // Every node in the chain above the terminal is out of scope, one level at a time.
+    expect(visible).not.toContain(regionMember.userId);
+    expect(visible).not.toContain(entityNodeMember.userId);
+    expect(visible).not.toContain(a.adminUserId);
 
-    const serviceAccountsFromTerminal = await withLegalContext(
-      app,
-      carrierContextAt(TENANT_A, a.legalEntityId, a.terminalNodeId),
+    const serviceAccountsFromTerminal = await acting(
+      terminalMember,
+      CARRIER,
       async (c) => (await c.query('SELECT id FROM service_accounts')).rowCount,
     );
-    // The service account is on the region node, which is ABOVE the terminal — out of scope.
+    // The seeded service account is on the region node, which is ABOVE the terminal — out of scope.
     expect(serviceAccountsFromTerminal).toBe(0);
   });
 
   it('refuses a claimed node belonging to another tenant', async () => {
-    const rows = await withLegalContext(
-      app,
-      carrierContextAt(TENANT_A, a.legalEntityId, b.regionNodeId),
-      async (c) => (await c.query('SELECT id FROM users')).rowCount,
-    );
-    expect(rows).toBe(0);
+    // The claim is the attack, so it is made the only way one still can: a GUC written on top of a
+    // legitimate verified session. The binding names the terminal of tenant A; the claim names a
+    // node of tenant B. The claim is not read, and node scope stays where the membership put it.
+    const seen = await acting(terminalMember, CARRIER, async (c) => {
+      await c.query(`SELECT set_config('app.organization_node_id', $1, true)`, [b.regionNodeId]);
+      await c.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_B]);
+      const r = await c.query<{ node: string | null; tenant: string | null; other: boolean }>(
+        `SELECT app.current_organization_node_id()::text        AS node,
+                app.current_tenant_id()::text                   AS tenant,
+                app.organization_node_scope_ok($1)              AS other`,
+        [b.regionNodeId],
+      );
+      return r.rows[0]!;
+    });
+    expect(seen.node).toBe(a.terminalNodeId);
+    expect(seen.tenant).toBe(TENANT_A);
+    expect(seen.other).toBe(false);
   });
 });
 
 describe('legal-entity scope', () => {
   it('refuses a write naming a legal entity the session does not hold', async () => {
-    // Same tenant, wrong legal entity: the session's own entity is what the predicate compares.
+    // `app.legal_entity_scope_ok` is an exact comparison against the session's own entity, so the
+    // isolating evidence is stated directly: the caller's node scope works, and the second entity
+    // is still refused. Without the positive half, "everything is denied" would read as this.
+    const scope = await scopeAs(entityNodeMember, CARRIER, [
+      secondEntity.entityId,
+      a.terminalNodeId,
+    ]);
+    expect(scope.node_ok).toBe(true);
+    expect(scope.le_ok).toBe(false);
+    expect(scope.is_cp).toBe(false);
+
+    // And the write that names it is refused. Same tenant throughout — cross-tenant isolation is a
+    // different property and must not be what produces this denial.
     await expect(
-      withLegalContext(
-        app,
-        carrierContextAt(TENANT_A, b.legalEntityId, a.legalEntityNodeId),
-        async (c) => {
-          await c.query(
-            `INSERT INTO service_accounts
-               (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
-                created_by)
-             VALUES ($1, $2, $3, 'wrong_entity', 'Wrong entity', 'integration', 'test')`,
-            [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
-          );
-        },
-      ),
+      acting(entityNodeMember, CARRIER, async (c) => {
+        await c.query(
+          `INSERT INTO service_accounts
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
+              created_by)
+           VALUES ($1, $2, $3, 'wrong_entity', 'Wrong entity', 'integration', 'test')`,
+          [TENANT_A, secondEntity.nodeId, secondEntity.entityId],
+        );
+      }),
     ).rejects.toThrow(/row-level security/i);
   });
 
   it('permits the write when the session holds the named entity', async () => {
-    const id = await withLegalContext(
-      app,
-      carrierContextAt(TENANT_A, a.legalEntityId, a.legalEntityNodeId),
-      async (c) => {
-        const r = await c.query<{ id: string }>(
-          `INSERT INTO service_accounts
-             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
-           VALUES ($1, $2, $3, 'right_entity', 'Right entity', 'integration', 'test')
-           RETURNING id`,
-          [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
-        );
-        return r.rows[0]!.id;
-      },
-    );
+    const id = await acting(entityNodeMember, CARRIER, async (c) => {
+      const r = await c.query<{ id: string }>(
+        `INSERT INTO service_accounts
+           (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
+         VALUES ($1, $2, $3, 'right_entity', 'Right entity', 'integration', 'test')
+         RETURNING id`,
+        [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
+      );
+      return r.rows[0]!.id;
+    });
     expect(id).toBeTruthy();
   });
 });
@@ -479,26 +615,10 @@ describe('organization-node and legal-entity must agree', () => {
   });
 
   it('rejects a user naming a node governed by a different legal entity', async () => {
-    // Seed a second legal entity under a sibling branch, then point a user at the wrong one.
-    const secondEntity = await asVerifiedAdministrator(async (c) => {
-      const nodeId = randomUUID();
-      await c.query(
-        `INSERT INTO organization_nodes
-           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
-         VALUES ($1, $2, $1, $3, 'legal_entity', 'Second Co', 'test')`,
-        [nodeId, TENANT_A, a.enterpriseNodeId],
-      );
-      const entityId = randomUUID();
-      await c.query(
-        `INSERT INTO legal_entities
-           (id, tenant_id, organization_node_id, legal_entity_id, legal_name, jurisdiction,
-            created_by)
-         VALUES ($1, $2, $3, $1, 'Second Co LLC', 'US-CA', 'test')`,
-        [entityId, TENANT_A, nodeId],
-      );
-      return { nodeId, entityId };
-    });
-
+    // The second entity is provisioned in beforeAll, on its own branch under the enterprise root.
+    // No runtime principal can create it: the branch is a sibling of the caller's own and nothing
+    // below the enterprise root holds both. That is provisioning, not the assertion — the assertion
+    // is the governing-entity trigger below, and it runs as the verified administrator.
     await expect(
       asVerifiedAdministrator(async (c) => {
         await c.query(
@@ -614,22 +734,53 @@ describe('the capability matrix agrees with the database', () => {
     }
   });
 
-  it('gives a facility_operator session no identity write', async () => {
+  it('refuses a facility_operator identity write by node scope, and by nothing else', async () => {
+    // WHAT THIS USED TO CLAIM, AND WHY IT DID NOT HOLD.
+    //
+    // Named `gives a facility_operator session no identity write`, this asserted ADR-0019's matrix
+    // cell "Identity and organization | software_only/facility_operator → R (own)" — read, not
+    // write. It passed, and it passed for the wrong reason: the context it built named the TERMINAL
+    // and the row it wrote named the LEGAL-ENTITY NODE above it, so the refusal was ordinary node
+    // scope. The operating context played no part.
+    //
+    // Measured under a real verified facility_operator principal writing INSIDE its own scope, the
+    // insert SUCCEEDS. `service_accounts_insert` is tenant AND legal-entity scope AND node scope,
+    // with no legal-authority-class or operating-context term, and nothing else in the schema
+    // carries one. The ADR records the obligation itself — "Context capability matrix as executable
+    // code" and "Context-conditional RLS predicates", both still outstanding — and its RLS table
+    // lists additional predicates for freight, facility, fleet and economics tables but none for
+    // identity. So the cell is specified and unimplemented, and SR-2 does not implement it: adding
+    // an authority term to a policy to make an old test green is exactly what this PR must not do.
+    //
+    // CONTEXT_CAPABILITY_MATRIX_RLS=REQUIRED_BY_ADR_0019_AND_UNIMPLEMENTED.
+    //
+    // What this proves instead is the property that IS enforced and that F-05 is about: the
+    // facility context confers no scope, and takes none away either. Both halves are asserted so
+    // the day the matrix predicate lands, the second assertion fails and says why.
     await expect(
-      withLegalContext(
-        app,
-        facilityContextAt(TENANT_A, a.legalEntityId, a.terminalNodeId),
-        async (c) => {
-          await c.query(
-            `INSERT INTO service_accounts
-               (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
-                created_by)
-             VALUES ($1, $2, $3, 'facility_written', 'Facility written', 'integration', 'test')`,
-            [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
-          );
-        },
-      ),
+      acting(terminalMember, FACILITY, async (c) => {
+        await c.query(
+          `INSERT INTO service_accounts
+             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type,
+              created_by)
+           VALUES ($1, $2, $3, 'facility_above', 'Facility above', 'integration', 'test')`,
+          [TENANT_A, a.legalEntityNodeId, a.legalEntityId],
+        );
+      }),
     ).rejects.toThrow(/row-level security/i);
+
+    const inScope = await acting(terminalMember, FACILITY, async (c) => {
+      const r = await c.query<{ id: string }>(
+        `INSERT INTO service_accounts
+           (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, created_by)
+         VALUES ($1, $2, $3, 'facility_inside', 'Facility inside', 'integration', 'test')
+         RETURNING id`,
+        [TENANT_A, a.terminalNodeId, a.legalEntityId],
+      );
+      return r.rows[0]!.id;
+    });
+    // Not an endorsement. The recorded current behaviour, so the gap above cannot be lost.
+    expect(inScope).toBeTruthy();
   });
 });
 
@@ -657,18 +808,20 @@ describe('a carrier appointment makes carrier_agent provable', () => {
   });
 
   it('stops reporting an appointment once revoked', async () => {
-    await withLegalContext(
-      app,
-      carrierContextAt(TENANT_A, a.legalEntityId, a.legalEntityNodeId),
-      async (c) => {
-        await c.query(
-          `UPDATE carrier_appointments
-              SET status = 'revoked', revoked_at = now(), revoked_by = 'test:operator'
-            WHERE id = $1`,
-          [a.carrierAppointmentId],
-        );
-      },
-    );
+    // The appointment sits on the legal-entity node, so the member holding that node can revoke it
+    // and nobody below can. rowCount is asserted because RLS narrows an UPDATE to the visible rows
+    // rather than refusing it: a revocation that reached nothing would leave the appointment active
+    // and this test would then be measuring its own broken setup.
+    const revoked = await acting(entityNodeMember, CARRIER, async (c) => {
+      const r = await c.query(
+        `UPDATE carrier_appointments
+            SET status = 'revoked', revoked_at = now(), revoked_by = 'test:operator'
+          WHERE id = $1`,
+        [a.carrierAppointmentId],
+      );
+      return r.rowCount;
+    });
+    expect(revoked).toBe(1);
 
     const active = await asVerifiedAdministrator(async (c) => {
       const r = await c.query<{ ok: boolean }>(
@@ -740,88 +893,110 @@ describe('operating context is not a credential — F-05', () => {
   }
 
   it('gives an unscoped system session no legal entity and no node', async () => {
+    // No binding, so nothing resolves and both predicates are false. After 0019 that is what an
+    // unscoped context claim IS on the runtime role — the claim is not read, so the session has no
+    // identity rather than a wide one. The layered-claim cases below are the live-session form.
     const r = await scope(systemContext(TENANT_A), [a.legalEntityId, a.terminalNodeId]);
     expect(r.le_ok).toBe(false);
     expect(r.node_ok).toBe(false);
   });
 
   it('does not let a system session reach another legal entity in its own tenant', async () => {
-    // Scoped at the enterprise node and holding entity A, asking about a second entity B that the
-    // same tenant owns. Node scope covers it; legal-entity scope must not.
-    const second = await asVerifiedAdministrator(async (c) => {
-      const nodeId = randomUUID();
-      await (c as Client).query(
-        `INSERT INTO organization_nodes
-           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
-         VALUES ($1, $2, $1, $3, 'legal_entity', 'F-05 Co', 'test')`,
-        [nodeId, TENANT_A, a.enterpriseNodeId],
-      );
-      const entityId = randomUUID();
-      await (c as Client).query(
-        `INSERT INTO legal_entities
-           (id, tenant_id, organization_node_id, legal_entity_id, legal_name, jurisdiction,
-            created_by)
-         VALUES ($1, $2, $3, $1, 'F-05 Co LLC', 'US-NV', 'test')`,
-        [entityId, TENANT_A, nodeId],
-      );
-      return { nodeId, entityId };
-    });
-
-    const r = await scope(adminContext(), [second.entityId, second.nodeId]);
+    // A system principal holding entity A, asking about the second entity the same tenant owns.
+    //
+    // The node half of the pair is the caller's OWN terminal rather than the second entity's node,
+    // and the change matters. The version before SR-2 claimed the enterprise root, which no
+    // membership can carry, and asked whether node scope covered the second entity's branch — the
+    // answer was yes only because the claim reached the whole tree. A real membership at the
+    // legal-entity node does not cover a sibling branch and must not be made to. What the assertion
+    // needs from the node half is the same thing either way: proof that the false below is a real
+    // false and not the vacuous one an unscoped session returns for everything.
+    const r = await scopeAs(entityNodeMember, SYSTEM, [secondEntity.entityId, a.terminalNodeId]);
     expect(r.le_ok).toBe(false);
     expect(r.node_ok).toBe(true);
+    expect(r.is_cp).toBe(false);
+
+    // And the sibling branch is out of node scope too, stated rather than implied.
+    const sibling = await scopeAs(entityNodeMember, SYSTEM, [a.legalEntityId, secondEntity.nodeId]);
+    expect(sibling.le_ok).toBe(true);
+    expect(sibling.node_ok).toBe(false);
   });
 
   it('refuses ids that do not exist at all — the original reproduction', async () => {
     // This returned le_ok=true, node_ok=true, is_cp=false before the fix: the predicates never
     // looked at the id, because system scope answered first.
+    //
+    // Run under a LIVE verified session, because that is what the defect needed. A session with no
+    // identity answers false to everything and would reproduce nothing — the original bug was a
+    // working session widening itself, so the reproduction has to be a working session too. The
+    // positive peer in the same session is what proves the predicates are answering at all.
     const nowhere = randomUUID();
-    const r = await scope(systemContext(TENANT_A), [nowhere, nowhere]);
+    const r = await scopeAs(entityNodeMember, SYSTEM, [nowhere, nowhere]);
     expect(r.le_ok).toBe(false);
     expect(r.node_ok).toBe(false);
     expect(r.is_cp).toBe(false);
+
+    const real = await scopeAs(entityNodeMember, SYSTEM, [a.legalEntityId, a.terminalNodeId]);
+    expect(real.le_ok).toBe(true);
+    expect(real.node_ok).toBe(true);
   });
 
   it('leaves is_control_plane() false however the session describes itself', async () => {
-    for (const context of [
-      systemContext(TENANT_A),
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId),
-      carrierContextAt(TENANT_A, a.legalEntityId, a.terminalNodeId),
-    ]) {
-      const r = await scope(context, [a.legalEntityId, a.terminalNodeId]);
-      expect(r.is_cp, JSON.stringify(context.operatingContext)).toBe(false);
+    // Control-plane admission is membership of `freightos_control_plane`, which is decided when the
+    // connection authenticates and cannot be reached from inside one. Asserted over a live verified
+    // session under every (class, context) pair Horizon 1 allows, and then over the same session
+    // after it writes the claim straight into the GUC.
+    for (const as of [SYSTEM, CARRIER, FACILITY]) {
+      const r = await scopeAs(entityNodeMember, as, [a.legalEntityId, a.terminalNodeId]);
+      expect(r.is_cp, JSON.stringify(as.operatingContext)).toBe(false);
+      expect(r.node_ok, JSON.stringify(as.operatingContext)).toBe(true);
     }
   });
 
   it('ignores a raw set_config that bypasses the context helper entirely', async () => {
-    // withLegalContext validates what it is given, so the escalation is attempted the way an
-    // attacker with SQL access would: straight at the GUC, mid-transaction, after a legitimate
-    // narrow context is already in force.
-    const r = await withLegalContext(
-      app,
-      carrierContextAt(TENANT_A, a.legalEntityId, a.terminalNodeId),
-      async (c) => {
-        await c.query(`SELECT set_config('app.operating_context', 'system', true)`);
-        await c.query(`SELECT set_config('app.legal_authority_class', 'software_only', true)`);
-        const q = await c.query<{ le_ok: boolean; node_ok: boolean; is_cp: boolean }>(
-          `SELECT app.legal_entity_scope_ok($1)      AS le_ok,
-                  app.organization_node_scope_ok($2) AS node_ok,
-                  app.is_control_plane()             AS is_cp`,
-          [randomUUID(), a.enterpriseNodeId],
-        );
-        return q.rows[0]!;
-      },
-    );
-    // The node is the caller's own ANCESTOR, not a descendant, so it is out of scope and stays so.
+    // The escalation attempted the way an attacker with SQL access would: straight at the GUC,
+    // mid-transaction, after a legitimate narrow verified session is already in force. This is the
+    // one place raw set_config belongs — layered on top of real identity as the attack, never
+    // underneath it as the identity.
+    const r = await acting(terminalMember, CARRIER, async (c) => {
+      await c.query(`SELECT set_config('app.operating_context', 'system', true)`);
+      await c.query(`SELECT set_config('app.legal_authority_class', 'software_only', true)`);
+      await c.query(`SELECT set_config('app.organization_node_id', $1, true)`, [
+        a.enterpriseNodeId,
+      ]);
+      await c.query(`SELECT set_config('app.legal_entity_id', $1, true)`, [secondEntity.entityId]);
+      const q = await c.query<{
+        le_ok: boolean;
+        node_ok: boolean;
+        is_cp: boolean;
+        own_node_ok: boolean;
+        context: string | null;
+      }>(
+        `SELECT app.legal_entity_scope_ok($1)      AS le_ok,
+                app.organization_node_scope_ok($2) AS node_ok,
+                app.is_control_plane()             AS is_cp,
+                app.organization_node_scope_ok($3) AS own_node_ok,
+                app.current_operating_context()::text AS context`,
+        [secondEntity.entityId, a.enterpriseNodeId, a.terminalNodeId],
+      );
+      return q.rows[0]!;
+    });
+    // The claimed node is the caller's own ANCESTOR and the claimed entity is a sibling branch's.
+    // Neither is reached, and the operating context stays the one the binding recorded.
     expect(r.le_ok).toBe(false);
     expect(r.node_ok).toBe(false);
     expect(r.is_cp).toBe(false);
+    expect(r.context).toBe('carrier');
+    // The session is alive throughout, so the three falses above are refusals and not silence.
+    expect(r.own_node_ok).toBe(true);
   });
 
   it('refuses a write above the caller subtree even under system scope', async () => {
+    // `system` is the widest operating context Horizon 1 has, and the terminal member holds the
+    // narrowest node. The region is one level ABOVE it, and the widest context does not reach it.
     await expect(
-      withLegalContext(app, systemContextAt(TENANT_A, a.terminalNodeId, a.legalEntityId), (c) =>
-        (c as Client).query(
+      acting(terminalMember, SYSTEM, (c) =>
+        c.query(
           `INSERT INTO service_accounts
              (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, status,
               created_by)
@@ -833,46 +1008,45 @@ describe('operating context is not a credential — F-05', () => {
   });
 
   it('still permits the same write inside the caller subtree', async () => {
-    // The predicate has to keep working, or "fail closed" would just mean "fail".
-    const id = await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.regionNodeId, a.legalEntityId),
-      async (c) => {
-        const r = await (c as Client).query<{ id: string }>(
-          `INSERT INTO service_accounts
-             (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, status,
-              created_by)
-           VALUES ($1, $2, $3, 'f05_inside', 'Inside', 'integration', 'active', 'test')
-           RETURNING id`,
-          [TENANT_A, a.terminalNodeId, a.legalEntityId],
-        );
-        return r.rows[0]!.id;
-      },
-    );
+    // The predicate has to keep working, or "fail closed" would just mean "fail". Same statement,
+    // same target node, one level of membership higher — and that is the only difference.
+    const id = await acting(regionMember, SYSTEM, async (c) => {
+      const r = await c.query<{ id: string }>(
+        `INSERT INTO service_accounts
+           (tenant_id, organization_node_id, legal_entity_id, key, name, actor_type, status,
+            created_by)
+         VALUES ($1, $2, $3, 'f05_inside', 'Inside', 'integration', 'active', 'test')
+         RETURNING id`,
+        [TENANT_A, a.terminalNodeId, a.legalEntityId],
+      );
+      return r.rows[0]!.id;
+    });
     expect(id).toBeTruthy();
   });
 
   it('gives every operating context the identical scope', async () => {
-    // ADR-0019 property 2 — operating context never widens permission. Asserted as an equality
-    // across the contexts Horizon 1 allows, so a future branch on one of them shows up here.
+    // ADR-0019 property 2 — operating context never widens permission. This is the cleanest form
+    // the property has: ONE identity, ONE membership, one node, and three different authentication
+    // results asserting three different (class, context) pairs over it. Nothing varies except the
+    // pair, so any difference in the answer is the pair conferring authority — which is the exact
+    // defect F-05 closed. Asserted as an equality, so a future branch on any one of them shows up.
     const target: [string, string] = [a.legalEntityId, a.terminalNodeId];
     const results = await Promise.all(
-      [
-        systemContextAt(TENANT_A, a.regionNodeId, a.legalEntityId),
-        carrierContextAt(TENANT_A, a.legalEntityId, a.regionNodeId),
-        facilityContextAt(TENANT_A, a.legalEntityId, a.regionNodeId),
-      ].map((context) => scope(context, target)),
+      [SYSTEM, CARRIER, FACILITY].map((as) => scopeAs(regionMember, as, target)),
     );
     for (const r of results) expect(r).toEqual(results[0]);
     // And that shared answer is the one the hierarchy dictates, not a vacuous false.
     expect(results[0]!.node_ok).toBe(true);
     expect(results[0]!.le_ok).toBe(true);
+    expect(results[0]!.is_cp).toBe(false);
   });
 
   it('does not let system scope cross a tenant boundary', async () => {
-    const r = await scope(systemContext(TENANT_A), [b.legalEntityId, b.terminalNodeId]);
+    // A live tenant-A session under the widest context, asking about tenant B's entity and node.
+    const r = await scopeAs(entityNodeMember, SYSTEM, [b.legalEntityId, b.terminalNodeId]);
     expect(r.le_ok).toBe(false);
     expect(r.node_ok).toBe(false);
+    expect(r.is_cp).toBe(false);
   });
 
   it('still admits the control plane, which is role membership and cannot be claimed', async () => {

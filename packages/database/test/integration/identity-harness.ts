@@ -509,6 +509,144 @@ export async function seedIdentityWith(
   };
 }
 
+/** A user whose entire authority is one membership, at one named node. */
+export interface NarrowMember {
+  readonly userId: string;
+  readonly membershipId: string;
+  readonly tenantId: string;
+  readonly organizationNodeId: string;
+  readonly legalEntityId: string;
+}
+
+/**
+ * Provision a user whose ONLY authority is a membership at exactly one node — SR-2, F-05.
+ *
+ * The scope tests need principals that genuinely cannot reach past a particular node, and the
+ * seeded tenant administrator is the wrong instrument for every one of them: it can already see the
+ * whole legal entity, so a test written against it passes whether or not the predicate under test
+ * works. A denial proved by an actor that has the reach anyway is not a denial.
+ *
+ * The privilege here is provisioning and nothing else — the same migrator path, the same platform
+ * bootstrap actor and the same governed `admin.grant_membership` boundary `seedIdentity` uses, for
+ * the same reason: a membership is what justifies a binding, so it cannot itself be created by one.
+ * No role is attached. These principals are deliberately as small as the schema allows, and the
+ * legal authority class and operating context they later act under are chosen at mint time by
+ * `verified-test-auth.ts`, which is where an authentication result belongs.
+ */
+export async function seedNarrowMember(
+  db: TestDatabase,
+  fixture: IdentityFixture,
+  spec: {
+    /** Where the membership sits. Everything at or below it is in scope; nothing above is. */
+    readonly organizationNodeId: string;
+    /** Defaults to the fixture's legal entity, which must govern the node above. */
+    readonly legalEntityId?: string;
+    /** Distinguishes this user's authentication subject from every other one in the tenant. */
+    readonly label: string;
+  },
+): Promise<NarrowMember> {
+  const provisioner = db.connectAsMigrator();
+  await provisioner.connect();
+  const admin = db.connectAs('freightos_admin');
+  await admin.connect();
+  const legalEntityId = spec.legalEntityId ?? fixture.legalEntityId;
+  try {
+    const userId = await withLegalContext(
+      provisioner,
+      systemContextAt(fixture.tenantId, fixture.enterpriseNodeId, legalEntityId),
+      async (c) => {
+        const r = await (c as Client).query<{ id: string }>(
+          `INSERT INTO users
+             (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
+              authentication_subject, display_name, status, created_by)
+           VALUES ($1, $2, $3, 'oidc:example', $4, $5, 'active', 'test:seed')
+           RETURNING id`,
+          [
+            fixture.tenantId,
+            spec.organizationNodeId,
+            legalEntityId,
+            `${spec.label}-${fixture.tenantId}`,
+            spec.label,
+          ],
+        );
+        return r.rows[0]!.id;
+      },
+    );
+
+    const membership = await privileged(
+      admin,
+      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+      [
+        fixture.tenantId,
+        userId,
+        spec.organizationNodeId,
+        legalEntityId,
+        'system:tenant-provisioning',
+        'system',
+        'identity_administration',
+        randomUUID(),
+      ],
+    );
+
+    return {
+      userId,
+      membershipId: membership['membership_id'] as string,
+      tenantId: fixture.tenantId,
+      organizationNodeId: spec.organizationNodeId,
+      legalEntityId,
+    };
+  } finally {
+    await provisioner.end();
+    await admin.end();
+  }
+}
+
+/**
+ * Provision a second legal entity in a tenant, on its own branch under the enterprise root.
+ *
+ * Used where a test needs a legal entity the caller demonstrably does NOT hold while staying inside
+ * one tenant, so that cross-tenant isolation cannot be what produces the denial. Privileged for the
+ * same reason as everything else here: the new branch is a sibling of the caller's own, and no
+ * runtime principal holds a node above both.
+ */
+export async function seedSecondLegalEntity(
+  db: TestDatabase,
+  fixture: IdentityFixture,
+  name: string,
+): Promise<{ nodeId: string; entityId: string }> {
+  const provisioner = db.connectAsMigrator();
+  await provisioner.connect();
+  try {
+    // Node scope at the enterprise root, exactly as `seedIdentity` phase 2 needs: legal_entities
+    // asks for node scope on the node the entity will govern, and that node is created here.
+    return await withLegalContext(
+      provisioner,
+      systemContextAt(fixture.tenantId, fixture.enterpriseNodeId),
+      async (c) => {
+        const client = c as Client;
+        const nodeId = await insertNode(
+          client,
+          fixture.tenantId,
+          fixture.enterpriseNodeId,
+          'legal_entity',
+          name,
+        );
+        const entityId = randomUUID();
+        await client.query(
+          `INSERT INTO legal_entities
+             (id, tenant_id, organization_node_id, legal_entity_id, legal_name, jurisdiction,
+              created_by)
+           VALUES ($1, $2, $3, $1, $4, 'US-NV', 'test:seed')`,
+          [entityId, fixture.tenantId, nodeId, `${name} LLC`],
+        );
+        return { nodeId, entityId };
+      },
+    );
+  } finally {
+    await provisioner.end();
+  }
+}
+
 /** The twelve tenant-owned tables PR 2 adds, plus the three relationship tables. */
 export const PR2_TABLES = [
   'organization_nodes',
