@@ -531,14 +531,38 @@ describe('self-elevation is refused', () => {
   });
 
   it('refuses an administrator adding a permission to a role it holds', async () => {
-    // The victim user holds a.roleId. An administrator acting AS that user cannot widen it — and
-    // after R2-01 there is no other way to reach the table at all.
+    // The administrator holds adminRoleId and genuinely holds identity.role.write, so the 0018 §3
+    // permission gate passes and the 0010 self-elevation guard is what stops it — DURING the
+    // mutation, which is why this stays `failed` rather than becoming `denied`.
+    //
+    // Naming an actor that does not hold the permission would test the gate instead and lose this
+    // guard's coverage entirely; that case is the separate `denied` test below.
+    const result = await boundary(
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
+      [
+        TENANT_A,
+        a.adminRoleId,
+        'identity.user.write',
+        `user:${a.adminUserId}`,
+        ...AS_ADMIN,
+        randomUUID(),
+      ],
+    );
+    expect(result.outcome).toBe('failed');
+    expect(result.message).toMatch(/may not add a permission to a role it holds/);
+  });
+
+  it('denies — not fails — an actor that never held the permission', async () => {
+    // The distinction is part of the audit contract: `denied` means authorization refused before
+    // the consequential operation was attempted; `failed` means it was authorized and the
+    // operation itself failed. An ordinary member holds no identity.role.write, so the request
+    // never reaches the mutation.
     const result = await boundary(
       'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
       [TENANT_A, a.roleId, 'identity.role.write', `user:${a.userId}`, ...AS_ADMIN, randomUUID()],
     );
-    expect(result.outcome).toBe('failed');
-    expect(result.message).toMatch(/may not add a permission to a role it holds/);
+    expect(result.outcome).toBe('denied');
+    expect(result.message).toMatch(/does not hold/);
   });
 
   it('permits an administrator granting the same permission to somebody else', async () => {

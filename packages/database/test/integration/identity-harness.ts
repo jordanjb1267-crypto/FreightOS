@@ -45,6 +45,8 @@ export interface IdentityFixture {
   readonly tenantId: string;
   /** The user the fixture acts AS for every guarded write — see seedIdentity. */
   readonly adminUserId: string;
+  /** The administrator's OWN role, distinct from the role under test — 0018 §3 fixture doctrine. */
+  readonly adminRoleId: string;
   readonly enterpriseNodeId: string;
   readonly legalEntityNodeId: string;
   readonly regionNodeId: string;
@@ -460,6 +462,7 @@ async function seedIdentityWith(
   return {
     tenantId,
     adminUserId,
+    adminRoleId,
     enterpriseNodeId,
     legalEntityNodeId,
     regionNodeId,
