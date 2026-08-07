@@ -422,10 +422,28 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
   });
 
   it('refuses a direct self-grant and an indirect one through a role the actor holds', async () => {
-    // Direct: the operator adding a permission to the role the operator holds.
-    const direct = await grantPermission(`user:${a.userId}`);
+    // Direct: the ADMINISTRATOR adding a permission to the role it holds. The administrator is
+    // used rather than the operator because 0018 §3's permission gate refuses an ordinary member
+    // before the self-elevation guard runs — `denied`, correctly, but it would erase this guard's
+    // coverage. The gate's own refusal is asserted separately below.
+    const direct = await call(
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
+      [
+        TENANT_A,
+        a.adminRoleId,
+        'identity.user.write',
+        `user:${a.adminUserId}`,
+        ...AS_ADMIN,
+        randomUUID(),
+      ],
+    );
     expect(direct.outcome).toBe('failed');
     expect(direct.message).toMatch(/may not add a permission to a role it holds/);
+
+    // And the gate itself: an ordinary member never reaches the guard at all.
+    const gated = await grantPermission(`user:${a.userId}`);
+    expect(gated.outcome).toBe('denied');
+    expect(gated.message).toMatch(/does not hold/);
 
     // Indirect: create a role, then assign it to yourself. The creation is legitimate; the
     // self-assignment is what the guard refuses, so the manoeuvre stops one step in.

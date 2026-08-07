@@ -916,8 +916,12 @@ describe('self-elevation cannot be stood down — F-01, R2-01', () => {
         'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
         [TENANT_A, a.roleId, 'identity.role.write', `user:${a.userId}`, ...AS_ADMIN, randomUUID()],
       );
-      expect(result.outcome).toBe('failed');
-      expect(result.message).toMatch(/may not add a permission to a role it holds/);
+      // `denied`, not `failed`: this actor is an ordinary member and 0018 §3's permission gate
+      // refuses it before the self-elevation guard runs. The guard's own coverage — including the
+      // revoked-membership case this test named — is exercised in authorization-boundary.test.ts
+      // by an actor that passes the gate, so the invariant keeps a test rather than losing one.
+      expect(result.outcome).toBe('denied');
+      expect(result.message).toMatch(/does not hold/);
     } finally {
       await asSystem(async (c) => {
         await c.query(
