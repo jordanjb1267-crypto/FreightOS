@@ -439,6 +439,11 @@ $$;
 --
 -- Replaced AS its existing owner: 0018 transferred this function to freightos_hierarchy_owner, and
 -- CREATE OR REPLACE requires ownership. The migrator administers that role WITH SET TRUE.
+--
+-- CREATE OR REPLACE also requires CREATE on the schema even when the function already exists, and
+-- 0018 deliberately takes that privilege back after using it. So it is lent again here and
+-- returned immediately below — the same borrow-and-return 0018 performs.
+GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
 SET LOCAL ROLE freightos_hierarchy_owner;
 CREATE OR REPLACE FUNCTION app.current_human_principal() RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
@@ -459,6 +464,7 @@ AS $$
          END
 $$;
 RESET ROLE;
+REVOKE CREATE ON SCHEMA app FROM freightos_hierarchy_owner;
 
 -- ---------------------------------------------------------------------------
 -- §7. The trusted mint boundary.
@@ -644,27 +650,28 @@ ALTER FUNCTION app.begin_verified_session(uuid) OWNER TO freightos_binding_owner
 -- pre-0019 truth, PUBLIC EXECUTE included, because rollback fidelity is a separate requirement.
 -- ---------------------------------------------------------------------------
 
-SET LOCAL ROLE freightos_binding_owner;
-REVOKE ALL ON FUNCTION app.verified_binding_context()            FROM PUBLIC;
-REVOKE ALL ON FUNCTION app.verified_binding_tenant_scope()       FROM PUBLIC;
-REVOKE ALL ON FUNCTION app.verified_binding_node_scope_ok(uuid)  FROM PUBLIC;
-REVOKE ALL ON FUNCTION app.verified_principal()                  FROM PUBLIC;
-REVOKE ALL ON FUNCTION app.begin_verified_session(uuid)          FROM PUBLIC;
-RESET ROLE;
-SET LOCAL ROLE freightos_hierarchy_owner;
-REVOKE ALL ON FUNCTION app.current_human_principal()             FROM PUBLIC;
+-- Grouped strictly by OWNER: REVOKE and GRANT on a function require ownership, so every statement
+-- below sits inside the role that owns the function it names. The previous arrangement grouped by
+-- intent instead and tried to grant binding-owner functions while acting as the hierarchy owner.
 
--- The runtime role installs and resolves its own identity; it can learn nothing about anybody
--- else's from any of these, because they take no parameter that could name another principal.
-GRANT EXECUTE ON FUNCTION app.begin_verified_session(uuid)       TO freightos_app;
-GRANT EXECUTE ON FUNCTION app.verified_principal()               TO freightos_app;
-GRANT EXECUTE ON FUNCTION app.current_human_principal()          TO freightos_app;
-RESET ROLE;
 SET LOCAL ROLE freightos_binding_owner;
--- The bootstrap accessors are executable by the runtime role only because RLS policy evaluation
--- requires it. They reveal the caller's OWN installed binding scope and nothing else.
+REVOKE ALL ON FUNCTION app.verified_binding_context()             FROM PUBLIC;
+REVOKE ALL ON FUNCTION app.verified_binding_tenant_scope()        FROM PUBLIC;
+REVOKE ALL ON FUNCTION app.verified_binding_node_scope_ok(uuid)   FROM PUBLIC;
+REVOKE ALL ON FUNCTION app.verified_principal()                   FROM PUBLIC;
+REVOKE ALL ON FUNCTION app.begin_verified_session(uuid)           FROM PUBLIC;
+-- The runtime role installs and resolves its OWN identity. None of these takes a parameter that
+-- could name another principal, so executing them reveals nothing about anybody else. The two
+-- bootstrap accessors are executable only because RLS policy evaluation requires it.
+GRANT EXECUTE ON FUNCTION app.begin_verified_session(uuid)         TO freightos_app;
+GRANT EXECUTE ON FUNCTION app.verified_principal()                 TO freightos_app;
 GRANT EXECUTE ON FUNCTION app.verified_binding_tenant_scope()      TO freightos_app;
 GRANT EXECUTE ON FUNCTION app.verified_binding_node_scope_ok(uuid) TO freightos_app;
+RESET ROLE;
+
+SET LOCAL ROLE freightos_hierarchy_owner;
+REVOKE ALL ON FUNCTION app.current_human_principal()               FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.current_human_principal()            TO freightos_app;
 RESET ROLE;
 
 -- The mint boundary is control-plane only. freightos_app has no USAGE on schema admin and cannot

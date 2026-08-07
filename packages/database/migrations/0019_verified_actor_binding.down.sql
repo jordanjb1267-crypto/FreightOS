@@ -49,6 +49,11 @@ AS $$
     '')::uuid
 $$;
 
+-- Replaced AS its owner, and with CREATE on the schema lent for the duration: 0018 hands this
+-- function to freightos_hierarchy_owner and then takes the schema privilege back, so both are
+-- required and both are returned immediately afterwards.
+GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
+SET LOCAL ROLE freightos_hierarchy_owner;
 CREATE OR REPLACE FUNCTION app.current_human_principal() RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
@@ -63,11 +68,13 @@ AS $$
      AND u.effective_from <= now()
      AND (u.effective_to IS NULL OR u.effective_to > now())
 $$;
-ALTER FUNCTION app.current_human_principal() OWNER TO freightos_hierarchy_owner;
 -- The captured ACL is {=X/freightos_hierarchy_owner, freightos_hierarchy_owner=X/...}: PUBLIC
--- holds EXECUTE and freightos_app holds no explicit grant. Restored as captured.
+-- holds EXECUTE and freightos_app holds no explicit grant. Restored as captured, because reverting
+-- to 0018 must reproduce the database 0018 actually built rather than the one its text describes.
 REVOKE ALL ON FUNCTION app.current_human_principal() FROM freightos_app;
 GRANT EXECUTE ON FUNCTION app.current_human_principal() TO PUBLIC;
+RESET ROLE;
+REVOKE CREATE ON SCHEMA app FROM freightos_hierarchy_owner;
 
 -- §4 reversed — the three policies return to TO PUBLIC with their original predicates.
 
