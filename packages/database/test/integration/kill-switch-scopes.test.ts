@@ -135,7 +135,12 @@ describe('the standing autonomous_mobility suspension', () => {
     await appClient.connect();
     try {
       await appClient.query('BEGIN');
-      await appClient.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
+      // No tenant context is established, and none is needed: 0015's read policy admits
+      // `scope IN ('system', 'legal_plane', 'operating_context')` to every session, before the
+      // tenant comparison is reached. This used to write app.tenant_id here, which after 0019 the
+      // runtime role does not read at all — so the line proved nothing then and asserted nothing
+      // before that either. Removing it makes the property visible: a plane-wide halt is legible to
+      // any session of the runtime role precisely BECAUSE it does not depend on whose it is.
       const r = await appClient.query<{ scope_ref: string }>(
         `SELECT scope_ref FROM kill_switches WHERE scope = 'operating_context'`,
       );
@@ -151,7 +156,10 @@ describe('the standing autonomous_mobility suspension', () => {
     await appClient.connect();
     try {
       await appClient.query('BEGIN');
-      await appClient.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
+      // Again no tenant context, and again none is needed — 0018 §4 revoked INSERT and UPDATE on
+      // kill_switches from freightos_app outright, so the refusal is a table-privilege refusal and
+      // holds for every session of the role whatever it believes about itself.
+      //
       // Asserted by SQLSTATE, not by message text. Two layers can refuse this write and both are
       // correct: PostgreSQL raises insufficient_privilege for a missing table privilege and for a
       // row-level policy violation alike. 0018 §4 revoked INSERT and UPDATE on kill_switches from

@@ -1,0 +1,255 @@
+# SR-2 — follow-on authority requirements
+
+Capabilities the handoff or an accepted ADR requires, that SR-2 does **not** implement and must not.
+
+Each section states the marker, the basis, the constraint in the current schema, the executable
+evidence produced by the migrated test suite, and the positive acceptance criteria a future change
+has to satisfy. None of them designs an implementation.
+
+**Nothing in this file is a licence to widen SR-2.** Every one of these is recorded precisely so
+that the pressure to close it inside PR #9 — by allowing enterprise/root human membership, by
+weakening `assert_governing_legal_entity`, by widening membership semantics, or by adding an
+authority term to a policy to turn an old test green — is refused with the requirement intact rather
+than with the requirement lost.
+
+---
+
+## Section A — Tenant-wide human READ
+
+```
+NO_CONFIRMED_TEST_DERIVED_REQUIREMENT_YET
+```
+
+No current test independently confirms a requirement for a human principal to read across every
+legal entity of a tenant.
+
+This is a statement about **test-derived evidence**, not about the product. It does not mean the
+product can never require tenant-wide read; it means nothing in the migrated suite establishes it,
+and SR-2 will not manufacture the requirement from a fixture that merely looked like one.
+
+**Two candidates were suspected and both were disproven by measurement.** They are recorded here so
+they are not re-raised as evidence:
+
+| Suspected case                                                                           | Why it looked tenant-wide                      | What measurement showed                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `identity-rls > cross-tenant isolation > shows a tenant only its own organization nodes` | expects the whole four-node tree of the tenant | Passes under the verified administrator scoped at the legal-entity node. The tree below a legal entity IS the tenant's tree in this fixture. Legitimate visibility, not tenant-wide read. |
+| most of `organization-hierarchy`                                                         | 24 call sites naming the enterprise node       | The enterprise-node claim was not the cause. Correcting the scope alone moved 39 failures to 39; adding real verified sessions moved 39 to 14. The suite is legal-entity-local behaviour. |
+
+Do not add `TENANT_WIDE_RUNTIME_READ_VISIBILITY`. Both suspicions dissolved on contact with a real
+session, and they stay disproven.
+
+**Executable R2 count: 0.**
+
+---
+
+## Section B — Tenant-wide human ADMINISTRATION and mutation
+
+```
+TENANT_WIDE_RUNTIME_ADMIN_AUTHORITY=REQUIRED_BY_HANDOFF_AND_UNIMPLEMENTED
+```
+
+### Handoff basis
+
+`docs/production-handoff/v1.2/04_ENTERPRISE_SCALE_AND_TENANCY.md` describes an enterprise tier whose
+administration spans legal entities — mega-carrier targets including enterprise-wide operations, and
+an Enterprise → Legal Entity → … hierarchy in which the Enterprise level is a level of the
+organization and not merely a container.
+
+### The constraint in the current schema
+
+`assert_governing_legal_entity` requires every membership to name an organization node that a legal
+entity governs. The enterprise root sits **above** that boundary — nothing governs it — so no human
+membership can be anchored there, and consequently no verified human principal can hold node scope
+over more than one legal entity. `app.organization_node_scope_ok` resolves through the closure from
+the node the membership names, so cross-legal-entity reach is not representable, not merely absent.
+
+This is the schema as PR #5 and 0018 left it, and SR-2 treats it as governing SR-2's executable
+semantics. The handoff governs the product requirement. The two are recorded separately and neither
+overrides the other.
+
+### Executable H2 evidence from the migrated suite
+
+**0.**
+
+Twenty-six failing cases were classified individually (see `SR2_DATABASE_GATE_EVIDENCE.md` §9). Not
+one of them requires a human principal to administer across legal entities. Every case that looked
+like it needed enterprise-wide human reach turned out to need either enterprise-wide **policy
+application scope** (Section C, a different question) or **privileged topology setup** (Section D).
+
+### Future positive acceptance criteria
+
+When the capability is implemented, it must be provable that:
+
+1. A principal holding the tenant-wide administrative capability can administer identity in **two
+   different legal entities of one tenant** in one verified session, and the same principal cannot
+   reach a third tenant.
+2. A principal **without** it, holding an ordinary legal-entity membership, is refused the
+   cross-entity operation — with the refusal attributable to the missing capability and not to
+   tenant isolation. The negative must be same-tenant.
+3. The capability is carried by data — a membership, role or grant that is itself administered
+   through the governed boundary and appears in the audit ledger — and not by a session claim, a
+   legal authority class, or an operating context.
+4. Granting it is itself a governed authority mutation, subject to the 0010 self-elevation guards:
+   an administrator cannot grant it to itself.
+5. Every existing legal-entity-local denial in `identity-rls.test.ts` continues to hold for
+   principals that do not carry it. The scope predicates must narrow, never widen.
+
+---
+
+## Section C — Enterprise / root POLICY declaration authority
+
+```
+TENANT_ROOT_POLICY_AUTHORITY=REQUIRED_BY_HANDOFF_AND_UNIMPLEMENTED
+```
+
+This is a different capability from Section B and must stay separate. Section B asks **who may act
+across legal entities** — a question about a human's membership scope. This asks **where a control
+may apply** — a question about policy scope. A control bound at the enterprise root could
+legitimately be created through a control-plane or command path with no human holding
+enterprise-wide membership at all. They may eventually share an authority architecture. SR-2 does
+not assume it.
+
+### Handoff basis, cited
+
+`docs/production-handoff/v1.2/04_ENTERPRISE_SCALE_AND_TENANCY.md`:
+
+- **line 20** — "Policies inherit downward. A child may tighten a restriction but cannot weaken
+  legal, safety, **enterprise-minimum**, security, residency, or approval controls."
+- **line 22** — "Every effective policy records inherited source and local override."
+- **line 53** — mega-carrier targets, including **"Enterprise-wide policy updates"**.
+
+An _enterprise-minimum_ control that inherits downward has to be declared somewhere above the legal
+entities it constrains. "Every effective policy records inherited source" is exactly what the
+dependent test asserts — that the terminal names the root as its source, at depth 3.
+
+### The constraint in the current schema
+
+`policy_bindings_insert` requires `app.organization_node_scope_ok(organization_node_id)`. A
+legal-entity-scoped administrator does not hold the enterprise root, so the write is refused:
+
+```
+new row violates row-level security policy for table "policy_bindings"
+```
+
+That refusal is now asserted directly, by name, in
+`organization-hierarchy.test.ts > policy inheritance > refuses an enterprise-root binding from a
+legal-entity administrator, and takes it from the control plane`.
+
+### What SR-2 covers today, and what it does not
+
+Root bindings are created by **privileged control-plane fixture** — `bindPrivileged` in the policy
+inheritance block, `bindAtPrivileged` in F-08. Every assertion that depends on one then runs under
+the verified runtime administrator. This is acceptable current SR-2 coverage and it proves:
+
+- inheritance downward to the terminal, with the root named as source at the right depth;
+- the non-weakening rule across all six protected categories;
+- that a descendant cannot escape a protected control by omitting or relabelling the category;
+- that an unprotected control stays weakenable, and a tightening descendant is permitted.
+
+It does **not** prove product root-policy declaration authority, and the fixture is not an answer to
+it. A privileged connection writing the row proves nothing about who may legitimately declare an
+enterprise-wide control; it only puts the world into the state the enforcement test needs.
+
+### Future positive acceptance criteria
+
+1. The principal or command path holding root-policy declaration authority can create and update a
+   binding at the enterprise root with `legal_entity_id IS NULL`, in a verified session, without any
+   privileged fixture.
+2. A legal-entity-scoped principal without that authority is still refused the same write — the
+   assertion named above must invert rather than disappear, so the boundary stays evidenced.
+3. Provenance is recorded: the binding names who declared it, and the audit ledger carries the
+   declaration as a governed mutation.
+4. Enterprise-wide **update** and **revocation** are covered, not only creation. Line 53 says
+   updates.
+5. Every enforcement property listed above continues to hold unchanged once the fixture is replaced
+   by the real path. That is the regression test for the change.
+
+---
+
+## Section D — PROVISIONING
+
+```
+PROVISIONING_TRUST_BOUNDARY=UNRESOLVED
+```
+
+### The circularity
+
+A verified binding can only be minted for a principal that already exists with an active membership.
+The first user of a tenant, the first membership, and the tenant's first enterprise root are
+precisely the rows that would justify one. A verified runtime session therefore cannot create them,
+and the gap is structural rather than an oversight.
+
+Two further rows sit on the same boundary and were confirmed during this migration:
+
+- **A tenant's first enterprise root.** `organization_nodes_insert` gates on tenant alone, so the
+  statement is reachable — but the node has no parent and nothing governs it, so no membership can
+  ever name it. `organization-hierarchy > F-03 > does not let two tenants block each other` needed
+  a root created for a tenant with no identity at all, and models that explicitly as provisioning.
+- **A tenant's second legal entity.** Its node is a sibling branch under the enterprise root, and no
+  runtime principal holds a node above both. `identity-rls` provisions it through
+  `seedSecondLegalEntity`.
+
+### How SR-2 handles it, without resolving it
+
+All provisioning runs over the **migrator** connection through the same governed boundaries a real
+provisioning path would meet — `withLegalContext` for the legal context, `admin.grant_membership`
+for the authorization graph, the platform bootstrap actor `system:tenant-provisioning` for the
+operations no human can yet be authorised for. The connection remains fully RLS-subject: every table
+involved carries `FORCE ROW LEVEL SECURITY`, so the seed is refused by exactly the policies
+production would apply. What changed is which role performs it, not whether the rules apply.
+
+`identity-harness.ts` (provisioning) and `verified-test-auth.ts` (authentication) are separate
+modules on purpose, so the fixture path cannot quietly become the application's way in.
+
+### Future positive acceptance criteria
+
+1. A named, auditable trust boundary for tenant creation, distinct from both the runtime path and
+   the migration path, with its own authority model.
+2. Its authority is not a database superuser and not the migrator.
+3. The first administrator of a tenant is created by it and is then reachable by an ordinary mint —
+   proving the handover point, which is the part the circularity currently hides.
+4. Every runtime refusal that exists today survives: a runtime principal must still be unable to
+   create a tenant root, a sibling legal entity, or a membership outside its own scope.
+
+---
+
+## Addendum — a requirement confirmed by measurement during this migration
+
+Outside the four sections the owner specified, and recorded here rather than lost because it was
+found by SR-2's own work and is not SR-2's to fix.
+
+```
+CONTEXT_CAPABILITY_MATRIX_RLS=REQUIRED_BY_ADR_0019_AND_UNIMPLEMENTED
+```
+
+**Basis.** `adr/0019-software-only-operating-context-boundaries.md`, "The complete matrix", row
+_Identity and organization_, column `software_only`/`facility_operator`: **`R (own)`** — read, not
+write. The same ADR lists the obligation as outstanding, twice: "Context capability matrix as
+executable code" and "Context-conditional RLS predicates", both targeted at PR 2 onward.
+
+**Measured.** A real verified `software_only`/`facility_operator` principal writing `service_accounts`
+**inside its own node scope succeeds.** `service_accounts_insert` is tenant AND
+`legal_entity_scope_ok` AND `organization_node_scope_ok`, with no legal-authority-class or
+operating-context term, and nothing else in the schema carries one. The ADR's own RLS-consequences
+table lists additional predicates for freight core, facility primitives, carrier and fleet,
+economics and autonomous mobility — and none for identity tables.
+
+**Why the gap was invisible.** `identity-rls > gives a facility_operator session no identity write`
+claimed to cover this cell and passed. It passed because the context it built named the terminal and
+the row it wrote named the legal-entity node above it: ordinary node scope refused it, and the
+operating context played no part. The test is now named
+`refuses a facility_operator identity write by node scope, and by nothing else`, asserts both halves,
+and records the current behaviour so the gap cannot be lost again.
+
+**SR-2 does not implement it.** Adding an authority term to a policy to make an old test green is
+exactly what this PR must not do, and the obligation predates SR-2 by four migrations.
+
+**Future positive acceptance criteria.**
+
+1. A `facility_operator` principal, in scope, is refused an identity write, and the refusal is
+   attributable to the context rather than to node or legal-entity scope.
+2. The same principal retains every read the matrix grants it, and every facility-primitive write.
+3. A `carrier_agent`/`carrier` principal with the identical membership is unaffected — the positive
+   peer, without which the first assertion is indistinguishable from a broken predicate.
+4. ADR-0019 property 2 continues to hold: no matrix predicate is disjunctive with the tenant
+   predicate. Every one is an `AND`. Context narrows; it never widens.

@@ -171,6 +171,59 @@ describe('SR-2 production boundaries', () => {
     expect(filesContaining(/sr2-harness|withAuthenticatedTestPrincipal/)).toEqual([]);
   });
 
+  it('keeps raw identity-GUC writes in test code to the reviewed allowlist', () => {
+    // The rule SR-2 has to hold on the test side: a raw GUC may be an ATTACK layered on top of a
+    // legitimate verified session, and may never be the way a session obtains authority in the
+    // first place. That distinction is a judgement about each call site, so this check does not try
+    // to make it textually — it fixes the SET of files allowed to contain one, so a new site has to
+    // arrive with the review that classifies it. The reasoning per file is recorded in
+    // docs/security-resilience/SR2_RAW_GUC_ALLOWLIST.md.
+    //
+    // Both spellings, because the parameterised form is what the adversarial helper uses and a
+    // literal-only pattern would miss it entirely.
+    const pattern = /set_config\(\s*('app\.|\$1)|SET\s+LOCAL\s+app\./;
+    const testFiles: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        if (entry === 'node_modules' || entry === '.git' || entry === 'dist') continue;
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (entry.endsWith('.ts')) testFiles.push(full);
+      }
+    };
+    walk(join(ROOT, 'packages/database/test'));
+
+    const writers = testFiles
+      .filter((f) => pattern.test(stripComments(readFileSync(f, 'utf8'))))
+      .map((f) => relative(ROOT, f))
+      .sort();
+
+    expect(writers).toEqual(
+      [
+        // The adversarial primitive itself. Used only by sr2-binding-runtime, always on a session
+        // that already holds a real binding.
+        'packages/database/test/integration/sr2-harness.ts',
+        // Forged claims over the runtime role, every one asserting that the claim confers nothing.
+        'packages/database/test/integration/authority-remediation.test.ts',
+        // `app.is_control_plane` claimed by a session; asserted to stay false. Role membership is
+        // not reachable from inside a connection, so there is no legitimate reading of this write.
+        'packages/database/test/integration/control-plane.test.ts',
+        'packages/database/test/integration/rls.test.ts',
+        // Node, tenant, entity and operating-context claims layered on top of live verified
+        // sessions, each with an in-scope positive peer in the same session.
+        'packages/database/test/integration/identity-rls.test.ts',
+        // An actor claim over a live binding, asserting the binding wins; and the same claim over an
+        // unbound session, asserting it resolves nothing.
+        'packages/database/test/integration/identity-lifecycle.test.ts',
+      ].sort(),
+    );
+    // The privileged provisioning and control-plane paths are deliberately NOT here. They reach
+    // the same GUCs, but through `withLegalContext` in packages/database/src/session.ts — the one
+    // module the check above already fences — and over postgres or the migrator, which the 0019
+    // accessors still serve from the GUC branch by design. Routing them through the reviewed
+    // module rather than open-coding set_config is what keeps this list this short.
+  });
+
   it('has no environment-conditional authentication bypass', () => {
     // No production path may become privileged because a variable says "test".
     const bypasses = SOURCES.filter((f) =>

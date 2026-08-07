@@ -675,3 +675,213 @@ Classification is partially complete and is NOT being asserted as final:
 Confirmed counts so far: **H1/H3 ≈ 25 migrated green · R1 ≈ 12 migrated green · P2 = 1 confirmed ·
 Class 2 (administrator authority) = 0.** No test has been narrowed, no assertion weakened, and no
 skip introduced.
+
+## 9. Final exact classification of the 26, and the integration migration complete
+
+Section 8's counts were approximations and were labelled as such. These are not. Every one of the
+26 cases outstanding at the owner's recorded baseline was read individually — no sweeps — and
+carries exactly one primary category.
+
+**All counts below come from the test runner's final `Tests` summary line.**
+
+### The trajectory
+
+```
+88 → 83 → 82 → 76 → 62 → 54 → 29 → 27 → 26 → 21 → 13 → 0
+```
+
+The last three steps are this session: F-08 (5), organization-hierarchy's policy inheritance and
+F-03 (8), identity-rls (13).
+
+### Final state
+
+| Gate                      | Result                                                        |
+| ------------------------- | ------------------------------------------------------------- |
+| Integration               | **519 passed (519)**, 14 of 14 files, 0 failed, **0 skipped** |
+| Unit                      | **285 passed (285)**, 15 of 15 files                          |
+| Static fences             | **14 passed (14)** — one added this session, see below        |
+| Database security gate    | 100 / 100                                                     |
+| format / lint / typecheck | clean                                                         |
+
+### The exact table — 26 rows
+
+#### organization-hierarchy — 13
+
+| #   | Test                                                                                                 | Category | Disposition                                                                                                                                                                                                                 |
+| --- | ---------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | F-08 › refuses a descendant binding that omits the inherited category                                | **P1**   | F8-E. Root control by privileged fixture; refusal asserted under the verified administrator on `/may not change or omit it/i`.                                                                                              |
+| 2   | F-08 › refuses a descendant binding that relabels the category                                       | **P1**   | F8-E, same shape.                                                                                                                                                                                                           |
+| 3   | F-08 › still refuses the weakening when the category IS named                                        | **P1**   | F8-E, same shape.                                                                                                                                                                                                           |
+| 4   | F-08 › permits a descendant that names the category and tightens                                     | **P1**   | F8-E positive peer.                                                                                                                                                                                                         |
+| 5   | F-08 › leaves an unprotected control weakenable                                                      | **P1**   | F8-E positive peer.                                                                                                                                                                                                         |
+| 6   | policy inheritance › binds a control at the enterprise root with a null legal entity                 | **P2**   | F8-P. The assertion WAS the declaration. Extracted to Section C; replaced by an explicit refusal assertion plus the control-plane fixture.                                                                                  |
+| 7   | policy inheritance › inherits the root binding down to the terminal and names the root as its source | **P2**   | Root inheritance and source provenance — handoff lines 20 and 22. Executable today via the privileged declaration fixture; declaration authority remains unimplemented.                                                     |
+| 8   | policy inheritance › refuses a child binding that weakens a protected control                        | **P1**   | Downstream of 6. Legal-entity-local refusal, on `/may not be weakened/`.                                                                                                                                                    |
+| 9   | policy inheritance › refuses the weakening for all six protected categories                          | **P1**   | Downstream of 6, six times.                                                                                                                                                                                                 |
+| 10  | policy inheritance › permits weakening an unprotected control                                        | **P1**   | Downstream of 6. Positive peer.                                                                                                                                                                                             |
+| 11  | policy inheritance › ignores a revoked binding                                                       | **P1**   | Downstream of 6. `rowCount` on the revoking UPDATE now asserted.                                                                                                                                                            |
+| 12  | F-03 › lets only one of two concurrent roots exist for a tenant                                      | **H4**   | Identity was raw GUCs on `freightos_app`. Both actors now hold real verified sessions; both fail on `one_root_per_tenant`, which is evaluated after the RLS `WITH CHECK` and therefore proves the sessions were legitimate. |
+| 13  | F-03 › does not let two tenants block each other                                                     | **H3**   | Tenant B has no identity to bind. Modelled explicitly as migrator provisioning — Section D.                                                                                                                                 |
+
+#### identity-rls — 13
+
+| #   | Test                                                                                                    | Category | Disposition                                                                                                                                                         |
+| --- | ------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14  | cross-tenant isolation › cannot update another tenant row                                               | **R3**   | Read-back now runs as tenant B's own verified administrator instead of a claimed tenant-B context.                                                                  |
+| 15  | missing context fails closed › refuses to write a role when the caller administers no organization node | **R4**   | "Administers no node" was a claim. Restated as the unbound session, with `current_tenant_id()`/`current_actor_id()` asserted NULL and both refusal paths evidenced. |
+| 16  | organization-node scope › shows users at or below the node the caller administers                       | **R1**   | Region member. Named identities rather than a count, both directions.                                                                                               |
+| 17  | organization-node scope › hides a user that sits above the node the caller administers                  | **R1**   | Terminal member; every node above it checked one level at a time.                                                                                                   |
+| 18  | legal-entity scope › refuses a write naming a legal entity the session does not hold                    | **R1**   | Second legal entity in the SAME tenant, so cross-tenant isolation is not what denies it. Predicate asserted directly beside the write.                              |
+| 19  | legal-entity scope › permits the write when the session holds the named entity                          | **R1**   | Positive peer.                                                                                                                                                      |
+| 20  | node and legal entity must agree › rejects a user naming a node governed by a different legal entity    | **R1**   | Second entity became a privileged fixture; the governing-entity trigger is still the assertion.                                                                     |
+| 21  | capability matrix › gives a facility_operator session no identity write                                 | **R4**   | Confirmed contradiction. The refusal was node scope, never the context. See the addendum in `SR2_FOLLOW_ON_REQUIREMENTS.md`.                                        |
+| 22  | carrier appointment › stops reporting an appointment once revoked                                       | **R1**   | Entity-node member performs the revocation; `rowCount` asserted.                                                                                                    |
+| 23  | F-05 › does not let a system session reach another legal entity in its own tenant                       | **R1**   | Node half moved to an in-scope node, because the enterprise-root claim it relied on is not representable. Sibling branch asserted out of node scope separately.     |
+| 24  | F-05 › refuses a write above the caller subtree even under system scope                                 | **R1**   | Terminal member under the widest context, writing one level up.                                                                                                     |
+| 25  | F-05 › still permits the same write inside the caller subtree                                           | **R1**   | Region member, same statement, same target. Only the membership differs.                                                                                            |
+| 26  | F-05 › gives every operating context the identical scope                                                | **R1**   | One identity, one membership, three authentication results. Nothing varies but the pair.                                                                            |
+
+### Counts — every category stated, including the zeroes
+
+| Category | Meaning                                                              |  Count |
+| -------- | -------------------------------------------------------------------- | -----: |
+| **H1**   | legal-entity-local hierarchy behaviour                               |  **0** |
+| **H2**   | genuine tenant-wide human administrator behaviour                    |  **0** |
+| **H3**   | privileged topology setup only                                       |  **1** |
+| **H4**   | invalid old claimed-context assumption                               |  **1** |
+| **P1**   | legal-entity policy behaviour                                        |  **9** |
+| **P2**   | genuine Enterprise/root policy declaration or inheritance capability |  **2** |
+| **P3**   | policy fixture/setup only                                            |  **0** |
+| **P4**   | claimed policy-scope artifact                                        |  **0** |
+| **R1**   | current legitimate visibility/scope                                  | **10** |
+| **R2**   | genuine tenant-wide human read requirement                           |  **0** |
+| **R3**   | cross-tenant isolation                                               |  **1** |
+| **R4**   | claimed context/credential artifact                                  |  **2** |
+|          | **Total**                                                            | **26** |
+
+H1 is 0 because the H1 population was already migrated green before this baseline — approximately
+25 cases, recorded in section 8 — and none of them remained outstanding. **Executable H2 evidence is
+0**, which is the number Section B of the follow-on requirements records.
+
+### What changed in the static fences
+
+**13 → 14.** The new check is _keeps raw identity-GUC writes in test code to the reviewed
+allowlist_. It fixes the SET of test files permitted to contain a raw `app.*` GUC write in either
+spelling, so a new call site cannot arrive without the review that classifies it. The per-file
+reasoning is `SR2_RAW_GUC_ALLOWLIST.md`; forbidden uses found: **0**.
+
+Two inert GUC writes were deleted rather than allowlisted, in `kill-switch-scopes.test.ts`. Both
+wrote `app.tenant_id` on a `freightos_app` connection to make the session "a tenant session", and
+neither assertion depended on it: 0015's read policy admits `scope IN ('system', 'legal_plane',
+'operating_context')` before the tenant comparison is reached, and 0018 §4 revoked INSERT and UPDATE
+on `kill_switches` from `freightos_app` outright. Leaving them would have put two lines on the
+allowlist that looked like identity and were not.
+
+### Three properties asserted across the whole migration
+
+- **No assertion was weakened to obtain a pass.** Where an assertion changed, it became more
+  specific: named identities instead of counts, `rowCount` on UPDATEs that RLS narrows silently, and
+  refusals matched on the message of the gate that must produce them.
+- **No skip was introduced.** 0 skipped, measured, at every step.
+- **No database or security SQL was changed to make an old test green.** The only migration edits
+  this PR carries are the three defects and the §6 completion recorded in section 1, all of which
+  predate the harness migration.
+
+## 10. Performance — measured, and the measurement fails
+
+PostgreSQL 16.13 local, `N` shown per row, medians. The comparison is the same statement under a
+verified session on `freightos_app` against the legacy GUC path on the migrator, in a tenant with a
+four-node tree and ten closure rows.
+
+### Session establishment — the cost SR-2 adds that has no legacy counterpart
+
+| Step                                                           |  median |     p95 |   n |
+| -------------------------------------------------------------- | ------: | ------: | --: |
+| mint — `admin.issue_session_binding`, control-plane round trip | 1.37 ms | 1.94 ms | 200 |
+| `BEGIN` + isolation + install + `COMMIT`                       | 3.59 ms | 4.81 ms | 200 |
+| baseline `SELECT 1` on the same connection                     | 0.11 ms | 0.22 ms | 200 |
+
+**Acceptable.** About 5 ms of fixed cost per verified transaction, most of it two extra round trips.
+
+### Resolution — the cost that is not acceptable
+
+| Predicate                            |      verified |   legacy |                 ratio |
+| ------------------------------------ | ------------: | -------: | --------------------: |
+| `app.is_control_plane()`             |      0.260 ms |        — | role check, unchanged |
+| `app.verified_principal()`           |      2.543 ms |      n/a |                     — |
+| `app.current_tenant_id()`            |      2.592 ms | 0.220 ms |               **12×** |
+| `app.current_organization_node_id()` |      2.620 ms |        — |                     — |
+| `app.legal_entity_scope_ok()`        |      4.804 ms |        — |     ≈ two resolutions |
+| `app.organization_node_scope_ok()`   | **28.201 ms** | 0.744 ms |               **38×** |
+
+n = 30 each, inside one already-established session, so no mint or install cost is included.
+
+### The arithmetic, which is exact
+
+The tenant has **10 closure rows**. `app.organization_node_scope_ok` resolves the principal once for
+its own `app.current_organization_node_id()`, and then the closure's own read policy evaluates
+`tenant_id = app.current_tenant_id()` **once per closure row**:
+
+```
+2.6 ms  +  10 × 2.6 ms  =  28.6 ms          measured: 28.2 ms
+```
+
+That is the whole defect. `app.verified_principal()` costs ~2.5 ms because it re-reads the binding
+and revalidates the user and membership — correct, and the property SR-2 exists for — and the scope
+predicates call it once per row of every table they touch, including the closure.
+
+### What it does to an ordinary query
+
+`SELECT id FROM users`, whole transaction, verified against legacy:
+
+| users in tenant |                  verified (median) | legacy (median) |
+| --------------: | ---------------------------------: | --------------: |
+|               2 |                              43 ms |         1.45 ms |
+|              10 |                             463 ms |         2.47 ms |
+|              50 |                1,047 ms – 8,587 ms |         13.3 ms |
+|             200 | 3,556 ms median, **55,348 ms p95** |         24.3 ms |
+
+`EXPLAIN (ANALYZE, BUFFERS)` on the 50-user case: `Seq Scan on public.users … actual time
+16.004..1005.367 rows=50`, `Buffers: shared hit=23028` — about 460 buffer hits per returned row,
+for a table of fifty.
+
+The 50-row spread and the 200-row p95 are not measurement noise to be averaged away; the cost is
+plan- and statistics-dependent as well as large, which makes it erratic under load.
+
+### A remedy that was tried and does NOT work
+
+The documented PostgreSQL RLS idiom — wrap the accessor in a scalar subquery so the planner hoists
+it into an InitPlan evaluated once per statement — was applied experimentally to `users_read` in a
+scratch database. **1,047 ms → 987 ms.** It cannot work here: `app.organization_node_scope_ok`
+takes a per-row argument, so `(SELECT app.organization_node_scope_ok(organization_node_id))` is a
+correlated subquery and is still evaluated per row. The hoist has to happen INSIDE the function, on
+the zero-argument accessors in its body, where the closure scan re-resolves the principal ten times.
+
+### Disposition
+
+**SR-2 is NOT ready to emit `SR_2_VERIFIED_ACTOR_BINDING=READY_FOR_FINAL_REREVIEW`.** Performance
+was required to be measured; it was measured, and it fails. A second of latency on a fifty-row read
+is not a cost line in an ADR.
+
+**The fix is not being made inside PR #9, and this is a deliberate refusal rather than an omission.**
+The predicates involved — `app.organization_node_scope_ok`, `app.legal_entity_scope_ok`,
+`app.verified_principal` — are the shared authorization primitives every policy in the schema
+resolves through. Any memoisation of the principal trades directly against the property SR-2 proved
+and gates on: a principal revoked mid-transaction loses authority inside that transaction, visible
+at READ COMMITTED. Statement-scoped hoisting preserves that granularity and transaction-scoped
+caching destroys it, and the difference is exactly the kind of thing that has to be established by
+its own gate and its own adversarial review rather than asserted at the end of a PR.
+
+The direction is specific enough to hand over intact:
+
+1. Hoist the zero-argument accessors **inside** `app.organization_node_scope_ok` and
+   `app.legal_entity_scope_ok`, so the closure predicate resolves the principal once per call rather
+   than once per closure row. That alone should remove the factor of ten measured above, and it is
+   statement-scoped, so revocation visibility is untouched.
+2. Reduce `app.verified_principal()`'s own 2.5 ms. Its cost is the binding lookup plus a
+   users ⋈ memberships revalidation whose own policies re-enter the bootstrap graph.
+3. Re-run this measurement, the full database gate, and the same-transaction revocation tests
+   together. The third is not optional: it is what the change risks.
+
+Everything else in this document stands. The security properties are established and measured; the
+resolution cost of establishing them is not yet fit to ship.
