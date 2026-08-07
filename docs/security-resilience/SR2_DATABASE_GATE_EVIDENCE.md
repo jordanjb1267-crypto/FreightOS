@@ -432,3 +432,47 @@ window, not the rollback. Asserted as measured.
 **Dependency posture is unchanged and is not clean.** 1 critical, 1 high, 3 moderate — Vite, Vitest
 and esbuild, inherited from `main`, deferred to SR-10/SR-11. Recorded here as inherited known risk.
 Not remediated in SR-2.
+
+## 6. Harness migration — the finding behind the largest remaining block
+
+39 of the 76 remaining integration failures are in `organization-hierarchy.test.ts`, and 49 of its
+53 context establishments go through one helper:
+
+```ts
+function adminContext() {
+  return systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`);
+}
+```
+
+That context claims the **enterprise** node. The administrator's membership, as
+`identity-harness.ts` provisions it, is at the **legal-entity** node — one level below — and the
+fixture says so in its own comment: _"The legal-entity node, not the enterprise above it: a
+membership must name a node the legal entity actually governs, and the root sits above that
+boundary."_
+
+Before SR-2 nothing reconciled the two. `app.current_organization_node_id()` returned whatever the
+session wrote into the GUC, so the fixture asserted a node its membership did not justify and the
+database believed it. `admin.issue_session_binding` refuses exactly that pairing:
+
+```
+no active membership justifies this principal, tenant and node
+```
+
+So this is not a test that needs rewriting to keep working. It is a test whose setup depended on
+caller-asserted scope, and the refusal is the control operating correctly. The migration has two
+honest resolutions and they are not equivalent:
+
+1. **Provision the authority the tests assume.** If a tenant administrator legitimately administers
+   from the enterprise root, the fixture should grant a membership that says so, and the binding
+   will then justify the node. The authority becomes something the hierarchy grants rather than
+   something the session asserts — which is the same correction F-05 already applied once.
+2. **Accept the narrower scope and update the expectations**, recording for each changed assertion
+   why the old one represented invalid production semantics.
+
+(1) is the better answer for most of these cases, because the tests are about hierarchy traversal
+from the root and that is a real administrative shape. Some cases will still need (2), where the
+old expectation genuinely rested on reach the membership never conferred.
+
+Neither is a matter of loosening the database, and neither has been applied yet. `identity-rls`
+(16), `identity-lifecycle` (13) and `authority-remediation` (7) are expected to share this root
+cause, since they use the same fixture and the same enterprise-node context.
