@@ -199,7 +199,15 @@ export async function seedIdentity(db: TestDatabase, tenantId: string): Promise<
   }
 }
 
-async function seedIdentityWith(
+/**
+ * Seed over connections the caller supplies.
+ *
+ * Exported for the SR-2 gate, which must provision over the migrator connection rather than over
+ * `freightos_app`: after 0019 the runtime role fails closed without a binding, and the first user of
+ * a tenant is precisely the row that would justify one. See sr2-harness.ts for why that is a
+ * provisioning path and not a runtime one.
+ */
+export async function seedIdentityWith(
   app: Client,
   admin: Client,
   tenantId: string,
