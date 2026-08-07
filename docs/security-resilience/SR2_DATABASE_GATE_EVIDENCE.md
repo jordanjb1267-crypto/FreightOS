@@ -65,8 +65,8 @@ DETAIL:  owner of function app.verified_binding_tenant_scope()
 
 **Intended boundary.** A down migration removes what its up migration created.
 
-**Observed boundary.** Roles are cluster-wide. `DROP ROLE` fails whenever *any other database in the
-same cluster* still has 0019 applied — the normal state of CI, where eleven test databases migrate
+**Observed boundary.** Roles are cluster-wide. `DROP ROLE` fails whenever _any other database in the
+same cluster_ still has 0019 applied — the normal state of CI, where eleven test databases migrate
 in parallel, and of any deployment with more than one FreightOS database. The isolated proof passed
 because only one database was at 19 at the time.
 
@@ -75,7 +75,7 @@ NOLOGIN owner role — 0007's `freightos_hierarchy_owner`, 0010's `freightos_ide
 `freightos_admin_owner`, 0018's `freightos_audit_writer` — is created idempotently on the way up and
 left in place on the way down, for exactly this reason.
 
-**Remediation.** The down migration revokes every privilege the role holds *in this database* and
+**Remediation.** The down migration revokes every privilege the role holds _in this database_ and
 leaves the catalog row. The migrator's administer-only membership is retained as well: a plain
 `REVOKE` would also take the implicit `ADMIN` row PostgreSQL 16 creates for a role's creator, and a
 later re-apply could then not grant the role at all.
@@ -122,8 +122,7 @@ to `freightos_app`.
 
 **Why a structural check and not a runtime one.** PostgreSQL never emitted a recursion diagnostic.
 It exhausted the backend stack. A runtime smoke test can only find such a cycle by falling into it,
-and this one was reachable solely through the runtime role, which no existing test could drive after
-0019.
+and this one was reachable solely through the runtime role, which no existing test could drive after 0019.
 
 **Regression test.** `gate J — lets no read policy be both applicable to the binding owner and
 dependent on an authoritative accessor`, plus the four checks in `gate S`.
@@ -132,10 +131,10 @@ dependent on an authoritative accessor`, plus the four checks in `gate S`.
 
 Two files, 100 cases, all passing.
 
-| File | Cases | Covers |
-| --- | ---: | --- |
-| `sr2-binding-structure.test.ts` | 32 | gates A, J, Q, R, S, T, U |
-| `sr2-binding-runtime.test.ts` | 68 | gates B, C, D, E, F, G, H, I, K, L, M, N, O, P |
+| File                            | Cases | Covers                                         |
+| ------------------------------- | ----: | ---------------------------------------------- |
+| `sr2-binding-structure.test.ts` |    32 | gates A, J, Q, R, S, T, U                      |
+| `sr2-binding-runtime.test.ts`   |    68 | gates B, C, D, E, F, G, H, I, K, L, M, N, O, P |
 
 ```
  ✓ |integration| packages/database/test/integration/sr2-binding-structure.test.ts (32 tests) 2101ms
@@ -192,18 +191,18 @@ principal identical, and a subtransaction cannot install a different one.
 **Gate F — isolation.** Driven as separate protocol executions throughout; batching them into one
 simple query is what produced a wrong measurement during design.
 
-| Route | Probe reports | Install |
-| --- | --- | --- |
-| connection default | `read committed` | succeeds |
-| `SET TRANSACTION ISOLATION LEVEL READ COMMITTED` | `read committed` | succeeds |
-| `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ` | `repeatable read` | refused, `25000` |
-| `BEGIN ISOLATION LEVEL REPEATABLE READ` | `repeatable read` | refused |
-| `SET TRANSACTION ISOLATION LEVEL SERIALIZABLE` | `serializable` | refused |
-| `BEGIN ISOLATION LEVEL SERIALIZABLE` | `serializable` | refused |
-| `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED` | `read uncommitted` | refused |
-| `BEGIN ISOLATION LEVEL READ UNCOMMITTED` | `read uncommitted` | refused |
-| `SET SESSION CHARACTERISTICS ... REPEATABLE READ` | `repeatable read` | refused |
-| `default_transaction_isolation = 'repeatable read'` | `repeatable read` | refused |
+| Route                                               | Probe reports      | Install          |
+| --------------------------------------------------- | ------------------ | ---------------- |
+| connection default                                  | `read committed`   | succeeds         |
+| `SET TRANSACTION ISOLATION LEVEL READ COMMITTED`    | `read committed`   | succeeds         |
+| `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`   | `repeatable read`  | refused, `25000` |
+| `BEGIN ISOLATION LEVEL REPEATABLE READ`             | `repeatable read`  | refused          |
+| `SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`      | `serializable`     | refused          |
+| `BEGIN ISOLATION LEVEL SERIALIZABLE`                | `serializable`     | refused          |
+| `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED`  | `read uncommitted` | refused          |
+| `BEGIN ISOLATION LEVEL READ UNCOMMITTED`            | `read uncommitted` | refused          |
+| `SET SESSION CHARACTERISTICS ... REPEATABLE READ`   | `repeatable read`  | refused          |
+| `default_transaction_isolation = 'repeatable read'` | `repeatable read`  | refused          |
 
 `read uncommitted` is **not** normalised. PostgreSQL implements it as read committed, but the GUC
 preserves the requested name and the contract is on the name. After every refusal the binding is
@@ -324,7 +323,7 @@ wraps `BEGIN`/`COMMIT` around the file and the `schema_migrations` write. Both l
 to `freightos_hierarchy_owner` in §6, `INHERIT` on the binding-owner membership in the down
 migration) are taken and returned inside that transaction, so a failure anywhere between the loan and
 its return commits neither. This was demonstrated directly rather than with failure-injection
-machinery: during the fix, 0019 failed at §10 on an assertion that ran *after* both loans, and
+machinery: during the fix, 0019 failed at §10 on an assertion that ran _after_ both loans, and
 `has_schema_privilege('freightos_hierarchy_owner','app','CREATE')` was false afterwards because the
 whole migration had rolled back. No half-lent state has ever been observable.
 
