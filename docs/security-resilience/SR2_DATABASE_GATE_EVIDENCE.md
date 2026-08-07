@@ -492,3 +492,76 @@ tightening introduced by SR-2.
 This is not a matter of loosening the database, and it has not been applied yet. `identity-rls`
 (16), `identity-lifecycle` (13) and `authority-remediation` (7) are expected to share this root
 cause, since they use the same fixture and the same enterprise-node context.
+
+## 7. Category A is an implementation contradiction, not an unresolved product question
+
+I was asked to record `TENANT_WIDE_RUNTIME_ADMIN_AUTHORITY=UNRESOLVED` unless an authoritative
+handoff already answers it, and to cite the requirement and follow it if one does. One does:
+`docs/production-handoff/v1.2/04_ENTERPRISE_SCALE_AND_TENANCY.md`.
+
+Its hierarchy lists `Enterprise` as the top node type, and line 16 states:
+
+> Drivers, equipment, **users**, policies, contracts, and reports **can be scoped to any valid node**.
+
+Its **Enterprise capabilities** (line 63 and around) include:
+
+> - SAML/OIDC federation
+> - SCIM provisioning
+> - **Delegated administration**
+> - **Multiple authorities/currencies/accounting entities**
+
+with `Enterprise-wide policy updates` among the mega-carrier targets.
+
+So the product requires a human user scoped at the Enterprise node, administering across multiple
+legal entities. It is listed as a customer-side enterprise capability beside SAML/OIDC and SCIM —
+not platform administration — and nothing in the handoff assigns it to the control plane.
+
+**The schema forbids what the handoff requires.** `assert_governing_legal_entity` refuses a
+membership at the Enterprise node, and `users` carries the same rule. Both stated by the database
+itself:
+
+```
+users requires an organization node governed by a legal entity;
+node <uuid> sits above the legal-entity boundary
+```
+
+```
+denied | legal entity <uuid> does not govern organization node <enterprise node>
+```
+
+The Enterprise root sits above the legal-entity boundary by construction, so no node assignment
+satisfies both the trigger and the requirement.
+
+### What this changes
+
+The 39 organization-hierarchy failures and roughly 7 of the identity-rls failures are **Category E —
+a confirmed implementation defect** — not Category A. The old tests encoded the handoff's
+requirement correctly. What was wrong is that nothing enforced the contradiction: before SR-2,
+`app.current_organization_node_id()` returned the caller's GUC, so a session could assert
+enterprise-node scope that no membership could ever have carried, and the tests passed for the wrong
+reason. SR-2 did not break these tests; it revealed that the authority they exercise has no
+representable grant behind it.
+
+### What I have NOT done
+
+I have not changed `assert_governing_legal_entity`, `users`, `memberships`, or any part of the
+identity model. That rule is PR #5 / migrations 0007–0010 work, merged and independently accepted,
+and correcting it changes the authorization model rather than SR-2's actor binding — the "invent new
+authority inside SR-2" the brief forbids.
+
+I have also not narrowed the 39 tests to legal-entity scope. That would encode the schema's current
+limitation as though it were the product requirement and silently delete coverage of a mandated
+capability — "do not fake green by pretending legal-entity scope equals tenant-wide scope".
+
+### Status
+
+`TENANT_WIDE_RUNTIME_ADMIN_AUTHORITY=REQUIRED_BY_HANDOFF_AND_UNIMPLEMENTED`
+
+Not `UNRESOLVED`: the product question is answered by `04_ENTERPRISE_SCALE_AND_TENANCY.md`. What is
+open is an implementation gap between that requirement and the identity schema, needing an owner
+decision on where the fix belongs — a follow-on identity migration, or an amendment to the
+governance rule — because it is outside SR-2's stated scope and touches controls PR #5 already
+gated.
+
+`PROVISIONING_TRUST_BOUNDARY=UNRESOLVED` is unchanged and remains genuinely open. The two are
+distinct and are not conflated here.
