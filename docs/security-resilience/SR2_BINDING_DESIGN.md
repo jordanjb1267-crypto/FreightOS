@@ -595,3 +595,94 @@ heredoc-abort trap is present.
 
 The decisive measurement — install B, measure; if it recurses install C, measure — is the immediate
 next step, with each candidate's presence asserted from `pg_policy` **before** the result is read.
+
+---
+
+## 14. `CLOSURE_BOOTSTRAP=C` — decided by measurement
+
+Both candidates installed on a disposable database migrated 1..18, each asserted from `pg_policy`
+**before** any runtime result was read, after the withdrawn attempt in §13.2.
+
+### 14.1 Candidate B — refuted
+
+Catalog state at the moment of measurement, both policies genuinely present:
+
+```
+organization_node_closure_binding_read | freightos_binding_owner | (tenant_id = app.verified_binding_tenant_scope())
+organization_node_closure_read         | PUBLIC                  | (app.is_control_plane() OR (tenant_id = app.current_tenant_id()))
+```
+
+Runtime: **`stack depth limit exceeded`**.
+
+Because the authoritative policy is `TO PUBLIC` it remains applicable to `freightos_binding_owner`
+as well. Permissive policies are OR'd, and PostgreSQL evaluates the authoritative disjunct even
+though the role-only disjunct is satisfied. The short-circuit reasoning in §12.3 was wrong, which is
+why it was flagged as a measurement rather than argued.
+
+### 14.2 Candidate C — passes
+
+Role-disjoint applicability, asserted from the catalog:
+
+```
+organization_node_closure_bootstrap_read | freightos_binding_owner                                | (tenant_id = app.verified_binding_tenant_scope())
+organization_node_closure_read           | freightos_admin_owner, freightos_app,                  | (app.is_control_plane() OR (tenant_id = app.current_tenant_id()))
+                                         | freightos_hierarchy_owner, freightos_identity_guard,   |
+                                         | freightos_migrator                                     |
+```
+
+- authoritative policy applicable to `freightos_binding_owner`: **false**
+- bootstrap policy applicable to `freightos_app`: **false**
+
+| Step | Call                                                      | Result                                           |
+| ---- | --------------------------------------------------------- | ------------------------------------------------ |
+| C1   | `verified_binding_tenant_scope()`                         | `11111111-…` — the bound tenant                  |
+| C2   | `verified_binding_node_scope_ok(in-scope node)`           | **true**                                         |
+| C3   | `verified_binding_node_scope_ok(ancestor node)`           | false — correct, an ancestor is not a descendant |
+| C4   | `verified_binding_node_scope_ok(unrelated node)`          | false                                            |
+| C5   | `verified_principal_tenant()` — reads users + memberships | `11111111-…` — **no recursion**                  |
+| C6   | `current_tenant_id()` via full revalidation               | `11111111-…`                                     |
+| C7   | ordinary RLS read of `organization_nodes`                 | 2 rows                                           |
+
+Every step is a **positive** result. No stack exhaustion, no recursion, and C5 is the one that
+matters: the revalidation path reads `users` and `memberships` through their bootstrap policies and
+returns a real answer.
+
+### 14.3 The property C exists to preserve — measured
+
+Two connections. Alice's transaction stays open across a committed revocation on the other.
+
+|                                              |                                                               |
+| -------------------------------------------- | ------------------------------------------------------------- |
+| R1 before revocation                         | `current_tenant_id` = `11111111-…`                            |
+| R2 before revocation                         | ordinary RLS rows = **2**                                     |
+| —                                            | membership revoked and **committed** on a separate connection |
+| R3 after revocation, _same open transaction_ | `current_tenant_id` = **NULL**                                |
+| R4 after revocation, _same open transaction_ | ordinary RLS rows = **0**                                     |
+
+**Ordinary RLS observes revocation inside an already-installed transaction.** This is exactly what
+binding-only tenant context would have destroyed, and it is the reason correction 3 was right.
+
+Isolation note: the transaction runs at `READ COMMITTED`, so each statement takes a fresh snapshot
+and sees the committed revocation. Under `REPEATABLE READ` the snapshot would be fixed at first
+statement and the revocation would not be visible until the transaction ended — a property of the
+isolation level, not of this design, and one the ADR must state rather than imply.
+
+### 14.4 Negative controls
+
+| #   | Check                                                            | Result                                                                            |
+| --- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| N1  | `freightos_app` → `SET ROLE freightos_binding_owner`             | `permission denied to set role`                                                   |
+| N2  | `pg_has_role('freightos_app','freightos_binding_owner','USAGE')` | false                                                                             |
+| N3  | `freightos_app` reads `app.session_binding`                      | `permission denied for table session_binding`                                     |
+| N4  | `freightos_app` closure read with no verified context            | 0 rows — fails closed on the authoritative path                                   |
+| N5  | policy applicability per role                                    | binding owner sees only bootstrap; all five ordinary roles see only authoritative |
+
+### 14.5 Settled consequences for 0019
+
+- `organization_node_closure_read` is **narrowed from `TO PUBLIC`** to
+  `freightos_app, freightos_admin_owner, freightos_hierarchy_owner, freightos_identity_guard, freightos_migrator`.
+- `organization_node_closure_bootstrap_read` is added `TO freightos_binding_owner` only.
+- The other three closure policies (insert/update/delete) are untouched — they gate on
+  `app.is_control_plane()` and take no part in the cycle.
+- The static graph check must assert role-disjointness directly, because the runtime symptom of a
+  regression is a **backend stack overflow**, not a diagnosable error.
