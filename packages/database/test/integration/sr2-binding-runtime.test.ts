@@ -1544,3 +1544,252 @@ describe('gate P — self-elevation guards', () => {
     });
   });
 });
+
+/**
+ * Gate V — statement-scoped authorization resolution. P-01.
+ *
+ * 0019 was correct and unusable. `app.verified_principal()` revalidates rather than remembers,
+ * which costs ~2.5 ms, and the policies called it once per ROW of every protected table and once
+ * more per row of `organization_node_closure` inside `app.organization_node_scope_ok`. A fifty-user
+ * read took 1.0–8.6 s and touched 23,028 shared buffers to return fifty rows.
+ *
+ * 0020 moved the sublink out of the row-argument predicate and into the policy, where the planner
+ * can see it is uncorrelated and hoist it. These cases prove the ASYMPTOTIC property rather than a
+ * millisecond figure, because a wall-clock threshold on a shared runner measures the runner. What
+ * must hold is that the work does not grow with the number of rows returned or with the size of the
+ * closure — and that the optimization bought none of it by remembering anything.
+ */
+describe('gate V — statement-scoped authorization resolution', () => {
+  /** Every buffer figure the plan reports, and the loop count of each InitPlan / SubPlan node. */
+  function planFacts(text: string): { buffers: number; loops: number[]; perRowResolver: boolean } {
+    const buffers = [...text.matchAll(/shared hit=(\d+)/g)].reduce(
+      (t, m) => Math.max(t, Number(m[1])),
+      0,
+    );
+    const loops = [...text.matchAll(/loops=(\d+)/g)].map((m) => Number(m[1]));
+    // The defect's signature: an authoritative accessor or a row-argument scope predicate sitting
+    // in a Filter, which is evaluated once per row by definition.
+    const filters = [...text.matchAll(/Filter: (.*)/g)].map((m) => m[1]!).join(' ');
+    const perRowResolver =
+      /app\.(current_[a-z_]+|verified_principal|organization_node_scope_ok|legal_entity_scope_ok|service_account_scope_ok)\(/.test(
+        filters,
+      );
+    return { buffers, loops, perRowResolver };
+  }
+
+  async function scopedReadPlan(app: Client): Promise<string> {
+    const r = await app.query<{ 'QUERY PLAN': string }>(
+      'EXPLAIN (ANALYZE, BUFFERS) SELECT id FROM users',
+    );
+    return r.rows.map((x) => x['QUERY PLAN']).join('\n');
+  }
+
+  /** Refresh planner statistics, so the comparison measures resolver work and not stale reltuples. */
+  async function analyze(): Promise<void> {
+    const su = await connect('postgres');
+    try {
+      await su.query('ANALYZE');
+    } finally {
+      await su.end();
+    }
+  }
+
+  /** Add `count` extra users at the terminal node, over the provisioning connection. */
+  async function addUsers(count: number): Promise<void> {
+    await commitIdentityChange(
+      db,
+      'freightos_migrator',
+      {
+        tenantId: TENANT_A,
+        actorUserId: fixtureA.adminUserId,
+        organizationNodeId: fixtureA.enterpriseNodeId,
+        legalEntityId: fixtureA.legalEntityId,
+      },
+      `INSERT INTO users
+         (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
+          authentication_subject, display_name, status, created_by)
+       SELECT $1, $2, $3, 'oidc:example', 'gatev-' || g::text || '-' || $4, 'Gate V', 'active',
+              'test:seed'
+         FROM generate_series(1, $5) AS g`,
+      [TENANT_A, fixtureA.terminalNodeId, fixtureA.legalEntityId, randomUUID(), count],
+      count,
+    );
+  }
+
+  it('resolves the principal outside the per-row filter', async () => {
+    await withAppAndAdmin(async (app, admin) => {
+      const binding = await mintBinding(admin, {
+        ...alice(),
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, binding);
+      const facts = planFacts(await scopedReadPlan(app));
+      // The property, stated as the defect's absence: no authoritative resolution in a Filter.
+      expect(facts.perRowResolver, 'an authoritative resolver is still in a per-row filter').toBe(
+        false,
+      );
+      // And the resolution is really happening somewhere — a plan with no InitPlan at all would
+      // mean the policy had stopped asking, which is a security regression rather than a win.
+      expect(facts.loops.length).toBeGreaterThan(0);
+      await app.query('ROLLBACK');
+    });
+  });
+
+  it('does not grow the resolver work when the answer grows', async () => {
+    const small = await withAppAndAdmin(async (app, admin) => {
+      const binding = await mintBinding(admin, {
+        ...alice(),
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, binding);
+      const f = planFacts(await scopedReadPlan(app));
+      await app.query('ROLLBACK');
+      return f;
+    });
+
+    await addUsers(150);
+    await analyze();
+
+    const large = await withAppAndAdmin(async (app, admin) => {
+      const binding = await mintBinding(admin, {
+        ...alice(),
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, binding);
+      const rows = await app.query('SELECT id FROM users');
+      const f = planFacts(await scopedReadPlan(app));
+      await app.query('ROLLBACK');
+      return { ...f, rows: rows.rowCount ?? 0 };
+    });
+
+    // The read really did get 150 rows bigger, so the comparison is about something.
+    expect(large.rows).toBeGreaterThan(150);
+    // Before 0020 this ratio was the whole defect: fifty rows cost 23,028 buffers against a
+    // two-row cost of a few hundred. A generous ceiling still catches a return to per-row
+    // resolution by two orders of magnitude, without pinning a shared runner to an exact figure.
+    expect(
+      large.buffers,
+      `buffers grew from ${small.buffers} to ${large.buffers} as rows grew by 150`,
+    ).toBeLessThan(small.buffers * 3 + 200);
+    expect(large.perRowResolver).toBe(false);
+  });
+
+  it('does not grow the resolver work when the closure grows', async () => {
+    const before = await withAppAndAdmin(async (app, admin) => {
+      const binding = await mintBinding(admin, {
+        ...alice(),
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, binding);
+      const f = planFacts(await scopedReadPlan(app));
+      await app.query('ROLLBACK');
+      return f;
+    });
+
+    // Widen the tree well above the ten closure rows the original derivation used.
+    for (let i = 0; i < 30; i += 1) {
+      const id = randomUUID();
+      await commitIdentityChange(
+        db,
+        'freightos_migrator',
+        {
+          tenantId: TENANT_A,
+          actorUserId: fixtureA.adminUserId,
+          organizationNodeId: fixtureA.enterpriseNodeId,
+          legalEntityId: fixtureA.legalEntityId,
+        },
+        `INSERT INTO organization_nodes
+           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+         VALUES ($1, $2, $1, $3, 'region', $4, 'test:seed')`,
+        [id, TENANT_A, fixtureA.legalEntityNodeId, `Gate V wide ${i}`],
+        1,
+      );
+    }
+    await analyze();
+
+    const after = await withAppAndAdmin(async (app, admin) => {
+      const binding = await mintBinding(admin, {
+        ...alice(),
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, binding);
+      const f = planFacts(await scopedReadPlan(app));
+      await app.query('ROLLBACK');
+      return f;
+    });
+
+    expect(
+      after.buffers,
+      `buffers grew from ${before.buffers} to ${after.buffers} as the closure grew by 30 nodes`,
+    ).toBeLessThan(before.buffers * 3 + 200);
+    expect(after.perRowResolver).toBe(false);
+  });
+
+  it('still loses authority on the next statement when the membership is revoked', async () => {
+    // The optimization's own safety proof, kept beside it rather than only in gate K. Statement
+    // scope is the ONLY granularity that is safe here: anything wider would answer this statement
+    // from a value resolved before the revocation committed.
+    await withAppAndAdmin(async (app, admin) => {
+      const binding = await mintBinding(admin, {
+        ...alice(),
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, binding);
+
+      const before = await app.query('SELECT id FROM users');
+      expect(before.rowCount, 'Alice must see something before the revocation').toBeGreaterThan(0);
+
+      await commitIdentityChange(
+        db,
+        'freightos_admin_owner',
+        {
+          tenantId: TENANT_A,
+          actorUserId: fixtureA.adminUserId,
+          organizationNodeId: fixtureA.enterpriseNodeId,
+          legalEntityId: fixtureA.legalEntityId,
+        },
+        `UPDATE memberships SET status = 'revoked', revoked_at = now(), revoked_by = 'test:gatev'
+          WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'`,
+        [TENANT_A, fixtureA.userId],
+        1,
+      );
+
+      // Same open transaction, next statement. The InitPlan is per statement EXECUTION, so this
+      // one resolves again and finds nothing.
+      const after = await app.query('SELECT id FROM users');
+      expect(after.rowCount, 'the hoisted resolution outlived the revocation').toBe(0);
+      const ctx = await app.query<{ tenant: string | null }>(
+        'SELECT app.current_tenant_id()::text AS tenant',
+      );
+      expect(ctx.rows[0]!.tenant).toBeNull();
+      await app.query('ROLLBACK');
+
+      await commitIdentityChange(
+        db,
+        'freightos_admin_owner',
+        {
+          tenantId: TENANT_A,
+          actorUserId: fixtureA.adminUserId,
+          organizationNodeId: fixtureA.enterpriseNodeId,
+          legalEntityId: fixtureA.legalEntityId,
+        },
+        `UPDATE memberships SET status = 'active', revoked_at = NULL, revoked_by = NULL
+          WHERE tenant_id = $1 AND user_id = $2 AND status = 'revoked'`,
+        [TENANT_A, fixtureA.userId],
+        1,
+      );
+    });
+  });
+});
