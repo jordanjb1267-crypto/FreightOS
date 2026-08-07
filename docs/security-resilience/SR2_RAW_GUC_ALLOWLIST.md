@@ -21,9 +21,12 @@ set, and the test files permitted to contain a raw write at all.
 `SET LOCAL app.…`, across `packages/` and `scripts/`, excluding `node_modules`. Comments and prose
 are excluded — the enumeration below is code. Three prose matches were checked and discarded:
 `packages/database/migrations/0007_organization_hierarchy.up.sql:976`,
-`packages/database/test/integration/authorization-boundary.test.ts:22` and
-`packages/database/test/integration/identity-rls.test.ts:872`, each quoting the F-05 escalation it
-describes.
+`packages/database/test/integration/authorization-boundary.test.ts:22` and the F-05 block comment in
+`identity-rls.test.ts`, each quoting the escalation it describes.
+
+Line numbers were recomputed against the current head after migrations 0020 and 0021 moved the test
+bodies; the fence in `sr2-production-boundaries.test.ts` fixes the FILE set, which is what cannot
+drift.
 
 ---
 
@@ -100,22 +103,29 @@ on itself and this write can only ever be the attack.
 
 ### 3d. Claims layered on live verified sessions, with in-scope positive peers
 
-| File                                                            | Lines                             | Disposition                                                             |
-| --------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------- |
-| `packages/database/test/integration/identity-rls.test.ts`       | 402, 540, 541, 962, 963, 964, 967 | **PERMITTED — attack over a real binding, or privileged setup**         |
-| `packages/database/test/integration/identity-lifecycle.test.ts` | 466, 477                          | **PERMITTED — attack over a real binding, and over an unbound session** |
+| File                                                            | Lines                              | Disposition                                                             |
+| --------------------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| `packages/database/test/integration/identity-rls.test.ts`       | 402, 540, 541, 995, 996, 997, 1000 | **PERMITTED — attack over a real binding, or privileged setup**         |
+| `packages/database/test/integration/identity-lifecycle.test.ts` | 466, 477                           | **PERMITTED — attack over a real binding, and over an unbound session** |
 
 - `identity-rls.test.ts:402` is an actor name on a **`postgres`** connection, so that the F-01
   self-elevation guard is satisfied and the foreign key is what has to hold. Not a runtime session.
 - `identity-rls.test.ts:540–541` claim a foreign tenant and a foreign node on top of the terminal
   member's live binding, and assert the resolved node and tenant are unchanged.
-- `identity-rls.test.ts:962–967` claim system context, `software_only`, an ancestor node and a
+- `identity-rls.test.ts:995–1000` claim system context, `software_only`, an ancestor node and a
   sibling branch's legal entity on top of the same live binding. The assertion includes
   `own_node_ok = true` in the same statement, so the three falses are refusals rather than silence.
 - `identity-lifecycle.test.ts:466` claims a different user's actor id over the administrator's
   binding and asserts `app.current_user_id()` returns the administrator.
 - `identity-lifecycle.test.ts:477` claims three actor strings over an unbound session and asserts
   every one resolves to NULL.
+
+### 3e. Forged claims through the harness, not open-coded
+
+`sr2-binding-runtime.test.ts` layers forged operating-context, legal-authority, actor, node, entity
+and tenant claims on live bindings throughout gates G, H, O and W, and appears nowhere above. It
+reaches them through `forgeLegacyClaims` in `sr2-harness.ts`, which is already on the list at 3a.
+That is the pattern a new adversarial case should follow: the attack primitive is reviewed once.
 
 ## 4. What is deliberately absent
 
