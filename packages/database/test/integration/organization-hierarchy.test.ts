@@ -8,9 +8,20 @@ import {
 } from '@freightos/identity';
 import { withLegalContext } from '../../src/session.ts';
 import type { Queryable } from '../../src/session.ts';
-import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
+import {
+  fixtureAdministrator,
+  withAuthenticatedTestPrincipal,
+  withLeasedRuntime,
+  type TestRuntimeLease,
+} from './verified-test-auth.ts';
+import { installBinding } from './sr2-harness.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
-import { seedIdentity, systemContextAt, type IdentityFixture } from './identity-harness.ts';
+import {
+  seedIdentity,
+  systemContext,
+  systemContextAt,
+  type IdentityFixture,
+} from './identity-harness.ts';
 
 /**
  * Four-level hierarchy traversal, closure maintenance, cycle and depth rejection, and policy
@@ -424,21 +435,85 @@ describe('policy inheritance', () => {
     );
   }
 
-  it('binds a control at the enterprise root with a null legal entity', async () => {
-    const id = await asVerifiedAdministrator(async (c) => {
-      const r = await bind(
-        c as Client,
-        a.enterpriseNodeId,
-        null,
-        'data_residency',
-        'eu_only',
-        5,
-        'residency',
-        'inherited',
-      );
-      return r.rows[0]!.id;
-    });
-    expect(id).toBeTruthy();
+  /**
+   * Declare a binding through the PRIVILEGED control-plane path — SR-2, Plane B.
+   *
+   * Everything at or below the legal entity is bound by the verified administrator through `bind`.
+   * The enterprise root cannot be: `policy_bindings_insert` gates on
+   * `app.organization_node_scope_ok(organization_node_id)`, and the root sits ABOVE the legal
+   * entity that `assert_governing_legal_entity` requires every human membership to name. No runtime
+   * principal in this schema holds it.
+   *
+   * Who MAY legitimately declare an enterprise-wide control is
+   * `TENANT_ROOT_POLICY_AUTHORITY=REQUIRED_BY_HANDOFF_AND_UNIMPLEMENTED`. This function is not an
+   * answer to that question and must not be read as one. It puts the world into the state the
+   * inheritance and non-weakening assertions need; it proves nothing whatever about product
+   * declaration authority. Every assertion below runs under the verified runtime administrator.
+   */
+  async function bindPrivileged(
+    nodeId: string,
+    legalEntityId: string | null,
+    controlKey: string,
+    controlValue: string,
+    restrictiveness: number,
+    protectedCategory: string | null,
+    direction = 'local_override',
+  ) {
+    return withLegalContext(
+      admin,
+      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
+      (c) =>
+        bind(
+          c as Client,
+          nodeId,
+          legalEntityId,
+          controlKey,
+          controlValue,
+          restrictiveness,
+          protectedCategory,
+          direction,
+        ),
+    );
+  }
+
+  it('refuses an enterprise-root binding from a legal-entity administrator, and takes it from the control plane', async () => {
+    // Declaration authority and application scope are separate questions, and this case only ever
+    // answered the first by accident. WHERE the control applies is settled by the handoff:
+    // `04_ENTERPRISE_SCALE_AND_TENANCY:20` has enterprise-minimum controls inheriting downward,
+    // :22 has every effective policy recording its inherited source, and :53 lists enterprise-wide
+    // policy updates. WHO may declare it is not settled at all — every human membership is anchored
+    // under a legal entity, the enterprise root is above that boundary, and policy_bindings_insert
+    // asks for node scope. So the verified administrator is refused, and refused for that reason.
+    //
+    // TENANT_ROOT_POLICY_AUTHORITY=REQUIRED_BY_HANDOFF_AND_UNIMPLEMENTED. When the capability lands
+    // this assertion inverts: whoever holds it declares the control here and the control-plane
+    // fixture below becomes unnecessary. Until then SR-2 records the gap rather than papering it.
+    await expect(
+      asVerifiedAdministrator((c) =>
+        bind(
+          c as Client,
+          a.enterpriseNodeId,
+          null,
+          'data_residency',
+          'eu_only',
+          5,
+          'residency',
+          'inherited',
+        ),
+      ),
+    ).rejects.toThrow(/row-level security policy for table "policy_bindings"/);
+
+    // The row every case below needs. Its existence is fixture, not the assertion.
+    const r = await bindPrivileged(
+      a.enterpriseNodeId,
+      null,
+      'data_residency',
+      'eu_only',
+      5,
+      'residency',
+      'inherited',
+    );
+    expect(r.rows[0]!.id).toBeTruthy();
   });
 
   it('refuses a root binding that names a legal entity nothing governs', async () => {
@@ -528,18 +603,16 @@ describe('policy inheritance', () => {
       'approval',
     ];
     for (const category of categories) {
-      await asVerifiedAdministrator(async (c) => {
-        await bind(
-          c as Client,
-          a.enterpriseNodeId,
-          null,
-          `c_${category}`,
-          'strict',
-          9,
-          category,
-          'inherited',
-        );
-      });
+      // Fixture: the root control has to exist before a descendant can be refused for weakening it.
+      await bindPrivileged(
+        a.enterpriseNodeId,
+        null,
+        `c_${category}`,
+        'strict',
+        9,
+        category,
+        'inherited',
+      );
 
       await expect(
         asVerifiedAdministrator(async (c) => {
@@ -559,9 +632,8 @@ describe('policy inheritance', () => {
   });
 
   it('permits weakening an unprotected control', async () => {
-    await asVerifiedAdministrator(async (c) => {
-      await bind(c as Client, a.enterpriseNodeId, null, 'verbosity', 'high', 9, null, 'inherited');
-    });
+    // Fixture again: the root declaration is the precondition, the region binding is the assertion.
+    await bindPrivileged(a.enterpriseNodeId, null, 'verbosity', 'high', 9, null, 'inherited');
     const id = await asVerifiedAdministrator(async (c) => {
       const r = await bind(
         c as Client,
@@ -590,14 +662,19 @@ describe('policy inheritance', () => {
   });
 
   it('ignores a revoked binding', async () => {
-    await asVerifiedAdministrator(async (c) => {
-      await c.query(
+    const revoked = await asVerifiedAdministrator(async (c) => {
+      const r = await c.query(
         `UPDATE policy_bindings
             SET status = 'revoked', revoked_at = now(), revoked_by = 'test:operator'
           WHERE control_key = 'data_residency' AND organization_node_id = $1`,
         [a.terminalNodeId],
       );
+      return r.rowCount;
     });
+    // RLS narrows an UPDATE to the rows the caller can see rather than refusing it, so a revocation
+    // that reached nothing looks exactly like one that worked. The terminal binding was created by
+    // `lets a child tighten a protected control` above; it is one row, and it has to be that row.
+    expect(revoked).toBe(1);
 
     const resolved = await asVerifiedAdministrator(async (c) => {
       const r = await c.query<{ control_value: string; source_node_id: string }>(
@@ -911,32 +988,27 @@ describe('concurrent hierarchy mutation — F-03', () => {
   }
 
   /**
-   * An independent RUNTIME session, for the concurrency cases that write organization_nodes
-   * directly rather than moving an existing node. The administrative connection cannot serve these:
-   * ADR-0020 §7 gives it no USAGE on public, so a domain table is not even nameable from it.
+   * Put a leased RUNTIME connection into its own open verified transaction — SR-2.
+   *
+   * The concurrency cases that write organization_nodes directly need two transactions open at
+   * once, so they cannot go through `withAuthenticatedTestPrincipal`: that helper owns BEGIN and
+   * COMMIT. They take the same production path one step lower down instead — mint against this
+   * connection's own backend over the control-plane connection, BEGIN at READ COMMITTED, install —
+   * and drive the rest statement by statement. The administrative connection cannot serve these
+   * either: ADR-0020 §7 gives it no USAGE on public, so a domain table is not even nameable from it.
+   *
+   * What this replaces mattered. The previous version wrote app.tenant_id and app.actor_id with
+   * set_config on a freightos_app connection and called the result identity. After 0019 the runtime
+   * role does not read those GUCs at all, so the session had no tenant and the insert was refused by
+   * RLS long before it could reach the constraint the test is about — a missing-identity failure
+   * wearing a concurrency failure's clothes.
    */
-  async function openRuntimeSession() {
-    const client = db.connectAs('freightos_app');
-    await client.connect();
-    await client.query('BEGIN');
-    const context = adminContext();
-    await client.query(
-      `SELECT set_config('app.tenant_id', $1, true),
-              set_config('app.actor_id', $2, true),
-              set_config('app.legal_authority_class', $3, true),
-              set_config('app.operating_context', $4, true),
-              set_config('app.legal_entity_id', $5, true),
-              set_config('app.organization_node_id', $6, true)`,
-      [
-        context.tenantId,
-        context.actorId,
-        context.legalAuthorityClass,
-        context.operatingContext,
-        context.legalEntityId ?? '',
-        context.organizationNodeId ?? '',
-      ],
-    );
-    return client;
+  async function beginVerified(lease: TestRuntimeLease): Promise<Client> {
+    const binding = await lease.mint(fixtureAdministrator(a));
+    await lease.client.query('BEGIN');
+    await lease.client.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+    await installBinding(lease.client, binding);
+    return lease.client;
   }
 
   const move = (client: Client, nodeId: string, parentId: string) =>
@@ -1046,10 +1118,11 @@ describe('concurrent hierarchy mutation — F-03', () => {
   });
 
   it('lets only one of two concurrent roots exist for a tenant', async () => {
-    // Runtime sessions: this case writes organization_nodes directly rather than moving a node,
-    // and creating a node is still the runtime role's job — only repositioning one was taken away.
-    const one = await openRuntimeSession();
-    const two = await openRuntimeSession();
+    // Both actors are runtime, and both hold real verified sessions. That is not a formality here:
+    // organization_nodes_insert gates on tenant alone, so a verified principal of TENANT_A may
+    // legitimately ATTEMPT this insert and reach the constraint. What refuses it is
+    // organization_nodes_one_root_per_tenant, a unique index — evaluated after the RLS WITH CHECK,
+    // which is exactly why the session has to be legitimate for the assertion to mean anything.
     const insertRoot = (client: Client) => {
       const id = randomUUID();
       return client.query(
@@ -1059,54 +1132,54 @@ describe('concurrent hierarchy mutation — F-03', () => {
         [id, TENANT_A, `F-03 root ${id.slice(0, 8)}`],
       );
     };
-    try {
-      // The tenant already has a root, so both of these must fail — the point is that they fail on
-      // the constraint rather than deadlocking or leaving one through.
-      await expect(insertRoot(one)).rejects.toThrow(/one_root_per_tenant/);
-      await one.query('ROLLBACK');
-      await expect(insertRoot(two)).rejects.toThrow(/one_root_per_tenant/);
-    } finally {
-      await one.query('ROLLBACK').catch(() => undefined);
-      await two.query('ROLLBACK').catch(() => undefined);
-      await one.end();
-      await two.end();
-    }
+    await withLeasedRuntime(db, async (first) =>
+      withLeasedRuntime(db, async (second) => {
+        const one = await beginVerified(first);
+        const two = await beginVerified(second);
+        // The tenant already has a root, so both of these must fail — the point is that they fail
+        // on the constraint rather than deadlocking or leaving one through.
+        await expect(insertRoot(one)).rejects.toThrow(/one_root_per_tenant/);
+        await one.query('ROLLBACK');
+        await expect(insertRoot(two)).rejects.toThrow(/one_root_per_tenant/);
+        await two.query('ROLLBACK');
+      }),
+    );
   });
 
   it('does not let two tenants block each other', async () => {
     // The lock is derived from the tenant id, so it has to be a different lock for a different
     // tenant. A single global hierarchy lock would pass every test above and serialise the whole
     // platform, which is why this one exists.
-    const other = db.connectAs('freightos_app');
-    await other.connect();
+    //
+    // TENANT_B's actor is deliberately NOT a runtime principal, and modelling it as one would be a
+    // lie. A tenant's first enterprise root is the row every membership is eventually anchored to,
+    // so there is nobody in TENANT_B for a binding to name and nothing for a mint to verify against.
+    // Creating it is provisioning — the same migrator path `seedIdentity` uses for exactly the same
+    // reason — and this says so rather than dressing it up. PROVISIONING_TRUST_BOUNDARY=UNRESOLVED.
+    const provisioner = db.connectAsMigrator();
+    await provisioner.connect();
     const mine = await openSession();
     try {
       await move(mine, (await branchPair()).left, a.legalEntityNodeId);
 
-      await other.query('BEGIN');
-      await other.query(
-        `SELECT set_config('app.tenant_id', $1, true),
-                set_config('app.actor_id', 'test:b', true),
-                set_config('app.legal_authority_class', 'software_only', true),
-                set_config('app.operating_context', 'system', true)`,
-        [TENANT_B],
-      );
       const id = randomUUID();
-      const insert = other.query(
-        `INSERT INTO organization_nodes
-           (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
-         VALUES ($1, $2, $1, NULL, 'enterprise', 'F-03 other tenant', 'test')`,
-        [id, TENANT_B],
+      const insert = withLegalContext(provisioner, systemContext(TENANT_B, 'test:b'), (c) =>
+        (c as Client).query(
+          `INSERT INTO organization_nodes
+             (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+           VALUES ($1, $2, $1, NULL, 'enterprise', 'F-03 other tenant', 'test')`,
+          [id, TENANT_B],
+        ),
       );
       // TENANT_B has no root in this database, so this succeeds — and it has to succeed WHILE the
-      // TENANT_A transaction is still open, which is the whole assertion.
+      // TENANT_A transaction is still open, which is the whole assertion. It commits, where the
+      // GUC version rolled back: the provisioning really happened, and every assertion after this
+      // one is TENANT_A-scoped, so a committed TENANT_B root is invisible to all of them.
       await expect(insert).resolves.toBeTruthy();
-      await other.query('ROLLBACK');
     } finally {
       await mine.query('ROLLBACK').catch(() => undefined);
-      await other.query('ROLLBACK').catch(() => undefined);
       await mine.end();
-      await other.end();
+      await provisioner.end();
     }
   });
 
