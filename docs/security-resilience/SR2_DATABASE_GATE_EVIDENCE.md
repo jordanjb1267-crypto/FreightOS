@@ -469,10 +469,26 @@ honest resolutions and they are not equivalent:
 2. **Accept the narrower scope and update the expectations**, recording for each changed assertion
    why the old one represented invalid production semantics.
 
-(1) is the better answer for most of these cases, because the tests are about hierarchy traversal
-from the root and that is a real administrative shape. Some cases will still need (2), where the
-old expectation genuinely rested on reach the membership never conferred.
+**Measured: resolution (1) is impossible, so (2) is forced.** The database refuses the grant
+outright.
 
-Neither is a matter of loosening the database, and neither has been applied yet. `identity-rls`
+```
+freightos_admin=> SELECT outcome, message FROM admin.grant_membership(
+                    <tenant A>, <administrator>, <enterprise node>, <legal entity>, ...);
+denied | legal entity 3dd07250-... does not govern organization node ee4a8053-...
+```
+
+`memberships` carries an `assert_governing_legal_entity` trigger, and the enterprise root sits
+above the legal-entity boundary by construction. There is no membership that would justify the node
+the fixture was claiming — which is a stronger statement than "the fixture claimed too much". It
+claimed something the identity model has never permitted anyone to hold, and only the caller-set GUC
+made it appear to work.
+
+So the administrator's authority is genuinely narrower than 49 context establishments assumed, and
+the expectations must move. Each changed assertion owes the same sentence: the old expectation
+rested on reach no membership conferred, which is invalid production semantics rather than a
+tightening introduced by SR-2.
+
+This is not a matter of loosening the database, and it has not been applied yet. `identity-rls`
 (16), `identity-lifecycle` (13) and `authority-remediation` (7) are expected to share this root
 cause, since they use the same fixture and the same enterprise-node context.
