@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withLegalContext } from '../../src/session.ts';
+import type { Queryable } from '../../src/session.ts';
+import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
 import {
   PR2_TABLES,
@@ -163,8 +165,24 @@ describe('every PR 2 table is RLS-protected', () => {
  * security so that the constraint or trigger under test is what refuses it.
  */
 function adminContext() {
-  return systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`);
+  // SR-2 CLASS 1 — fixture correction. This named a.enterpriseNodeId, which no membership can
+  // carry: assert_governing_legal_entity requires a node the legal entity governs and the
+  // enterprise root sits above that boundary. The corrected scope is the administrator's real
+  // legal-entity-governed node. Every write this context exists to get past RLS for is beneath it.
+  return systemContextAt(TENANT_A, a.legalEntityNodeId, a.legalEntityId, `user:${a.adminUserId}`);
 }
+
+/**
+ * A legitimate verified session for the seeded tenant-A administrator.
+ *
+ * Reads that assert RLS behaviour run through this: the point of the suite is what
+ * `freightos_app` can see, and after 0019 that is decided by the installed binding rather than by
+ * anything the session writes into a GUC. Cross-tenant attacks below still start here and then
+ * reach for foreign data — an attack built by setting tenant GUC = B would no longer be an attack
+ * at all, because the database does not read it.
+ */
+const asVerifiedAdministrator = <T>(work: (c: Queryable) => Promise<T>): Promise<T> =>
+  withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), work);
 
 describe('cross-tenant isolation', () => {
   it('shows a tenant only its own organization nodes', async () => {
@@ -462,7 +480,7 @@ describe('organization-node and legal-entity must agree', () => {
 
   it('rejects a user naming a node governed by a different legal entity', async () => {
     // Seed a second legal entity under a sibling branch, then point a user at the wrong one.
-    const secondEntity = await withLegalContext(app, adminContext(), async (c) => {
+    const secondEntity = await asVerifiedAdministrator(async (c) => {
       const nodeId = randomUUID();
       await c.query(
         `INSERT INTO organization_nodes
@@ -482,7 +500,7 @@ describe('organization-node and legal-entity must agree', () => {
     });
 
     await expect(
-      withLegalContext(app, adminContext(), async (c) => {
+      asVerifiedAdministrator(async (c) => {
         await c.query(
           `INSERT INTO users
              (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
@@ -495,7 +513,7 @@ describe('organization-node and legal-entity must agree', () => {
   });
 
   it('accepts the write when the node and the legal entity agree', async () => {
-    const id = await withLegalContext(app, adminContext(), async (c) => {
+    const id = await asVerifiedAdministrator(async (c) => {
       const r = await c.query<{ id: string }>(
         `INSERT INTO users
            (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
@@ -730,7 +748,7 @@ describe('operating context is not a credential — F-05', () => {
   it('does not let a system session reach another legal entity in its own tenant', async () => {
     // Scoped at the enterprise node and holding entity A, asking about a second entity B that the
     // same tenant owns. Node scope covers it; legal-entity scope must not.
-    const second = await withLegalContext(app, adminContext(), async (c) => {
+    const second = await asVerifiedAdministrator(async (c) => {
       const nodeId = randomUUID();
       await (c as Client).query(
         `INSERT INTO organization_nodes
