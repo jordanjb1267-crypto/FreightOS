@@ -280,3 +280,21 @@ Safety boundary:
 - No agent, MCP tool, approval, or feature flag can grant FreightOS physical-motion authority.
 
 Implementation proceeds through Facility Connectivity, Facility Copilot, Facility Automation, AV Shadow, Supervised Missions, Autonomous Corridors, and the Closed-Loop Physical Freight Network.
+
+## Security, Privacy, Resilience, and Autonomous Repair Control Package
+
+The controlling requirements for FreightOS security, privacy, tenant isolation, zero-trust identity and authorization, reliability, disaster recovery, secure software delivery, incident response, AI-agent authority, and bounded autonomous remediation are located at:
+
+`docs/production-handoff/v1.3.0-security-resilience/`
+
+This package is additive. Where a prior implementation preference conflicts with a non-regression requirement in that package, the stricter security, privacy, reliability, resilience, or authority requirement controls. Major architecture or product-scope conflicts must be escalated and documented rather than resolved silently.
+
+## FreightOS Network Architecture Control Package
+
+The controlling architecture for the FreightOS logistics coordination network is located at:
+
+`docs/production-handoff/v1.4.0-network-architecture/`
+
+This package defines the network participant identity graph, canonical logistics domain model, universal event language, intent and command protocol, interoperability standards, API and developer platform, agent-to-agent coordination, chain of custody, transaction truth, marketplace discovery, multimodal expansion, network governance, conformance, and implementation sequencing.
+
+This package is additive to the existing FreightOS production handoff and the v1.3.0 security, privacy, and resilience control package. It must not weaken any security, privacy, tenant-isolation, resilience, authority, or non-regression requirement. Any conflict must be escalated and documented rather than silently resolved.

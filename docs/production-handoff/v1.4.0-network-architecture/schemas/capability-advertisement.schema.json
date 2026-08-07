@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.freightos.example/network/capability-advertisement.v1.json",
+  "title": "Capability Advertisement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "advertisement_id",
+    "provider_id",
+    "capability_type",
+    "valid_from",
+    "valid_until",
+    "verification_status"
+  ],
+  "properties": {
+    "advertisement_id": {
+      "type": "string"
+    },
+    "provider_id": {
+      "type": "string"
+    },
+    "capability_type": {
+      "type": "string"
+    },
+    "service_area": {
+      "type": "object"
+    },
+    "constraints": {
+      "type": "object"
+    },
+    "availability": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "valid_from": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "valid_until": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "verification_status": {
+      "enum": [
+        "unverified",
+        "self_asserted",
+        "verified",
+        "suspended"
+      ]
+    },
+    "terms_ref": {
+      "type": "string"
+    }
+  }
+}

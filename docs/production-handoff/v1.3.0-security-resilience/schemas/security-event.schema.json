@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.internal/schemas/security-event.v1.json",
+  "title": "FreightOS Security Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_type", "occurred_at", "principal", "action", "outcome", "correlation_id"],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 16},
+    "event_type": {"type": "string", "minLength": 3},
+    "schema_version": {"const": 1},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "received_at": {"type": "string", "format": "date-time"},
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal_id", "principal_type"],
+      "properties": {
+        "principal_id": {"type": "string"},
+        "principal_type": {"enum": ["human", "service", "workload", "device", "integration", "agent"]},
+        "organization_id": {"type": "string"},
+        "session_id": {"type": "string"}
+      }
+    },
+    "action": {"type": "string"},
+    "resource_type": {"type": "string"},
+    "resource_id": {"type": "string"},
+    "outcome": {"enum": ["allowed", "denied", "succeeded", "failed", "contained", "rolled_back"]},
+    "reason_code": {"type": "string"},
+    "policy_id": {"type": "string"},
+    "policy_version": {"type": ["string", "integer"]},
+    "cell_id": {"type": "string"},
+    "correlation_id": {"type": "string"},
+    "causation_id": {"type": "string"},
+    "risk_level": {"enum": ["R0", "R1", "R2", "R3", "R4"]},
+    "classification": {"enum": ["D0", "D1", "D2", "D3", "D4", "D5"]},
+    "metadata": {"type": "object"}
+  }
+}

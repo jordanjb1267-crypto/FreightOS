@@ -1,0 +1,24 @@
+version: 1
+policy_id: freightos.network.event-classification
+classes:
+  observed:
+    may_change_state: true
+    provenance_required: true
+  asserted:
+    may_change_state: conditional
+    verification_state_required: true
+  verified:
+    may_change_state: true
+    verification_evidence_required: true
+  derived:
+    model_or_rule_version_required: true
+    source_events_required: true
+  predicted:
+    confidence_required: true
+    expires_required: true
+  correction:
+    original_event_reference_required: true
+    reason_required: true
+  dispute:
+    contested_reference_required: true
+    resolution_workflow_required: true

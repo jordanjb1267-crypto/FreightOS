@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.freightos.example/network/event-envelope.v1.json",
+  "title": "FreightOS Network Event Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "specversion",
+    "id",
+    "type",
+    "source",
+    "subject",
+    "time",
+    "recorded_at",
+    "organization_id",
+    "classification",
+    "schema_ref",
+    "data"
+  ],
+  "properties": {
+    "specversion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "subject": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "logistics-object-reference.v1.json"
+      }
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "organization_id": {
+      "type": "string"
+    },
+    "classification": {
+      "type": "string"
+    },
+    "schema_ref": {
+      "type": "string"
+    },
+    "correlation_id": {
+      "type": "string"
+    },
+    "causation_id": {
+      "type": "string"
+    },
+    "workflow_id": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "event_class": {
+      "enum": [
+        "observed",
+        "asserted",
+        "verified",
+        "derived",
+        "predicted",
+        "command_result",
+        "correction",
+        "dispute"
+      ]
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "data": {}
+  }
+}

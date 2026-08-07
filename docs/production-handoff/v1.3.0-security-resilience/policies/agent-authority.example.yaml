@@ -1,0 +1,39 @@
+version: 1
+agent_id: example.facility-reschedule-recommender
+owner: operations-platform
+mode: recommend_only
+purpose: propose lower-risk appointment alternatives when delay risk is detected
+scope:
+  organizations: explicit_assignment_only
+  data_classification_ceiling: D3
+  resources:
+    - shipment
+    - stop
+    - appointment
+    - facility_public_operational_profile
+allowed_tools:
+  - get_authorized_shipment_context
+  - get_facility_slots
+  - calculate_operational_impact
+  - create_reschedule_proposal
+prohibited_tools:
+  - modify_roles
+  - change_payment_destination
+  - execute_shell
+  - query_arbitrary_database
+  - send_unapproved_external_message
+limits:
+  max_proposals_per_shipment_per_hour: 3
+  proposal_expiration_minutes: 30
+approval:
+  required_for_external_execution: true
+  permitted_approver_roles:
+    - authorized_dispatcher
+    - shipper_operations_manager
+audit:
+  record_prompt_version: true
+  record_model_version: true
+  record_evidence_references: true
+kill_switch:
+  independent_of_model: true
+  default_state_on_policy_error: disabled

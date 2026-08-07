@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.freightos.example/network/workflow-state.v1.json",
+  "title": "Workflow State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workflow_id",
+    "workflow_type",
+    "state",
+    "version",
+    "participants",
+    "updated_at"
+  ],
+  "properties": {
+    "workflow_id": {
+      "type": "string"
+    },
+    "workflow_type": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "subject_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "logistics-object-reference.v1.json"
+      }
+    },
+    "deadline": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_event_id": {
+      "type": "string"
+    },
+    "open_exceptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.freightos.example/network/logistics-object-reference.v1.json",
+  "title": "Logistics Object Reference",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "network_id",
+    "object_type"
+  ],
+  "properties": {
+    "network_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "object_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": [
+        "integer",
+        "string"
+      ]
+    },
+    "external_aliases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "issuer",
+          "value"
+        ],
+        "properties": {
+          "issuer": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}
