@@ -565,3 +565,40 @@ gated.
 
 `PROVISIONING_TRUST_BOUNDARY=UNRESOLVED` is unchanged and remains genuinely open. The two are
 distinct and are not conflated here.
+
+### Correction: Category B is not independent of the enterprise-node question
+
+I reported that Category B (identity-lifecycle 13, authority-remediation 4, identity-rls 2) could be
+migrated in parallel with the Category A ruling. That was wrong, and the correction matters because
+it was offered as work that could proceed without a decision.
+
+Every remaining failing suite routes its administrator context through the enterprise node:
+
+```
+identity-lifecycle      enterpriseNodeId x3
+identity-rls            enterpriseNodeId x11
+authority-remediation   enterpriseNodeId x11
+authorization-boundary  enterpriseNodeId x6
+organization-hierarchy  enterpriseNodeId x24
+```
+
+`identity-lifecycle`'s helper is representative:
+
+```ts
+return systemContextAt(
+  TENANT_A,
+  a.enterpriseNodeId,
+  a.legalEntityId,
+  actorId ?? `user:${a.adminUserId}`,
+);
+```
+
+Its 12 `expected false to be true` failures are permission-chain reads through that context, so they
+share the root cause rather than being a separate missing-tenant-context family. There is no subset
+of the 76 that can be migrated without first deciding whether narrowing to the legal-entity node is
+a legitimate fixture correction or a silent removal of mandated coverage.
+
+Some of these are likely A1 in the owner's taxonomy — a permission chain attached to a membership at
+the legal-entity node does not need enterprise reach to be exercised — but which ones are A1 and
+which are A2 cannot be settled before the ruling, because A2's disposition depends on whether the
+capability is deferrable at all.
