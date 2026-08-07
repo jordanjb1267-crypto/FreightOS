@@ -358,3 +358,67 @@ Explicitly, against the stop conditions:
 5. **`app.actor_id` disposition.** Becomes non-authoritative compatibility metadata for non-runtime
    roles; no security-sensitive consumer reads it once a binding is installed. A static checker will
    enforce that no security-sensitive function reads the raw GUC.
+
+---
+
+## 11. Correction 2 — the resolver must be split in two, or RLS recurses
+
+Found while capturing rollback truth, before any of 0019 was written.
+
+`users_read` and `memberships_read` are both:
+
+```
+(app.is_control_plane() OR tenant_id = app.current_tenant_id())
+AND app.organization_node_scope_ok(organization_node_id)
+```
+
+The accepted design had **one** resolver: `app.verified_principal()` reads `app.session_binding`
+_and_ revalidates against `users`/`memberships`, and `app.current_tenant_id()` calls it.
+
+That is a cycle:
+
+```
+app.current_tenant_id()
+  → app.verified_principal()
+      → SELECT FROM users
+          → users_read policy
+              → app.current_tenant_id()          ← recursion
+```
+
+PostgreSQL would either raise _infinite recursion detected in policy for relation "users"_ or, worse
+under some plans, evaluate to something unhelpful. Either way it is a control that does not work,
+discovered before it shipped rather than after.
+
+**Corrected inventory: two layers, and the split is load-bearing rather than cosmetic.**
+
+| Function                         | Reads                                                             | Called by                                                                                          | Recursion risk                                                                                            |
+| -------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `app.verified_binding_context()` | **`app.session_binding` only**                                    | `current_tenant_id`, `current_organization_node_id`, `current_legal_entity_id`, `current_actor_id` | none — `session_binding`'s policy is `pg_has_role(...)` and calls no accessor                             |
+| `app.verified_principal()`       | binding context **+** `users`/`memberships` for live revalidation | `current_user_id`, `current_human_principal`, provenance and authorization consumers               | none — the tables it reads re-enter only `current_tenant_id()`, which now terminates in `session_binding` |
+
+Reading `users` therefore re-enters `app.current_tenant_id()` exactly once, which resolves from
+`session_binding` and returns. The cycle is cut at the only place it could have formed.
+
+A useful consequence: because `current_tenant_id()` and `current_organization_node_id()` now return
+the _bound_ tenant and node, the revalidation inside `app.verified_principal()` reads `users` and
+`memberships` through RLS **already scoped to the verified binding**. The revalidation cannot see
+outside the scope it is revalidating.
+
+### 11.1 Pre-existing observation on merged `main` — not an SR-2 blocker
+
+While capturing the baseline, `app.current_human_principal()` was found to carry
+`{=X/freightos_hierarchy_owner, freightos_hierarchy_owner=X/...}` — that is, **`PUBLIC` holds
+`EXECUTE` and `freightos_app` holds no explicit grant**, despite 0018 containing both
+`REVOKE ALL ON FUNCTION app.current_human_principal() FROM PUBLIC` and a `GRANT ... TO
+freightos_app`. The ACL is the materialised default, as though neither statement took effect.
+
+**Not exploitable, and not being fixed here:** `has_schema_privilege('public', 'app', 'USAGE')` is
+**false**, so no role can name the function through the `PUBLIC` grant. `freightos_app` reaches it
+because it holds schema `USAGE` and `PUBLIC` holds `EXECUTE` — the function works, which is why
+R-01's positive control passes.
+
+Recorded because it means 0018's intended least-privilege posture on that one function is not the
+posture the database actually has, and because SR-2 adds functions in the same style and must not
+copy the pattern. SR-2's own grants will be asserted from the catalog rather than assumed from the
+statements that were written. Raising it as a separate finding against `main` rather than widening
+this PR.
