@@ -81,6 +81,11 @@ $$;
 -- ordinary migrator statement picks up its rights; SET TRUE so ownership transfer works.
 GRANT freightos_binding_owner TO freightos_migrator WITH SET TRUE, INHERIT FALSE;
 GRANT USAGE ON SCHEMA app, public TO freightos_binding_owner;
+-- ALTER ... OWNER TO requires the NEW owner to hold CREATE on the schema, so it is granted here
+-- and taken back in §11 once every transfer is done — the same shape 0018 uses for
+-- freightos_hierarchy_owner. A standing CREATE on schema app is a privilege a definer owner has
+-- no further use for.
+GRANT CREATE ON SCHEMA app TO freightos_binding_owner;
 
 -- ---------------------------------------------------------------------------
 -- §2. app.session_binding.
@@ -134,8 +139,6 @@ CREATE TABLE app.session_binding (
     CHECK (installed_backend_pid IS NULL OR installed_backend_pid = target_backend_pid)
 );
 
-ALTER TABLE app.session_binding OWNER TO freightos_binding_owner;
-
 -- One binding per transaction, enforced by the database rather than by procedure. Without this the
 -- "already carries a binding" check in begin_verified_session would be a race.
 CREATE UNIQUE INDEX session_binding_one_per_transaction
@@ -166,6 +169,11 @@ COMMENT ON TABLE app.session_binding IS
   'SR-2. Ephemeral verified session bindings. No grant to any runtime role: freightos_app can '
   'neither enumerate nor mutate this table, so it cannot discover another request''s binding.';
 
+-- Ownership transfers LAST: indexes, policies and comments all require ownership, and they follow
+-- the table to its new owner.
+ALTER TABLE app.session_binding OWNER TO freightos_binding_owner;
+
+
 -- ---------------------------------------------------------------------------
 -- §3. Layer A and B — the bootstrap graph.
 --
@@ -190,11 +198,11 @@ AS $$
    WHERE b.installed_backend_pid = pg_backend_pid()
      AND b.installed_xact_id = pg_current_xact_id_if_assigned()
 $$;
-ALTER FUNCTION app.verified_binding_context() OWNER TO freightos_binding_owner;
-
 COMMENT ON FUNCTION app.verified_binding_context IS
   'SR-2 Layer A. The installed binding for THIS backend and THIS top-level transaction. Takes no '
   'parameter and reads no GUC, so nothing a caller can set participates in the lookup.';
+
+ALTER FUNCTION app.verified_binding_context() OWNER TO freightos_binding_owner;
 
 -- BOOTSTRAP ONLY. This exists solely to cut the revalidation recursion, and its only approved
 -- consumers are the three bootstrap RLS policies below. It answers "which tenant is this installed
@@ -208,12 +216,12 @@ AS $$
    WHERE b.installed_backend_pid = pg_backend_pid()
      AND b.installed_xact_id = pg_current_xact_id_if_assigned()
 $$;
-ALTER FUNCTION app.verified_binding_tenant_scope() OWNER TO freightos_binding_owner;
-
 COMMENT ON FUNCTION app.verified_binding_tenant_scope IS
   'SR-2 Layer B, BOOTSTRAP ONLY. Binding-scoped tenant WITHOUT principal revalidation. Approved '
   'consumers: users_bootstrap_read, memberships_bootstrap_read, '
   'organization_node_closure_bootstrap_read. Not an authorization accessor.';
+
+ALTER FUNCTION app.verified_binding_tenant_scope() OWNER TO freightos_binding_owner;
 
 -- BOOTSTRAP ONLY, same rule. Reads the closure through the binding owner's own role-disjoint
 -- policy, so it does not re-enter organization_node_scope_ok() and its authoritative accessors.
@@ -230,11 +238,11 @@ AS $$
      WHERE b.installed_backend_pid = pg_backend_pid()
        AND b.installed_xact_id = pg_current_xact_id_if_assigned())
 $$;
-ALTER FUNCTION app.verified_binding_node_scope_ok(uuid) OWNER TO freightos_binding_owner;
-
 COMMENT ON FUNCTION app.verified_binding_node_scope_ok IS
   'SR-2 Layer B, BOOTSTRAP ONLY. At or below the bound node, WITHOUT principal revalidation. Same '
   'approved-consumer allowlist as app.verified_binding_tenant_scope.';
+
+ALTER FUNCTION app.verified_binding_node_scope_ok(uuid) OWNER TO freightos_binding_owner;
 
 -- ---------------------------------------------------------------------------
 -- §4. Role-disjoint policies — CLOSURE_BOOTSTRAP=C.
@@ -350,13 +358,13 @@ AS $$
              AND s.status = 'active' AND s.revoked_at IS NULL))
      )
 $$;
-ALTER FUNCTION app.verified_principal() OWNER TO freightos_binding_owner;
-GRANT SELECT ON service_accounts TO freightos_binding_owner;
-
 COMMENT ON FUNCTION app.verified_principal IS
   'SR-2 Layer C. The currently authorized principal, re-reading mutable user, membership and '
   'service-account state on every call. Issuance is not a cache: a revocation committed before the '
   'next statement begins is observed by that statement at READ COMMITTED.';
+
+ALTER FUNCTION app.verified_principal() OWNER TO freightos_binding_owner;
+GRANT SELECT ON service_accounts TO freightos_binding_owner;
 
 -- ---------------------------------------------------------------------------
 -- §6. The six authoritative accessors.
@@ -428,6 +436,10 @@ $$;
 
 -- Art. V.1's human reservation, now resting on the verified binding rather than on a parsed GUC.
 -- The membership and status revalidation already happened inside app.verified_principal().
+--
+-- Replaced AS its existing owner: 0018 transferred this function to freightos_hierarchy_owner, and
+-- CREATE OR REPLACE requires ownership. The migrator administers that role WITH SET TRUE.
+SET LOCAL ROLE freightos_hierarchy_owner;
 CREATE OR REPLACE FUNCTION app.current_human_principal() RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
 AS $$
@@ -446,7 +458,7 @@ AS $$
                        AND (u.effective_to IS NULL OR u.effective_to > now()))
          END
 $$;
-ALTER FUNCTION app.current_human_principal() OWNER TO freightos_hierarchy_owner;
+RESET ROLE;
 
 -- ---------------------------------------------------------------------------
 -- §7. The trusted mint boundary.
@@ -547,7 +559,7 @@ RESET ROLE;
 -- administers freightos_binding_owner WITH SET TRUE precisely so this is possible without the
 -- migrator itself holding the table.
 SET LOCAL ROLE freightos_binding_owner;
-GRANT INSERT, SELECT ON app.session_binding TO freightos_admin_owner;
+GRANT INSERT, SELECT, UPDATE ON app.session_binding TO freightos_admin_owner;
 -- The mint boundary must be able to write the row it issues.
 CREATE POLICY session_binding_mint ON app.session_binding
   FOR ALL TO freightos_admin_owner USING (true) WITH CHECK (true);
@@ -614,13 +626,13 @@ BEGIN
   END IF;
 END
 $$;
-ALTER FUNCTION app.begin_verified_session(uuid) OWNER TO freightos_binding_owner;
-
 COMMENT ON FUNCTION app.begin_verified_session IS
   'SR-2. Installs an issued binding into THIS backend and THIS transaction. Requires read '
   'committed isolation, the binding''s target backend, an unexpired unconsumed binding, and a '
   'transaction not already bound. Returns one generic refusal for every failure so it is not an '
   'enumeration oracle.';
+
+ALTER FUNCTION app.begin_verified_session(uuid) OWNER TO freightos_binding_owner;
 
 -- ---------------------------------------------------------------------------
 -- §9. ACLs, stated and then asserted from the catalog.
@@ -747,3 +759,9 @@ BEGIN
   END IF;
 END
 $$;
+
+-- ---------------------------------------------------------------------------
+-- §11. Give back the schema privilege that only existed to receive ownership.
+-- ---------------------------------------------------------------------------
+
+REVOKE CREATE ON SCHEMA app FROM freightos_binding_owner;
