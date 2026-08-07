@@ -67,6 +67,20 @@ AS $$
 $$;
 ALTER FUNCTION app.current_legal_entity_id() OWNER TO freightos_migrator;
 
+CREATE OR REPLACE FUNCTION app.current_legal_authority_class() RETURNS app.legal_authority_class
+LANGUAGE sql STABLE
+AS $$
+  SELECT nullif(current_setting('app.legal_authority_class', true), '')::app.legal_authority_class
+$$;
+ALTER FUNCTION app.current_legal_authority_class() OWNER TO freightos_migrator;
+
+CREATE OR REPLACE FUNCTION app.current_operating_context() RETURNS app.operating_context
+LANGUAGE sql STABLE
+AS $$
+  SELECT nullif(current_setting('app.operating_context', true), '')::app.operating_context
+$$;
+ALTER FUNCTION app.current_operating_context() OWNER TO freightos_migrator;
+
 CREATE OR REPLACE FUNCTION app.current_user_id() RETURNS uuid
 LANGUAGE sql STABLE
 AS $$

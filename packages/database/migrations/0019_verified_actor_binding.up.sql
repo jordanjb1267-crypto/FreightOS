@@ -477,6 +477,47 @@ AS $$
 $$;
 ALTER FUNCTION app.current_legal_entity_id() OWNER TO freightos_binding_owner;
 
+-- The legal plane, from the binding rather than from a GUC.
+--
+-- Added after the first version of §6 shipped six accessors and stopped. app.session_binding stores
+-- legal_authority_class and operating_context on NOT NULL columns, and nothing read them back: a
+-- verified session resolved NULL for both, which made app.record_audit_event fail its own NOT NULL
+-- constraint. A verified session that cannot write an audit event is not a working session.
+--
+-- These are NOT metadata. Article I.2 makes the legal plane authoritative, app.assert_legal_context
+-- consumes it, and leaving it on a caller-set GUC while the actor moved to the binding would have
+-- left half of SEC-01 open — a session unable to name another person, still able to name another
+-- legal plane. No RLS policy consumes either accessor today (measured: zero matches in pg_policy),
+-- so the exposure was audit and legal-plane rather than tenant isolation, but the direction of the
+-- fix is the same one the other six took.
+CREATE OR REPLACE FUNCTION app.current_legal_authority_class() RETURNS app.legal_authority_class
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+AS $$
+  SELECT CASE WHEN session_user = 'freightos_app'
+              -- Gated on the FULLY REVALIDATED principal, not merely on the installed row. The
+              -- bootstrap context does not revalidate — that is Layer B's contract — so reading it
+              -- unguarded would leave a revoked session holding its legal plane after every other
+              -- accessor had gone to NULL. Fail closed with the rest of them.
+              THEN (SELECT b.legal_authority_class FROM app.verified_binding_context() b
+                     WHERE (app.verified_principal()).principal_type IS NOT NULL)
+              ELSE nullif(current_setting('app.legal_authority_class', true), '')
+                     ::app.legal_authority_class
+         END
+$$;
+ALTER FUNCTION app.current_legal_authority_class() OWNER TO freightos_binding_owner;
+
+CREATE OR REPLACE FUNCTION app.current_operating_context() RETURNS app.operating_context
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+AS $$
+  SELECT CASE WHEN session_user = 'freightos_app'
+              THEN (SELECT b.operating_context FROM app.verified_binding_context() b
+                     WHERE (app.verified_principal()).principal_type IS NOT NULL)
+              ELSE nullif(current_setting('app.operating_context', true), '')
+                     ::app.operating_context
+         END
+$$;
+ALTER FUNCTION app.current_operating_context() OWNER TO freightos_binding_owner;
+
 -- Human-only by construction: a service principal returns NULL here rather than being treated as
 -- a person. That is what stops a service identity acquiring human authorization by principal-type
 -- manipulation — the type is an enumerated CHECK on the binding row, not a string in a GUC.
@@ -802,7 +843,8 @@ BEGIN
    WHERE (n.nspname, p.proname) IN (
            ('app','current_tenant_id'), ('app','current_actor_id'),
            ('app','current_organization_node_id'), ('app','current_legal_entity_id'),
-           ('app','current_user_id'))
+           ('app','current_user_id'), ('app','current_legal_authority_class'),
+           ('app','current_operating_context'))
      AND (NOT p.prosecdef OR r.rolname <> 'freightos_binding_owner'
           OR NOT EXISTS (SELECT 1 FROM unnest(p.proconfig) c
                           WHERE c = 'search_path=pg_catalog, public'));
@@ -825,7 +867,8 @@ BEGIN
    WHERE (n.nspname, p.proname) IN (
            ('app','current_tenant_id'), ('app','current_actor_id'),
            ('app','current_organization_node_id'), ('app','current_legal_entity_id'),
-           ('app','current_user_id'))
+           ('app','current_user_id'), ('app','current_legal_authority_class'),
+           ('app','current_operating_context'))
      AND NOT has_function_privilege('public', p.oid, 'EXECUTE');
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION '0019 §6: PUBLIC lost EXECUTE on accessor % — callers would fail closed', v_bad;
