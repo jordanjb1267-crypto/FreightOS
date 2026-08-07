@@ -941,3 +941,71 @@ describe('gate U — full round trip reproduces the same inventory', () => {
     }
   }, 300_000);
 });
+
+/**
+ * Gate X — the Layer B primitives 0020 added, and who may reach them.
+ *
+ * The adversarial rereview found `app.verified_binding_scope_node_ids()` shipping with the PUBLIC
+ * EXECUTE a new function gets by default, while 0019 §9 had revoked PUBLIC from every one of its
+ * siblings. The accompanying grant to `freightos_app` was measured unnecessary: with EXECUTE revoked
+ * from both, the scoped read still worked, because the function is only ever evaluated as
+ * `freightos_binding_owner` inside `app.verified_principal()`'s definer context.
+ *
+ * That matters more here than for the siblings. `verified_binding_node_scope_ok()` TESTS one id the
+ * caller already knows; this one ENUMERATES the bound subtree, and like every Layer B primitive it
+ * answers WITHOUT revalidating the principal. Reachable by nobody, the residual is closed rather
+ * than documented — and this is the check that keeps it closed.
+ */
+describe('gate X — the statement-scoped primitives are owner-only where they must be', () => {
+  it('lets nobody but the owner execute the bootstrap-only scope set', async () => {
+    const client = new TestDatabase('freightos_test_sr2_structure').connectAs('postgres');
+    await client.connect();
+    try {
+      const r = await client.query<{ grantee: string }>(
+        `SELECT pg_get_userbyid(a.grantee) AS grantee
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+           CROSS JOIN LATERAL aclexplode(p.proacl) a
+          WHERE n.nspname = 'app'
+            AND p.proname = 'verified_binding_scope_node_ids'
+            AND a.grantee <> p.proowner`,
+      );
+      expect(r.rows.map((x) => x.grantee)).toEqual([]);
+
+      // And the ACL is materialised at all — a NULL proacl is the default, which IS PUBLIC EXECUTE.
+      const acl = await client.query<{ proacl: string | null }>(
+        `SELECT p.proacl::text AS proacl
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'app' AND p.proname = 'verified_binding_scope_node_ids'`,
+      );
+      expect(acl.rows[0]!.proacl, 'a NULL ACL is PUBLIC EXECUTE, not "no grants"').not.toBeNull();
+    } finally {
+      await client.end();
+    }
+  }, 300_000);
+
+  it('keeps the two invoker-rights scope sets invoker-rights', async () => {
+    // If either became SECURITY DEFINER it would read past the policies of the tables it scans, and
+    // every policy that consumes it would be answering from a different trust model than the one
+    // reviewed here.
+    const client = new TestDatabase('freightos_test_sr2_structure').connectAs('postgres');
+    await client.connect();
+    try {
+      const r = await client.query<{ proname: string; prosecdef: boolean; pronargs: number }>(
+        `SELECT p.proname, p.prosecdef, p.pronargs
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'app'
+            AND p.proname IN ('verified_scope_node_ids', 'verified_scope_service_account_ids',
+                              'identity_read_context_ok', 'identity_write_context_ok')
+          ORDER BY p.proname`,
+      );
+      expect(r.rows).toHaveLength(4);
+      for (const row of r.rows) {
+        expect(row.prosecdef, `${row.proname} became a definer`).toBe(false);
+        expect(row.pronargs, `${row.proname} gained an argument`).toBe(0);
+      }
+    } finally {
+      await client.end();
+    }
+  }, 300_000);
+});

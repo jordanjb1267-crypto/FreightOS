@@ -124,10 +124,26 @@ COMMENT ON FUNCTION app.verified_binding_scope_node_ids IS
   'memberships_bootstrap_read, service_accounts_bootstrap_read. Not an authorization accessor.';
 ALTER FUNCTION app.verified_binding_scope_node_ids() OWNER TO freightos_binding_owner;
 REVOKE CREATE ON SCHEMA app FROM freightos_binding_owner;
--- The bootstrap set resolves the caller's own binding and takes no argument, so the runtime role
--- may execute it for the same reason it may execute the other two Layer B helpers: RLS policy
--- evaluation requires it, and there is nothing to pass it.
-GRANT EXECUTE ON FUNCTION app.verified_binding_scope_node_ids() TO freightos_app;
+
+-- NOBODY BUT THE OWNER MAY EXECUTE THIS, and it is the tightest ACL of the four Layer B helpers on
+-- purpose. The adversarial rereview found this function shipping with the PUBLIC EXECUTE a new
+-- function gets by default, while 0019 §9 revoked PUBLIC from every one of its siblings — and it
+-- found the accompanying grant to freightos_app unnecessary: with EXECUTE revoked from both PUBLIC
+-- and freightos_app the scoped read still works, because the function is only ever evaluated as
+-- freightos_binding_owner inside app.verified_principal()'s definer context, where the bootstrap
+-- policies are the only callers.
+--
+-- The tighter ACL matters more here than for the siblings. app.verified_binding_node_scope_ok()
+-- TESTS one id the caller already knows; this one ENUMERATES the whole bound subtree, and like every
+-- Layer B primitive it answers WITHOUT revalidating the principal — so after a revocation it would
+-- still list the former subtree while every authoritative accessor has gone to NULL. Reachable by
+-- nobody, that residual is closed rather than merely documented.
+--
+-- Run as the owner: a GRANT or REVOKE on a function requires owning it, and the migrator administers
+-- freightos_binding_owner WITH INHERIT FALSE.
+SET LOCAL ROLE freightos_binding_owner;
+REVOKE ALL ON FUNCTION app.verified_binding_scope_node_ids() FROM PUBLIC;
+RESET ROLE;
 
 -- ---------------------------------------------------------------------------
 -- §2. The row-argument predicates keep working, and stop re-resolving internally.
@@ -411,7 +427,21 @@ BEGIN
     RAISE EXCEPTION 'P-01: a scope-set function takes an argument';
   END IF;
 
-  -- (e) The bootstrap graph is untouched: the four role-disjoint policies 0019 §4 created must
+  -- (e) The bootstrap-only set is executable by its owner and by nobody else. A default PUBLIC
+  -- EXECUTE on a non-revalidating enumerating function is exactly what the rereview caught.
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      CROSS JOIN LATERAL aclexplode(p.proacl) AS acl
+     WHERE n.nspname = 'app'
+       AND p.proname = 'verified_binding_scope_node_ids'
+       AND acl.grantee <> p.proowner)
+  THEN
+    RAISE EXCEPTION 'P-01: app.verified_binding_scope_node_ids is executable by more than its owner';
+  END IF;
+
+  -- (f) The bootstrap graph is untouched: the four role-disjoint policies 0019 §4 created must
   -- still name freightos_binding_owner alone and must still use only the non-revalidating helpers.
   IF (SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
        WHERE p.polname LIKE '%\_bootstrap\_read') <> 4 THEN

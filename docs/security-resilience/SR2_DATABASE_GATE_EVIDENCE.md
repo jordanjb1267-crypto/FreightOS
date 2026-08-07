@@ -1165,3 +1165,98 @@ as an SR-2 identity security blocker and implemented here rather than deferred.
 `CONTEXT_CAPABILITY_MATRIX_RLS` is therefore **CLOSED for every resource group that has tables**,
 and the remaining nine rows stay where ADR-0019 already put them: with the migrations that will
 create those tables.
+
+## 14. Independent adversarial rereview
+
+Run after P-01 and C-01 were both green and after exact-head CI passed on `409f35c`. Conducted as an
+attack on the surface migrations 0020 and 0021 had just created, rather than as a re-reading of the
+gates that already pass. **It found two defects, and both were in this PR's own new code.**
+
+### 14.1 Finding R-01 — a Layer B primitive shipped with PUBLIC EXECUTE
+
+`app.verified_binding_scope_node_ids()` was created by 0020 and, like any new function, inherited the
+default `PUBLIC EXECUTE`. Migration 0019 §9 had explicitly revoked PUBLIC from every one of its three
+siblings. Measured, from `pg_proc.proacl`:
+
+```
+verified_binding_context          {freightos_binding_owner=X/...}
+verified_binding_node_scope_ok    {freightos_binding_owner=X/..., freightos_app=X/...}
+verified_binding_tenant_scope     {freightos_binding_owner=X/..., freightos_app=X/...}
+verified_binding_scope_node_ids   {=X/..., freightos_binding_owner=X/..., freightos_app=X/...}
+                                   ^^ PUBLIC
+```
+
+**Why it mattered more than the ACL drift alone.** Every Layer B primitive answers from the installed
+binding **without revalidating the principal** — the residual §5 has documented since 0019. The two
+existing ones TEST a single id the caller already holds. This one ENUMERATES the entire bound
+subtree. Reachable by PUBLIC, it would have let any role in the cluster list a bound session's
+subtree, and let the session itself keep listing its former subtree after revocation. Measured
+before the fix:
+
+```
+ADV A2  before revocation: 3 rows
+        after  revocation: 3 rows   |  current_tenant_id() = NULL  |  SELECT id FROM users = 0 rows
+```
+
+Authoritative authority was gone; the enumeration was not.
+
+### 14.2 Finding R-02 — the accompanying grant was unnecessary
+
+0020 also granted `EXECUTE` to `freightos_app`, on the reasoning 0019 used for the siblings: "RLS
+policy evaluation requires it." Tested rather than believed — EXECUTE revoked from **both** PUBLIC
+and `freightos_app`, then a scoped read:
+
+```
+ADV A1  without any grant: scoped read returned 2 rows
+```
+
+It works, because the function is only ever evaluated as `freightos_binding_owner` inside
+`app.verified_principal()`'s definer context, where the bootstrap policies are its only callers. The
+grant bought nothing and widened the surface.
+
+**Both closed.** The function now carries the tightest ACL of the four — owner only, matching
+`verified_binding_context`. Migration 0020 §4(e) asserts from `aclexplode(proacl)` that no grantee
+other than the owner exists, and that `proacl` is materialised at all, because a NULL `proacl` **is**
+PUBLIC EXECUTE rather than "no grants". Gate X asserts the same from the structural suite and gate Y
+asserts the runtime half: the runtime role is refused the enumeration with `permission denied`, live
+session or not, with a positive control in the same case proving the session had not simply lost
+everything.
+
+### 14.3 Attacks that found nothing
+
+| Attack                                                                                                                                                  | Result                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Returned rows multiply principal revalidation**                                                                                                       | No. 2 → 200 rows: 13.1 → 11.4 ms, buffers 134 → 130, `InitPlan loops=1` throughout.                                                                                                                                                           |
+| **Closure size multiplies principal revalidation**                                                                                                      | No. 10 → 130 closure rows: buffers 130 → 132.                                                                                                                                                                                                 |
+| **A cached generic plan replays a stale principal**                                                                                                     | No. Prepared statement executed seven times to force PostgreSQL past its five custom plans onto a generic cached plan, then the membership revoked: the next `EXECUTE` returned **0 rows**. InitPlan results are per execution, not per plan. |
+| **A cursor keeps serving after revocation**                                                                                                             | Within contract, and asserted as such. A cursor already executing yields its remaining row; a **new** statement in the same transaction returns 0. That is exactly "a statement already executing may complete under its statement snapshot". |
+| **The invoker-rights scope sets leak more than the caller can read**                                                                                    | No. `verified_scope_node_ids()` returned 3 and the equivalent direct closure query returned 3; `verified_scope_service_account_ids()` returned 1 and `SELECT id FROM service_accounts` returned 1.                                            |
+| **An unbound session reaches anything through the new functions**                                                                                       | No. All three return 0 rows; both capability predicates return NULL, which is not `true`.                                                                                                                                                     |
+| **A forged operating context moves the matrix cell**                                                                                                    | No — gate W.                                                                                                                                                                                                                                  |
+| **A forged legal authority class moves the cell**                                                                                                       | No; the accessor still answers `carrier_agent` after the claim.                                                                                                                                                                               |
+| **Forged actor, node, entity and tenant move the cell**                                                                                                 | No.                                                                                                                                                                                                                                           |
+| **A service principal inherits the human write cell**                                                                                                   | No, and `app.current_user_id()` is still NULL for it.                                                                                                                                                                                         |
+| **A facility operator writes identity in scope**                                                                                                        | No — the C-01 defect, closed, with both scope predicates asserted true first so the denial is attributable.                                                                                                                                   |
+| **The legitimate identity writer still works**                                                                                                          | Yes — `software_only`/`system` writes, and every context the matrix grants READ keeps it.                                                                                                                                                     |
+| **Same-transaction revocation**                                                                                                                         | Still closed on the next statement — gate K's full matrix and gate V's fourth case.                                                                                                                                                           |
+| Actor forgery, service→human, Enterprise human authority forgery, root-policy authority forgery, pool reuse, rollback, provenance, test-helper boundary | Unchanged and green — gates C, D, E, G, H, N, O, P and the production fences.                                                                                                                                                                 |
+
+### 14.4 Final state
+
+| Gate                             | State                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| integration green, 0 skips       | **535 passed (535)**, 14/14 files                                                   |
+| unit                             | **289 passed (289)**, 15/15 files                                                   |
+| database security gate           | **114 passed (114)** — 100 baseline + gate V ×4 + gate W ×7 + gate X ×2 + gate Y ×1 |
+| static fences                    | **17**                                                                              |
+| migration round trip             | 1..21 up, down, down, up                                                            |
+| follow-on requirements           | four sections, Section A unchanged                                                  |
+| raw-GUC allowlist                | forbidden uses 0                                                                    |
+| ADR-0027                         | amended for both remediations                                                       |
+| `pnpm verify`                    | green end to end, coverage 100% stmts / 98.42% branch                               |
+| performance                      | **MET**                                                                             |
+| context capability matrix        | **MET**                                                                             |
+| independent adversarial rereview | **complete — two findings, both fixed, both now gated**                             |
+
+The rereview earning two findings is the point. A rereview that confirms everything has told you
+nothing about the code and something about the rereview.

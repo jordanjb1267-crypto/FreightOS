@@ -2007,3 +2007,51 @@ describe('gate W — capability matrix under forgery', () => {
     });
   });
 });
+
+/**
+ * Gate Y — the post-revocation enumeration the rereview went looking for.
+ *
+ * Layer B answers from the installed binding without revalidating the principal. That residual is
+ * known and documented for `verified_binding_tenant_scope()` and `verified_binding_node_scope_ok()`.
+ * 0020 added a third primitive that ENUMERATES rather than tests, so the same residual would have
+ * been strictly wider — a caller could have listed its whole former subtree after revocation, while
+ * every authoritative accessor had already gone to NULL.
+ *
+ * It cannot, because nothing but the owner may execute it. This is the runtime half of that proof.
+ */
+describe('gate Y — Layer B enumeration is unreachable from the runtime role', () => {
+  it('refuses the runtime role the bootstrap scope set, before and after revocation', async () => {
+    await withAppAndAdmin(async (app, admin) => {
+      const binding = await mintBinding(admin, {
+        ...alice(),
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, binding);
+
+      // A live, fully authorised session cannot reach it either — the denial is the ACL, not the
+      // authorization state, which is what makes it hold after revocation as well.
+      const denied = await app.query('SELECT * FROM app.verified_binding_scope_node_ids()').then(
+        () => null,
+        (e: { code?: string; message: string }) => e,
+      );
+      expect(denied, 'the runtime role enumerated the bootstrap scope set').not.toBeNull();
+      expect(denied!.message).toMatch(/permission denied/i);
+      await app.query('ROLLBACK');
+
+      // The authoritative path still works for the same session, so the refusal above is about this
+      // one function and not about a session that had lost everything.
+      const second = await mintBinding(admin, {
+        ...alice(),
+        targetBackendPid: await backendPid(app),
+      });
+      await app.query('BEGIN');
+      await app.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      await installBinding(app, second);
+      const rows = await app.query('SELECT id FROM users');
+      expect(rows.rowCount, 'the positive control lost its reach').toBeGreaterThan(0);
+      await app.query('ROLLBACK');
+    });
+  });
+});
