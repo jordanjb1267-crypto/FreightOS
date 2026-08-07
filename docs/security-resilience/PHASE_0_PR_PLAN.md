@@ -334,6 +334,13 @@ files. Only the owner can change them, and SDLC-01 and AI-05 cannot be evidenced
 
 Ordered by what they block.
 
+0. **Already applied in SR-1, and reversible: the v1.2 `SHA256SUMS.txt` digest for
+   `00_MASTER_HANDOFF.md`.** `main` was failing CI before this pull request because both handoff
+   install commits added the pointer that `23_…` §4 requires to a file the Phase 0 preservation
+   ruling checksums, without regenerating the digest. One line is updated to match the file as the
+   owner merged it. Alternatives and reasoning: `README.md` §A.4a. Revert is one line if the owner
+   prefers the pointer live outside the checksummed package instead.
+
 1. **Roadmap reconciliation — blocks everything.** Three active roadmaps (§D-0). Which sequence
    governs, and does the recommendation to treat v1.2's ten-PR spine as primary with v1.3.0/v1.4.0
    attached as cross-cutting requirements stand? Without this, any implementation PR risks being

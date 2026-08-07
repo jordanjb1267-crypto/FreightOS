@@ -72,7 +72,7 @@ Roadmap PR 0.1 (_Install governance package … Link it from the prior master ha
 | Package present at `docs/production-handoff/v1.3.0-security-resilience/` | yes, 42 files                                                                           |
 | `sha256sum -c MANIFEST.sha256`                                           | all entries `OK`, exit 0                                                                |
 | Pointer in `docs/production-handoff/v1.2/00_MASTER_HANDOFF.md`           | yes — §_Security, Privacy, Resilience, and Autonomous Repair Control Package_, line 284 |
-| Prior governance removed or weakened                                     | none — the install commit `32ca483` touches no file outside the new package             |
+| Prior governance removed or weakened                                     | none — `32ca483` touches exactly one file outside its own package, the pointer edit     |
 | Runtime behavior changed by the install                                  | none                                                                                    |
 
 A second package was merged after it and is also present on `main`:
@@ -90,6 +90,51 @@ A second package was merged after it and is also present on `main`:
 nothing is currently drifted — but a silent edit to either controlling package would not be caught.
 Same for `handoff-provenance.json`, whose drift detection covers only the v1.2 root copies. Folded
 into SR-8 in [`PHASE_0_PR_PLAN.md`](PHASE_0_PR_PLAN.md).
+
+### A.4a Blocking defect found on the base branch, and fixed here
+
+**`main` was failing CI at `1f74bdd` before this pull request existed.** The intake found it by
+running the pipeline; it is not caused by anything in this branch.
+
+`23_INSTALLATION_AND_HANDOFF_MERGE_INSTRUCTIONS.md` §4 requires an additive pointer in
+`docs/production-handoff/v1.2/00_MASTER_HANDOFF.md`. Both install commits added one —
+`32ca483` for v1.3.0, `64349a2` for v1.4.0 — and **neither regenerated
+`docs/production-handoff/v1.2/SHA256SUMS.txt`**, which records that file's digest. The CI step
+_Handoff integrity (SHA256)_ consequently failed:
+
+```text
+00_MASTER_HANDOFF.md: FAILED
+sha256sum: WARNING: 1 computed checksum did NOT match
+##[error]Process completed with exit code 1
+```
+
+This is a genuine conflict between two owner-authored instructions, not a mistake by either: the
+v1.2 package is preserved and checksum-verified by a Phase 0 ruling, and v1.3.0 §4 requires editing
+one of its files. They cannot both hold unless the recorded digest is updated to match the edit the
+owner approved.
+
+**Resolution applied in this pull request:** the single `00_MASTER_HANDOFF.md` line in
+`SHA256SUMS.txt` is updated from `94f0ce7c…` to `6bbbe1ad…`, the digest of the file as the owner
+merged it in PRs #6 and #7. One line changes; the other 89 entries are untouched and still verify.
+
+Why this and not the alternatives:
+
+- **Reverting the pointer** would violate v1.3.0 §4 and remove the controlling reference that makes
+  the v1.3.0 and v1.4.0 packages binding. Not acceptable.
+- **Excluding `00_MASTER_HANDOFF.md` from the check** would weaken the control permanently to avoid
+  a one-line update. Not acceptable.
+- **Leaving `main` red** would block every subsequent pull request and would train reviewers to
+  ignore a failing integrity check — the exact failure mode `ci.yml` already documents for the
+  secret scan, where output nobody reads looks like coverage.
+
+**This is recorded for reversal, not presented as settled.** It changes a governance integrity
+record, so it is listed as an owner decision in `PHASE_0_PR_PLAN.md` §D-9. If the owner prefers the
+digest restored and the pointer relocated somewhere outside the checksummed package, that is a
+one-line revert plus a move.
+
+The structural gap remains and is not fixed here: **nothing forces `SHA256SUMS.txt` to be
+regenerated when a checksummed file legitimately changes.** A validator for that belongs with the
+SR-8 supply-chain work alongside the two unverified `MANIFEST.sha256` files.
 
 ### A.5 Document precedence
 
@@ -176,17 +221,26 @@ moment an agent runtime is built, and v1.3.0 Article VIII then controls.
 Carried forward from Phase 0 as risk R-11, still open. Unrelated to security, recorded so the
 register stays complete.
 
+**C-6 — the preserved-package rule and the required-pointer rule contradicted each other, and the
+contradiction was live.** Resolved in this pull request as described in §A.4a, and listed for owner
+reversal in `PHASE_0_PR_PLAN.md` §D-9.
+
 ### A.8 Evidence for this intake
 
-Commands run on `claude/freightos-handoff-setup-xbwhlc` at `1f74bdd`, clean tree:
+Commands run on `claude/freightos-handoff-setup-xbwhlc` at `1f74bdd`, clean tree.
+`pnpm verify` does **not** include the handoff SHA256 check — that step exists only in
+`ci.yml` — which is why it passed locally while CI failed:
 
 ```text
+sha256sum -c SHA256SUMS.txt    (v1.2 package)     → 00_MASTER_HANDOFF.md FAILED, exit 1  ← pre-existing on main
+                                 after the §A.4a fix → 90 files OK, exit 0
 sha256sum -c MANIFEST.sha256   (v1.3.0 package)   → all OK, exit 0
 sha256sum -c MANIFEST.sha256   (v1.4.0 package)   → all OK, exit 0
 pnpm install --frozen-lockfile                    → exit 0
 pnpm verify                                       → exit 0
 pnpm test                                         → 4 files, 56 tests passed, exit 0
 pnpm test:integration                             → 3 files, 49 tests passed, exit 0
+pnpm audit                                        → 5 vulnerabilities: 1 critical, 1 high, 3 moderate
 ```
 
 `pnpm verify` prints:

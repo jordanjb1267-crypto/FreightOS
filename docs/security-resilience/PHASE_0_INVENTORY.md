@@ -211,6 +211,36 @@ Controls in place:
 Absent: managed secret store, rotation procedure, rotation test, break-glass credential, secret
 access logging, per-integration credential scoping (there are no integrations).
 
+### 8.1 Dependency vulnerabilities — open, and CI does not look for them
+
+`pnpm audit` at `1f74bdd` reports **5 vulnerabilities: 1 critical, 1 high, 3 moderate.** All five
+are in the test toolchain, reached transitively through `vitest`:
+
+| Severity | Package   | Vulnerable | Patched    | Path                    | Advisory            |
+| -------- | --------- | ---------- | ---------- | ----------------------- | ------------------- |
+| critical | `vitest`  | `<3.2.6`   | `>=3.2.6`  | `.>vitest`              | GHSA-5xrq-8626-4rwp |
+| high     | `vite`    | `<=6.4.2`  | `>=6.4.3`  | `.>vitest>vite`         | GHSA-fx2h-pf6j-xcff |
+| moderate | `vite`    | `<=6.4.1`  | `>=6.4.2`  | `.>vitest>vite`         | GHSA-4w7w-66w2-5vf9 |
+| moderate | `vite`    | `<=6.4.2`  | `>=6.4.3`  | `.>vitest>vite`         | GHSA-v6wh-96g9-6wx3 |
+| moderate | `esbuild` | `<=0.24.2` | `>=0.25.0` | `.>vitest>vite>esbuild` | GHSA-67mh-4wv8-2f99 |
+
+**Exploitability in this repository is low and should not be overstated.** Every one requires a
+listening development or UI server — the critical advisory requires the Vitest UI server to be
+running; the `vite` and `esbuild` advisories are dev-server path-traversal and permissive-CORS
+issues. This repository never starts `vitest --ui` or a Vite dev server, in CI or locally, and
+`vitest` is a `devDependency` that ships in nothing because nothing ships.
+
+**The finding that matters is not the CVEs; it is that the repository's own pipeline did not find
+them.** `.github/workflows/ci.yml` has no `pnpm audit`, no dependency scan, and no license scan.
+These were surfaced by GitHub Dependabot on push, out of band. A dependency-scanning step is folded
+into SR-8 in [`PHASE_0_PR_PLAN.md`](PHASE_0_PR_PLAN.md), and it should be blocking, because a
+non-blocking scan is the same failure mode `ci.yml` already documents for the secret scan: output
+nobody reads that looks like coverage.
+
+Branch `origin/dependabot/npm_and_yarn/vitest-3.2.6` exists and is unmerged; it addresses the
+critical advisory. Merging it is outside this pull request's scope and is listed as an owner
+decision.
+
 ## 9. External integrations and side effects
 
 **Zero live external side effects exist.** No outbound call to any third party is made by any code
