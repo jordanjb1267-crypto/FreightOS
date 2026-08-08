@@ -789,7 +789,11 @@ describe('the closure cannot be written by what it authorizes — F-02', () => {
       expect(fn.prosecdef, `${fn.proname} SECURITY DEFINER`).toBe(true);
       expect(fn.owner, `${fn.proname} owner`).toBe('freightos_hierarchy_owner');
       expect(fn.canlogin, `${fn.proname} owner can log in`).toBe(false);
-      expect(fn.proconfig, `${fn.proname} search_path`).toContain('search_path=pg_catalog, public');
+      // 0019 hotfix: pg_temp listed LAST, so it is searched after the trusted schemas rather than
+      // first — the pg_temp relation-shadowing closure.
+      expect(fn.proconfig, `${fn.proname} search_path`).toEqual([
+        'search_path=pg_catalog, public, pg_temp',
+      ]);
     }
 
     // The definer's whole reach: the closure it maintains, the node depths the move pass rewrites,

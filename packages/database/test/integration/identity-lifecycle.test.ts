@@ -1112,9 +1112,11 @@ describe('self-elevation cannot be stood down — F-01, R2-01', () => {
         expect(fn.prosecdef, `${fn.proname} SECURITY DEFINER`).toBe(true);
         expect(fn.owner, `${fn.proname} owner`).toBe('freightos_identity_guard');
         expect(fn.canlogin, `${fn.proname} owner can log in`).toBe(false);
-        expect(fn.proconfig, `${fn.proname} search_path`).toContain(
-          'search_path=pg_catalog, public',
-        );
+        // 0019 hotfix: pg_temp is listed, and listed LAST, so it is searched after the trusted
+        // schemas rather than first — the pg_temp relation-shadowing closure.
+        expect(fn.proconfig, `${fn.proname} search_path`).toEqual([
+          'search_path=pg_catalog, public, pg_temp',
+        ]);
       }
 
       // And the definer's whole reach: three tables, SELECT only, nothing writable anywhere.
