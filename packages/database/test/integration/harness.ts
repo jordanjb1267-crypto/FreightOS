@@ -224,6 +224,170 @@ export class TestDatabase {
     }
   }
 
+  /**
+   * Provision a real PostgreSQL LOGIN role bound to a FreightOS human — Design A, SEC-01.
+   *
+   * NOT `SET ROLE` from freightos_admin. `SET ROLE` moves `current_user` and leaves `session_user`
+   * untouched, so a harness built on it would authenticate nothing and would prove nothing: every
+   * operator would still resolve to the shared credential. The whole point of Design A is that
+   * `session_user` is set by PostgreSQL authentication and no statement can change it, so the test
+   * has to log in for real.
+   *
+   * Role names are cluster-wide while databases are per file, so the name is derived from the
+   * database to keep concurrent files from colliding on the same catalog row.
+   *
+   * Returns the role name. Provisioning runs under the cluster role lock and through
+   * `authn.provision_operator` — the migrator cannot write the binding table directly, which is
+   * the property §7(c) of migration 0026 asserts.
+   */
+  async provisionOperator(label: string, tenantId: string, userId: string): Promise<string> {
+    const role = this.operatorRoleName(label);
+    await this.withRoleLock(async (maintenance) => {
+      await maintenance.query(
+        `DO $$
+         BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
+             CREATE ROLE ${role} LOGIN;
+           END IF;
+         END
+         $$`,
+      );
+      if (NEEDS_PASSWORD) {
+        await maintenance.query(`ALTER ROLE ${role} LOGIN PASSWORD '${ROLE_PASSWORD}'`);
+      }
+      await maintenance.query(`GRANT CONNECT ON DATABASE ${this.name} TO ${role}`);
+      // The capability, not the identity: freightos_admin carries EXECUTE on the administrative
+      // functions. INHERIT so an ordinary statement picks it up without SET ROLE, and no
+      // ADMIN OPTION, so one operator cannot grant itself into another.
+      await maintenance.query(`GRANT freightos_admin TO ${role} WITH INHERIT TRUE, SET FALSE`);
+    });
+
+    const migrator = this.connectAs(MIGRATOR);
+    await migrator.connect();
+    try {
+      await migrator.query('SELECT authn.provision_operator($1, $2, $3, $4)', [
+        role,
+        tenantId,
+        userId,
+        'test:provision',
+      ]);
+    } finally {
+      await migrator.end();
+    }
+    return role;
+  }
+
+  /**
+   * Create a LOGIN role bound to a SERVICE identity — the provisioning path.
+   *
+   * Tenant bootstrap is performed by `system:tenant-provisioning`, an approved platform actor, and
+   * always was: the first administrator of a tenant cannot authorise their own creation. After
+   * 0026 that actor needs a login to be resolved FROM, rather than a string to be asserted AS.
+   */
+  async provisionSystemLogin(label: string, systemActorId: string): Promise<string> {
+    const role = this.operatorRoleName(label);
+    await this.withRoleLock(async (maintenance) => {
+      await maintenance.query(
+        `DO $$
+         BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
+             CREATE ROLE ${role} LOGIN;
+           END IF;
+         END
+         $$`,
+      );
+      if (NEEDS_PASSWORD) {
+        await maintenance.query(`ALTER ROLE ${role} LOGIN PASSWORD '${ROLE_PASSWORD}'`);
+      }
+      await maintenance.query(`GRANT CONNECT ON DATABASE ${this.name} TO ${role}`);
+      await maintenance.query(`GRANT freightos_admin TO ${role} WITH INHERIT TRUE, SET FALSE`);
+    });
+    await this.provisionServiceLogin(role, systemActorId);
+    return role;
+  }
+
+  /** Bind an existing LOGIN role to a service identity rather than a human. */
+  async provisionServiceLogin(role: string, systemActorId: string): Promise<void> {
+    const migrator = this.connectAs(MIGRATOR);
+    await migrator.connect();
+    try {
+      await migrator.query('SELECT authn.provision_service_login($1, $2, $3)', [
+        role,
+        systemActorId,
+        'test:provision',
+      ]);
+    } finally {
+      await migrator.end();
+    }
+  }
+
+  /** Revoke every live binding for a role, leaving the PostgreSQL role itself alone. */
+  async revokeOperator(role: string): Promise<number> {
+    const migrator = this.connectAs(MIGRATOR);
+    await migrator.connect();
+    try {
+      const r = await migrator.query<{ n: number }>('SELECT authn.revoke_operator($1, $2) AS n', [
+        role,
+        'test:revoke',
+      ]);
+      return Number(r.rows[0]!.n);
+    } finally {
+      await migrator.end();
+    }
+  }
+
+  /**
+   * Create a LOGIN role with the administrative capability and NO binding.
+   *
+   * The negative control the whole design turns on: authenticated, capable of calling the
+   * functions, and mapped to nobody.
+   */
+  async provisionUnboundLogin(label: string): Promise<string> {
+    const role = this.operatorRoleName(label);
+    await this.withRoleLock(async (maintenance) => {
+      await maintenance.query(
+        `DO $$
+         BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
+             CREATE ROLE ${role} LOGIN;
+           END IF;
+         END
+         $$`,
+      );
+      if (NEEDS_PASSWORD) {
+        await maintenance.query(`ALTER ROLE ${role} LOGIN PASSWORD '${ROLE_PASSWORD}'`);
+      }
+      await maintenance.query(`GRANT CONNECT ON DATABASE ${this.name} TO ${role}`);
+      await maintenance.query(`GRANT freightos_admin TO ${role} WITH INHERIT TRUE, SET FALSE`);
+    });
+    return role;
+  }
+
+  /** Drop a PostgreSQL login role outright — for the role-replacement regression. */
+  async dropLogin(role: string): Promise<void> {
+    await this.withRoleLock(async (maintenance) => {
+      await maintenance.query(`REVOKE ALL ON DATABASE ${this.name} FROM ${role}`);
+      await maintenance.query(`DROP ROLE IF EXISTS ${role}`);
+    });
+  }
+
+  /**
+   * A stable, collision-free role name for this database.
+   *
+   * Database names run long, and PostgreSQL truncates identifiers at 63 bytes, so the name is
+   * built from a short digest of the database rather than from the database name itself.
+   */
+  operatorRoleName(label: string): string {
+    let h = 5381;
+    for (const ch of this.name) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0;
+    return `op_${h.toString(36)}_${label}`.slice(0, 63);
+  }
+
+  /** Connect as a provisioned operator — a real authenticated login. */
+  connectAsOperator(role: string): Client {
+    return this.connectAs(role);
+  }
+
   /** Drop and recreate the database, migrate it, and make the test roles connectable. */
   async reset(): Promise<void> {
     const maintenance = this.maintenanceClient();

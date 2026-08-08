@@ -287,7 +287,10 @@ export async function seedVerifiedFixture(
 ): Promise<IdentityFixture> {
   const provisioner = db.connectAsMigrator();
   await provisioner.connect();
-  const admin = db.connectAs('freightos_admin');
+  // SEC-01 / 0026: the provisioning actor is resolved from an authenticated login, not asserted.
+  const admin = db.connectAsOperator(
+    await db.provisionSystemLogin('prov', 'system:tenant-provisioning'),
+  );
   await admin.connect();
   try {
     return await seedIdentityWith(provisioner, admin, tenantId);

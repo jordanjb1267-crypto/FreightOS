@@ -272,6 +272,23 @@ BEGIN
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
+  -- IDEMPOTENT FOR THE SAME MAPPING, and only for the same mapping. Re-provisioning a role to the
+  -- person it is already bound to is a no-op; pointing it at a DIFFERENT person is refused, and the
+  -- operator must be revoked first. Silently repointing a login is how one human inherits another's
+  -- authority, so it is an explicit two-step act.
+  SELECT id INTO v_id FROM authn.operator_binding
+   WHERE role_oid = v_oid AND revoked_at IS NULL;
+  IF FOUND THEN
+    IF NOT EXISTS (SELECT 1 FROM authn.operator_binding
+                    WHERE id = v_id AND principal_kind = 'human'
+                      AND tenant_id = p_tenant_id AND user_id = p_user_id) THEN
+      RAISE EXCEPTION 'role % is already bound to a different principal; revoke it first',
+        quote_ident(p_role_name)
+        USING ERRCODE = 'unique_violation';
+    END IF;
+    RETURN v_id;
+  END IF;
+
   INSERT INTO authn.operator_binding
     (role_oid, role_name, principal_kind, tenant_id, user_id, created_by, updated_by)
   VALUES (v_oid, p_role_name, 'human', p_tenant_id, p_user_id, p_provisioned_by, p_provisioned_by)
@@ -297,9 +314,23 @@ BEGIN
     RAISE EXCEPTION 'role % does not exist or cannot log in', quote_ident(p_role_name)
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM admin.platform_actor pa WHERE pa.actor_id = p_system_actor_id) THEN
-    RAISE EXCEPTION 'platform actor %L is not an approved provisioning identity', p_system_actor_id
+  IF p_system_actor_id !~ '^system:[a-z0-9._:-]+$' THEN
+    RAISE EXCEPTION 'service identity %L must be of the form system:<name>', p_system_actor_id
       USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
+  -- Same idempotence rule as the human path, for the same reason.
+  SELECT id INTO v_id FROM authn.operator_binding
+   WHERE role_oid = v_oid AND revoked_at IS NULL;
+  IF FOUND THEN
+    IF NOT EXISTS (SELECT 1 FROM authn.operator_binding
+                    WHERE id = v_id AND principal_kind = 'system'
+                      AND system_actor_id = p_system_actor_id) THEN
+      RAISE EXCEPTION 'role % is already bound to a different principal; revoke it first',
+        quote_ident(p_role_name)
+        USING ERRCODE = 'unique_violation';
+    END IF;
+    RETURN v_id;
   END IF;
 
   INSERT INTO authn.operator_binding
@@ -1759,5 +1790,145 @@ BEGIN
   END IF;
 
   RAISE NOTICE '0026: administrative identity now resolves from session_user only';
+END
+$assert$;
+
+-- ---------------------------------------------------------------------------
+-- §8. The two remaining places a shared connection still meant "trusted human".
+--
+-- Found by the Phase-5 repository sweep, not by the sixteen-function inventory, which is why the
+-- sweep is part of the contract rather than a formality.
+--
+-- (1) `app.is_verified_platform_actor()` read, literally:
+--
+--         session_user = 'freightos_admin' AND <actor GUC is on the platform allowlist>
+--
+--     The role NAME was the trust anchor. Under Design A the provisioning identity is a bound
+--     service login, not the shared credential, so this predicate is both wrong and newly false —
+--     it would have failed the seed loudly, which is how it was found. It now asks the resolver.
+--
+-- (2) The SR-2 accessors resolved identity from the verified binding only when
+--     `session_user = 'freightos_app'`, and fell back to the raw `app.actor_id` GUC for EVERY
+--     other connection. That fallback is what F-A path 2 closes for the runtime role — and it was
+--     still wide open for anybody else, including an authenticated operator. Measured
+--     consequence: operator A could `set_config('app.actor_id', 'user:<B>')` and become B for
+--     every trigger that reads `app.current_user_id()`, which is adversarial case F.
+--
+--     The fix inserts the authenticated principal AHEAD of the GUC. An operator now resolves to
+--     the person their login is bound to and cannot argue with it. The GUC branch survives only
+--     for connections that resolve to no principal at all — the migrator and control-plane
+--     provisioning paths that reach these accessors through `withLegalContext` — and those hold no
+--     administrative capability, so it confers nothing it did not already confer.
+-- ---------------------------------------------------------------------------
+
+-- The resolver must be reachable by the roles that own the accessors.
+SET LOCAL ROLE freightos_operator_registry_owner;
+GRANT USAGE ON SCHEMA authn TO freightos_binding_owner, freightos_hierarchy_owner;
+GRANT EXECUTE ON FUNCTION authn.authenticated_principal()
+  TO freightos_binding_owner, freightos_hierarchy_owner;
+RESET ROLE;
+
+-- CREATE OR REPLACE needs ownership AND schema CREATE. Lent for the duration and taken back at the
+-- end, the same shape 0023 §3 and 0025 use: a standing CREATE on schema app is a privilege a
+-- definer owner has no further use for.
+GRANT CREATE ON SCHEMA app
+   TO freightos_admin_owner, freightos_binding_owner, freightos_hierarchy_owner;
+
+SET LOCAL ROLE freightos_admin_owner;
+CREATE OR REPLACE FUNCTION app.is_verified_platform_actor()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $fn$
+  -- The connection must RESOLVE to a system principal that is on the provisioning allowlist. The
+  -- role name is no longer part of the question.
+  SELECT EXISTS (
+    SELECT 1
+      FROM authn.authenticated_principal() a
+      JOIN admin.platform_actor p ON p.actor_id = a.actor_id
+     WHERE a.actor_type = 'system')
+$fn$;
+RESET ROLE;
+
+SET LOCAL ROLE freightos_binding_owner;
+CREATE OR REPLACE FUNCTION app.current_actor_id()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $fn$
+  SELECT CASE
+           WHEN session_user = 'freightos_app'
+             THEN (app.verified_principal()).actor_id
+           -- An authenticated operator or service login resolves to its bound principal, and the
+           -- GUC cannot override it. This is the line that closes adversarial case F.
+           ELSE coalesce(
+                  (SELECT a.actor_id FROM authn.authenticated_principal() a),
+                  nullif(current_setting('app.actor_id', true), ''))
+         END
+$fn$;
+RESET ROLE;
+
+SET LOCAL ROLE freightos_hierarchy_owner;
+CREATE OR REPLACE FUNCTION app.current_human_principal()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $fn$
+  SELECT CASE
+           WHEN session_user = 'freightos_app'
+             THEN app.current_user_id()
+           ELSE (SELECT u.id
+                   FROM public.users u
+                  WHERE u.tenant_id = app.current_tenant_id()
+                    AND u.id = nullif(substring(
+                          coalesce(
+                            (SELECT a.actor_id
+                               FROM authn.authenticated_principal() a
+                              WHERE a.actor_type = 'human'),
+                            nullif(current_setting('app.actor_id', true), ''),
+                            '') from
+                          '^user:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$'),
+                          '')::uuid
+                    AND u.status = 'active'
+                    AND u.revoked_at IS NULL
+                    AND u.effective_from <= now()
+                    AND (u.effective_to IS NULL OR u.effective_to > now()))
+         END
+$fn$;
+RESET ROLE;
+
+REVOKE CREATE ON SCHEMA app
+  FROM freightos_admin_owner, freightos_binding_owner, freightos_hierarchy_owner;
+
+DO $assert$
+DECLARE
+  v_bad text;
+BEGIN
+  -- No function in app or admin may make an authorization or identity decision by comparing
+  -- session_user to a shared role name. The accessors still MENTION session_user — the
+  -- freightos_app branch is legitimate, because that role's identity comes from the verified
+  -- binding — so the check is aimed at the shared administrative credential specifically.
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname IN ('app', 'admin')
+     AND p.prosrc ~ 'session_user\s*=\s*''freightos_admin''';
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION
+      '0026 §8: % still treats the shared administrative role name as identity', v_bad;
+  END IF;
+
+  SELECT string_agg(g, ', ') INTO v_bad
+    FROM unnest(ARRAY['freightos_admin_owner','freightos_binding_owner',
+                      'freightos_hierarchy_owner']) AS g
+   WHERE has_schema_privilege(g, 'app', 'CREATE');
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 §8: % still holds CREATE on schema app', v_bad;
+  END IF;
 END
 $assert$;

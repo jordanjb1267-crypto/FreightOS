@@ -86,7 +86,12 @@ export function controlPlaneIssuer(
     async issue(principal: VerifiedPrincipal, targetBackendPid: number): Promise<string> {
       try {
         const result = await admin.query<{ binding: string }>(
-          `SELECT admin.issue_session_binding($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) AS binding`,
+          // SEC-01 / migration 0026. `p_issued_by` is gone. Minting a runtime binding is a SERVICE
+          // act, and the issuing identity is now RESOLVED from the authenticated control-plane
+          // login rather than asserted by this caller. `principal.assertedBy` therefore no longer
+          // travels to the database — it would have been a caller-supplied provenance string, and
+          // that is the whole class of defect F-A path 1 closed.
+          `SELECT admin.issue_session_binding($1, $2, $3, $4, $5, $6, $7, $8, $9) AS binding`,
           [
             principal.principalType,
             isHumanPrincipal(principal) ? principal.userId : principal.serviceAccountId,
@@ -96,7 +101,6 @@ export function controlPlaneIssuer(
             principal.legalAuthorityClass,
             principal.operatingContext,
             targetBackendPid,
-            principal.assertedBy,
             installableSeconds,
           ],
         );

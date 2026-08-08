@@ -207,7 +207,12 @@ async function privileged(
 export async function seedIdentity(db: TestDatabase, tenantId: string): Promise<IdentityFixture> {
   const provisioner = db.connectAsMigrator();
   await provisioner.connect();
-  const admin = db.connectAs('freightos_admin');
+  // SEC-01 / 0026. The bootstrap chain always ran as `system:tenant-provisioning`; what changed is
+  // that the actor is now RESOLVED from an authenticated login instead of asserted as an argument.
+  // The shared `freightos_admin` connection can no longer perform any of this, which is the point.
+  const admin = db.connectAsOperator(
+    await db.provisionSystemLogin('prov', 'system:tenant-provisioning'),
+  );
   await admin.connect();
   try {
     return await seedIdentityWith(provisioner, admin, tenantId);
@@ -364,31 +369,27 @@ export async function seedIdentityWith(
   // Once the administrator holds identity.role.write, later operations name the human. The seed
   // proves both halves: `bootstrap` gets the tenant off the ground, and the tests in
   // authority-remediation.test.ts §7 prove the human path works afterwards.
-  const bootstrap = 'system:tenant-provisioning';
-  const asPlatform = ['system', 'identity_administration'] as const;
 
   const role = await privileged(
     admin,
-    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)',
     [
       tenantId,
       legalEntityNodeId,
       legalEntityId,
       'fleet_administrator',
       'Fleet Administrator',
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
   const roleId = role['role_id'] as string;
 
-  await privileged(admin, 'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)', [
+  await privileged(admin, 'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
     tenantId,
     roleId,
     'identity.user.read',
-    bootstrap,
-    ...asPlatform,
+    'identity_administration',
     randomUUID(),
   ]);
 
@@ -405,15 +406,14 @@ export async function seedIdentityWith(
   // administer authority are not the people the authority is about.
   const adminRole = await privileged(
     admin,
-    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)',
     [
       tenantId,
       legalEntityNodeId,
       legalEntityId,
       'tenant_administrator',
       'Tenant Administrator',
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
@@ -425,16 +425,18 @@ export async function seedIdentityWith(
     'identity.service_account.write',
     'identity.organization_node.write',
   ]) {
-    await privileged(
-      admin,
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [tenantId, adminRoleId, permission, bootstrap, ...asPlatform, randomUUID()],
-    );
+    await privileged(admin, 'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
+      tenantId,
+      adminRoleId,
+      permission,
+      'identity_administration',
+      randomUUID(),
+    ]);
   }
 
   const adminMembership = await privileged(
     admin,
-    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)',
     [
       tenantId,
       adminUserId,
@@ -442,28 +444,28 @@ export async function seedIdentityWith(
       // legal entity actually governs, and the closure makes everything below it in scope.
       legalEntityNodeId,
       legalEntityId,
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
   const adminMembershipId = adminMembership['membership_id'] as string;
-  await privileged(
-    admin,
-    'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-    [tenantId, adminMembershipId, adminRoleId, bootstrap, ...asPlatform, randomUUID()],
-  );
+  await privileged(admin, 'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)', [
+    tenantId,
+    adminMembershipId,
+    adminRoleId,
+    'identity_administration',
+    randomUUID(),
+  ]);
 
   const membership = await privileged(
     admin,
-    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)',
     [
       tenantId,
       direct.userId,
       terminalNodeId,
       legalEntityId,
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
@@ -471,19 +473,18 @@ export async function seedIdentityWith(
 
   const membershipRole = await privileged(
     admin,
-    'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-    [tenantId, membershipId, roleId, bootstrap, ...asPlatform, randomUUID()],
+    'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)',
+    [tenantId, membershipId, roleId, 'identity_administration', randomUUID()],
   );
 
   await privileged(
     admin,
-    'SELECT * FROM admin.grant_service_account_permission($1, $2, $3, $4, $5, $6, $7)',
+    'SELECT * FROM admin.grant_service_account_permission($1, $2, $3, $4, $5)',
     [
       tenantId,
       direct.serviceAccountId,
       'identity.user.read',
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
@@ -547,7 +548,10 @@ export async function seedNarrowMember(
 ): Promise<NarrowMember> {
   const provisioner = db.connectAsMigrator();
   await provisioner.connect();
-  const admin = db.connectAs('freightos_admin');
+  // Same provisioning identity as seedIdentity, resolved rather than asserted — SEC-01 / 0026.
+  const admin = db.connectAsOperator(
+    await db.provisionSystemLogin('prov', 'system:tenant-provisioning'),
+  );
   await admin.connect();
   const legalEntityId = spec.legalEntityId ?? fixture.legalEntityId;
   try {
@@ -575,14 +579,12 @@ export async function seedNarrowMember(
 
     const membership = await privileged(
       admin,
-      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)',
       [
         fixture.tenantId,
         userId,
         spec.organizationNodeId,
         legalEntityId,
-        'system:tenant-provisioning',
-        'system',
         'identity_administration',
         randomUUID(),
       ],
