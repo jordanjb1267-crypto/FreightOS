@@ -1206,7 +1206,7 @@ BEGIN
                 AND (rolcanlogin OR rolsuper OR rolcreaterole OR rolcreatedb
                      OR rolbypassrls OR rolreplication)) THEN
     RAISE EXCEPTION
-      '0026 down: the residual registry owner holds LOGIN or a superuser-adjacent attribute';
+      '0026 down: the residual registry owner holds rolcanlogin or a cluster-wide role attribute';
   END IF;
 
   -- 2. No schema privilege, by any route — including one inherited from PUBLIC, which is why this
@@ -1258,22 +1258,44 @@ BEGIN
     RAISE EXCEPTION '0026 down: the registry owner still owns % ', v_bad;
   END IF;
 
-  -- 5. No membership in either direction is assumable or inheritable. The one surviving row is the
-  --    ADMIN-OPTION-only grant PostgreSQL wrote at CREATE ROLE time; it can neither be used to
-  --    become the role nor to hold anything through it, and removing it would strand a
-  --    non-superuser migrator on re-application.
-  SELECT string_agg(format('%s->%s(admin=%s,inherit=%s,set=%s)',
-                           g.rolname, mm.rolname,
-                           am.admin_option, am.inherit_option, am.set_option), ', ') INTO v_bad
+  -- 5. The role is a member of NOTHING, and 0026's own grant of it is gone.
+  --
+  --    THE TWO DIRECTIONS ARE NOT THE SAME PROPERTY, and asserting them symmetrically was wrong.
+  --
+  --    "The registry owner is a member of X" is reach the ROLE HOLDS: anything it inherits or can
+  --    become is authority that survives the revert. That must be empty, and is asserted as such.
+  --
+  --    "X is a member of the registry owner" is reach INTO the role by a principal that already
+  --    has more of it than the role does. The migrator created this role and must be able to
+  --    re-grant on re-application; more importantly, a cluster superuser may hold or issue such a
+  --    grant, and 0026 neither created that nor may remove it. Unwinding another authority's grant
+  --    is the exact mistake the DROP OWNED BY investigation above documents. What 0026 owes is the
+  --    removal of ITS OWN grant, which is asserted by grantor, plus the fact that being able to
+  --    assume the role is worth nothing — checks 1 to 4 and 6 leave it holding no privilege, owning
+  --    no object, and unable to log in. A role with nothing is inert regardless of who can become
+  --    it.
+  SELECT string_agg(format('member of %s (inherit=%s,set=%s)',
+                           r.rolname, am.inherit_option, am.set_option), ', ') INTO v_bad
+    FROM pg_auth_members am
+    JOIN pg_roles r  ON r.oid  = am.roleid
+    JOIN pg_roles mm ON mm.oid = am.member
+   WHERE mm.rolname = 'freightos_operator_registry_owner';
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION
+      '0026 down: the residual registry owner still holds authority through membership — %', v_bad;
+  END IF;
+
+  SELECT string_agg(format('%s(inherit=%s,set=%s)',
+                           mm.rolname, am.inherit_option, am.set_option), ', ') INTO v_bad
     FROM pg_auth_members am
     JOIN pg_roles r  ON r.oid  = am.roleid
     JOIN pg_roles mm ON mm.oid = am.member
     JOIN pg_roles g  ON g.oid  = am.grantor
-   WHERE 'freightos_operator_registry_owner' IN (r.rolname, mm.rolname)
-     AND (am.set_option OR am.inherit_option);
+   WHERE r.rolname = 'freightos_operator_registry_owner'
+     AND g.rolname = 'freightos_migrator';
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION
-      '0026 down: the registry owner is still assumable or inheritable — %', v_bad;
+      '0026 down: §1''s own grant of the registry owner survived the revert — %', v_bad;
   END IF;
 
   -- 6. No default privilege entry survives for either owner role. §6c's global entries are

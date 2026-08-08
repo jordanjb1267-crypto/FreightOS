@@ -25,14 +25,21 @@ import { TestDatabase } from './harness.ts';
 
 const db = new TestDatabase('freightos_test_sr2_structure');
 
-/** Every function migration 0020 owns, by exact signature. */
+/**
+ * Every function migration 0020 owns, by exact signature.
+ *
+ * SEC-01 / 0026: the mint lost `p_issued_by text` — one argument shorter, and the last
+ * caller-supplied identity anywhere on the SR-2 surface. The signatures are spelled out rather
+ * than matched by name precisely so that a change like that has to be made here deliberately; a
+ * name-only lookup would have gone on passing against whichever overload happened to exist.
+ */
 const SR2_FUNCTIONS = [
   'app.verified_binding_context()',
   'app.verified_binding_tenant_scope()',
   'app.verified_binding_node_scope_ok(uuid)',
   'app.verified_principal()',
   'app.begin_verified_session(uuid)',
-  'admin.issue_session_binding(text,uuid,uuid,uuid,uuid,text,text,integer,text,integer)',
+  'admin.issue_session_binding(text,uuid,uuid,uuid,uuid,text,text,integer,integer)',
 ] as const;
 
 /**
@@ -161,7 +168,7 @@ describe('gate A — structure', () => {
       'app.begin_verified_session(uuid)': 'freightos_binding_owner',
       // The mint boundary belongs to the control plane, not to the role that holds the storage.
       // Splitting them is what stops a runtime-reachable door from carrying control-plane reach.
-      'admin.issue_session_binding(text,uuid,uuid,uuid,uuid,text,text,integer,text,integer)':
+      'admin.issue_session_binding(text,uuid,uuid,uuid,uuid,text,text,integer,integer)':
         'freightos_admin_owner',
     };
     for (const [signature, owner] of Object.entries(expected)) {
@@ -453,7 +460,7 @@ describe('gate Q — function ACLs', () => {
         '{freightos_binding_owner=X/freightos_binding_owner,freightos_app=X/freightos_binding_owner}',
       'app.begin_verified_session(uuid)':
         '{freightos_binding_owner=X/freightos_binding_owner,freightos_app=X/freightos_binding_owner}',
-      'admin.issue_session_binding(text,uuid,uuid,uuid,uuid,text,text,integer,text,integer)':
+      'admin.issue_session_binding(text,uuid,uuid,uuid,uuid,text,text,integer,integer)':
         '{freightos_admin_owner=X/freightos_admin_owner,freightos_admin=X/freightos_admin_owner}',
     });
   });
@@ -1159,11 +1166,15 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       expect(scopeTop).toHaveLength(4);
       expect(await publicTemp(), '0019 did not revoke TEMPORARY from PUBLIC').toBe(false);
 
-      // Down two steps. Reverting 0025 and 0024 removes only what they added — the schema-qualified
-      // bodies. Neither may re-grant TEMPORARY or unpin pg_temp: those belong to migration 0019 on
-      // main and are still applied, so rolling SR-2 back cannot silently reopen the CRITICAL 0019
-      // closed.
-      expect((await migrateDown(client, migrations, 23)).reverted).toEqual([25, 24]);
+      // Down THREE steps now — SEC-01 / 0026 joined the stack. Reverting 0026, 0025 and 0024
+      // removes only what they added: 0026's authenticated-principal boundary and 0025/0024's
+      // schema-qualified bodies. None of them may re-grant TEMPORARY or unpin pg_temp — those
+      // belong to migration 0019 on main and are still applied, so rolling SR-2 back cannot
+      // silently reopen the CRITICAL 0019 closed.
+      //
+      // The list is enumerated rather than counted so that a migration joining or leaving this
+      // stack has to be acknowledged here; that is what caught 0026's arrival.
+      expect((await migrateDown(client, migrations, 23)).reverted).toEqual([26, 25, 24]);
       const at23 = await definers();
       expect(at23.length, 'the revert dropped definers it should only have altered').toBe(
         atTop.length,
@@ -1194,7 +1205,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       );
 
       // And back up. Everything matches where it started, field for field.
-      expect((await migrateUp(client, migrations)).applied).toEqual([24, 25]);
+      expect((await migrateUp(client, migrations)).applied).toEqual([24, 25, 26]);
       expect(await definers()).toEqual(atTop);
       expect(await scopeFns()).toEqual(scopeTop);
       expect(await publicTemp()).toBe(false);

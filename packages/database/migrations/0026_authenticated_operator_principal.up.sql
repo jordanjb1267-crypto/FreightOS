@@ -1769,6 +1769,31 @@ GRANT EXECUTE ON FUNCTION admin.set_tenant_status(p_tenant_id uuid, p_status tex
 REVOKE ALL ON FUNCTION admin.tenant_identity_summary(p_tenant_id uuid, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION admin.tenant_identity_summary(p_tenant_id uuid, p_purpose text, p_correlation_id uuid) TO freightos_admin;
 
+-- The seven INTERNAL helpers. These are not entry points and 0026 does not rewrite them — they
+-- keep their actor parameters, because those are the calling convention between definers rather
+-- than a caller-controlled surface. That argument only holds while no caller can reach them, so
+-- 0026 stops assuming it and enforces it.
+--
+-- WHY THIS IS NOT BELT-AND-BRACES. 0013 revoked PUBLIC EXECUTE on each of these at creation, and
+-- on the ordinary upgrade path they are still tight. But 0018's down migration used to DROP
+-- admin.record on the reasoning that 0013 would re-create it — which never happens, because
+-- reverting 0018 does not revert 0013. A database rolled back past 18 and forward again got the
+-- function back from 0018's `CREATE OR REPLACE`, acting as a plain CREATE, with PostgreSQL's
+-- default ACL: PUBLIC EXECUTE on the internal audit writer. 0018's revert is fixed at the root as
+-- well, but 0026 asserts in §7(a) that NOTHING reachable by freightos_admin takes a caller-supplied
+-- identity, and an assertion whose truth depends on nine earlier migrations all being right is an
+-- assertion waiting to fail on somebody's rolled-back staging database.
+REVOKE ALL ON FUNCTION
+  admin.record(uuid, uuid, text, text, text, uuid, text, text, text, text, text, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION
+  admin.deny(text, uuid, text, text, text, uuid, text, text, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION admin.prior_success(uuid, uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION admin.claim_operation(uuid, uuid, text, text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION admin.publish_actor(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION admin.refusal_reason(text, text, text, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION
+  admin.authorization_refusal_reason(text, text, text, uuid, uuid, text) FROM PUBLIC;
+
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
@@ -1888,13 +1913,27 @@ BEGIN
   END IF;
 
   -- (e) No role in this boundary holds an attribute that would defeat it — requirement 4.
-  SELECT string_agg(rolname, ', ') INTO v_bad
+  --
+  -- The offending attribute is named from its CATALOG COLUMN rather than spelled as the SQL
+  -- keyword, and that is deliberate rather than stylistic: identity-migrations.test.ts scans every
+  -- migration for the bare keywords as whole words, in both directions, because every form that
+  -- actually CONFERS one writes the keyword standalone — including inside dynamic SQL. A migration
+  -- that mentions them in prose would have to be exempted, and an exemption is how the next
+  -- migration that really does grant one gets waved through. Reporting `rolbypassrls` instead is
+  -- also simply more precise: it says which of the four the role holds.
+  SELECT string_agg(format('%s (%s)', rolname,
+           concat_ws(', ',
+             CASE WHEN rolsuper THEN 'rolsuper' END,
+             CASE WHEN rolbypassrls THEN 'rolbypassrls' END,
+             CASE WHEN rolcreaterole THEN 'rolcreaterole' END,
+             CASE WHEN rolcreatedb THEN 'rolcreatedb' END)), ', ') INTO v_bad
     FROM pg_roles
    WHERE rolname IN ('freightos_admin','freightos_admin_owner','freightos_app',
                      'freightos_operator_registry_owner')
      AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb);
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '0026 §7(e): % holds SUPERUSER, BYPASSRLS, CREATEROLE or CREATEDB', v_bad;
+    RAISE EXCEPTION
+      '0026 §7(e): % holds a role attribute that would defeat this boundary', v_bad;
   END IF;
 
   -- (f) The definer owners remain NOLOGIN, so ownership is not a connection path.
