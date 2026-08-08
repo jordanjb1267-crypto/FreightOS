@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withLegalContext } from '../../src/session.ts';
+import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
 import {
   carrierContextAt,
@@ -125,14 +126,18 @@ describe('a tenant session cannot mutate the authorization graph — R2-01', () 
     );
     expect(r.rows.map((x) => x.table_name)).toEqual([...GUARDED_TABLES].sort());
 
-    const visible = await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.userId}`),
-      async (c) => {
-        const q = await c.query('SELECT id FROM roles WHERE id = $1', [a.roleId]);
-        return q.rowCount;
-      },
-    );
+    // SR-2 CLASS 1 — fixture correction. This read used the OPERATOR under an enterprise-node
+    // claim. The role row sits at the legal-entity node, which is ABOVE the operator's terminal-node
+    // membership, so the operator could only ever have seen it because the claimed node was
+    // believed. The session that legitimately reaches this row is one scoped where the row lives:
+    // the administrator, through a verified binding.
+    //
+    // The assertion is unchanged and so is its subject — the boundary removes mutation, not
+    // visibility, and a legitimate tenant session still sees the row.
+    const visible = await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      const q = await c.query('SELECT id FROM roles WHERE id = $1', [a.roleId]);
+      return q.rowCount;
+    });
     expect(visible).toBe(1);
   });
 

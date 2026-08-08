@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withLegalContext } from '../../src/session.ts';
 import { TENANT_A, TestDatabase } from './harness.ts';
 import { seedIdentity, systemContextAt, type IdentityFixture } from './identity-harness.ts';
+import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
 
 /**
  * Identity, membership, role, permission and service-account lifecycles, and the self-elevation
@@ -46,9 +47,23 @@ function adminContext(actorId?: string) {
   // legal entity are the scope; `user:<uuid>` is the person. The self-elevation guards refuse a
   // write to memberships, membership_roles or role_permissions from a session that names no user,
   // so a bootstrap actor id is no longer a way to reach them.
+  //
+  // SR-2 FIXTURE CORRECTION — Class 1. This named `a.enterpriseNodeId`, and no membership has ever
+  // been able to carry it: `assert_governing_legal_entity` requires a node the legal entity
+  // governs, and the enterprise root sits above that boundary. Before SR-2 nothing compared the
+  // claim with the grant — app.current_organization_node_id() returned the GUC — so the fixture
+  // asserted reach the administrator did not hold and the tests passed for the wrong reason.
+  //
+  // Everything this file asserts lives beneath the legal entity: permission chains, membership and
+  // role lifecycle, effective periods. So the corrected scope is the administrator's real
+  // legal-entity-governed node. The substantive assertions are unchanged.
+  //
+  // This is NOT a narrowing of the product requirement. Tenant-wide human administration remains
+  // required by 04_ENTERPRISE_SCALE_AND_TENANCY.md and unimplemented — see
+  // TENANT_WIDE_RUNTIME_ADMIN_AUTHORITY=REQUIRED_BY_HANDOFF_AND_UNIMPLEMENTED.
   return systemContextAt(
     TENANT_A,
-    a.enterpriseNodeId,
+    a.legalEntityNodeId,
     a.legalEntityId,
     actorId ?? `user:${a.adminUserId}`,
   );
@@ -56,7 +71,7 @@ function adminContext(actorId?: string) {
 
 /** Read a permission as of an explicit instant — never an implicit now(), P-20. */
 async function userHolds(permission: string, asOf = 'now()'): Promise<boolean> {
-  return withLegalContext(app, adminContext(), async (c) => {
+  return withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
     const r = await c.query<{ ok: boolean }>(
       `SELECT app.user_has_permission($1, $2, $3, ${asOf}) AS ok`,
       [TENANT_A, a.userId, permission],
@@ -66,7 +81,7 @@ async function userHolds(permission: string, asOf = 'now()'): Promise<boolean> {
 }
 
 async function serviceAccountHolds(permission: string): Promise<boolean> {
-  return withLegalContext(app, adminContext(), async (c) => {
+  return withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
     const r = await c.query<{ ok: boolean }>(
       'SELECT app.service_account_has_permission($1, $2, $3, now()) AS ok',
       [TENANT_A, a.serviceAccountId, permission],
@@ -431,20 +446,39 @@ describe('self-elevation is refused', () => {
     }
   });
 
-  it('parses the acting user out of the actor id', async () => {
-    const parsed = await withLegalContext(app, adminContext(`user:${a.userId}`), async (c) => {
+  /**
+   * SR-2 CLASS 4 — the assumption these two encoded is no longer true of the runtime role.
+   *
+   * They asserted that `app.current_user_id()` parses `user:<uuid>` out of the `app.actor_id` GUC.
+   * For `freightos_app` it no longer reads that GUC at all: the acting user comes from the verified
+   * binding, which is the whole of SEC-01. The parsing branch still exists and still serves the
+   * bootstrap, migration and control-plane roles, and is covered where those roles are exercised.
+   *
+   * The second of the pair was passing for the wrong reason — it expected NULL for a system actor,
+   * and after 0019 an unbound `freightos_app` session returns NULL for every actor string. Keeping
+   * it as-is would have been a test that could no longer fail.
+   *
+   * What replaces them is the property SR-2 actually establishes, in both directions.
+   */
+  it('takes the acting user from the verified binding, not from the actor claim', async () => {
+    const parsed = await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      // The claim names the operator; the binding names the administrator.
+      await c.query('SELECT set_config($1, $2, true)', ['app.actor_id', `user:${a.userId}`]);
       const r = await c.query<{ id: string | null }>('SELECT app.current_user_id()::text AS id');
       return r.rows[0]!.id;
     });
-    expect(parsed).toBe(a.userId);
+    expect(parsed).toBe(a.adminUserId);
+    expect(parsed).not.toBe(a.userId);
   });
 
-  it('returns no acting user for a system actor', async () => {
-    const parsed = await withLegalContext(app, adminContext('system:provisioner'), async (c) => {
-      const r = await c.query<{ id: string | null }>('SELECT app.current_user_id()::text AS id');
-      return r.rows[0]!.id;
-    });
-    expect(parsed).toBeNull();
+  it('returns no acting user to an unbound runtime session, whatever the actor claim says', async () => {
+    for (const claim of [`user:${a.userId}`, 'system:provisioner', '']) {
+      await app.query('BEGIN');
+      await app.query('SELECT set_config($1, $2, true)', ['app.actor_id', claim]);
+      const r = await app.query<{ id: string | null }>('SELECT app.current_user_id()::text AS id');
+      await app.query('ROLLBACK');
+      expect(r.rows[0]!.id, claim).toBeNull();
+    }
   });
 
   it('refuses an administrator granting itself a membership', async () => {
@@ -1076,7 +1110,7 @@ describe('self-elevation cannot be stood down — F-01, R2-01', () => {
       ).outcome,
     ).toBe('succeeded');
 
-    const holds = await withLegalContext(app, adminContext(), async (c) => {
+    const holds = await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
       const r = await c.query<{ ok: boolean }>(
         'SELECT app.user_has_permission($1, $2, $3, now()) AS ok',
         [TENANT_A, built.userId, 'identity.role.read'],

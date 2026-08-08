@@ -1,0 +1,464 @@
+public.audit_events
+audit_events_isolation
+*
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~~~
+public.carrier_appointments
+carrier_appointments_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
+public.carrier_appointments
+carrier_appointments_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.carrier_appointments
+carrier_appointments_update
+w
+PERMISSIVE
+PUBLIC
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))))
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
+public.kill_switches
+kill_switches_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (scope = ANY (ARRAY['system'::app.kill_switch_scope, 'legal_plane'::app.kill_switch_scope, 'operating_context'::app.kill_switch_scope])) OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.kill_switches
+kill_switches_release
+w
+PERMISSIVE
+PUBLIC
+app.is_control_plane()
+app.is_control_plane()
+~~~
+public.kill_switches
+kill_switches_write
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+app.is_control_plane()
+~~~
+public.legal_entities
+legal_entities_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
+public.legal_entities
+legal_entities_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.legal_entities
+legal_entities_update
+w
+PERMISSIVE
+PUBLIC
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))))
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
+public.membership_roles
+membership_roles_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+app.is_control_plane()
+~~~
+public.membership_roles
+membership_roles_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.membership_roles
+membership_roles_update
+w
+PERMISSIVE
+PUBLIC
+app.is_control_plane()
+app.is_control_plane()
+~~~
+public.memberships
+memberships_bootstrap_read
+r
+PERMISSIVE
+freightos_binding_owner
+((tenant_id = ( SELECT app.verified_binding_tenant_scope() AS verified_binding_tenant_scope)) AND (organization_node_id IN ( SELECT app.verified_binding_scope_node_ids() AS verified_binding_scope_node_ids)))
+~NONE~
+~~~
+public.memberships
+memberships_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+app.is_control_plane()
+~~~
+public.memberships
+memberships_read
+r
+PERMISSIVE
+freightos_admin_owner, freightos_app, freightos_hierarchy_owner, freightos_identity_guard, freightos_migrator
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~NONE~
+~~~
+public.memberships
+memberships_update
+w
+PERMISSIVE
+PUBLIC
+app.is_control_plane()
+app.is_control_plane()
+~~~
+public.operating_authorities
+operating_authorities_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
+public.operating_authorities
+operating_authorities_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.operating_authorities
+operating_authorities_update
+w
+PERMISSIVE
+PUBLIC
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))))
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
+public.organization_node_closure
+organization_node_closure_bootstrap_read
+r
+PERMISSIVE
+freightos_binding_owner
+(tenant_id = ( SELECT app.verified_binding_tenant_scope() AS verified_binding_tenant_scope))
+~NONE~
+~~~
+public.organization_node_closure
+organization_node_closure_delete
+d
+PERMISSIVE
+PUBLIC
+app.is_control_plane()
+~NONE~
+~~~
+public.organization_node_closure
+organization_node_closure_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+app.is_control_plane()
+~~~
+public.organization_node_closure
+organization_node_closure_read
+r
+PERMISSIVE
+freightos_admin_owner, freightos_app, freightos_hierarchy_owner, freightos_identity_guard, freightos_migrator
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.organization_node_closure
+organization_node_closure_update
+w
+PERMISSIVE
+PUBLIC
+app.is_control_plane()
+app.is_control_plane()
+~~~
+public.organization_nodes
+organization_nodes_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~~~
+public.organization_nodes
+organization_nodes_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.organization_nodes
+organization_nodes_update
+w
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~~~
+public.outbox_events
+outbox_events_isolation
+*
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~~~
+public.permissions
+permissions_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+app.is_control_plane()
+~~~
+public.permissions
+permissions_read
+r
+PERMISSIVE
+PUBLIC
+true
+~NONE~
+~~~
+public.permissions
+permissions_update
+w
+PERMISSIVE
+PUBLIC
+app.is_control_plane()
+app.is_control_plane()
+~~~
+public.policy_bindings
+policy_bindings_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))) AND ((legal_entity_id IS NULL) OR (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id)))))
+~~~
+public.policy_bindings
+policy_bindings_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.policy_bindings
+policy_bindings_update
+w
+PERMISSIVE
+PUBLIC
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))) AND ((legal_entity_id IS NULL) OR (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id)))))
+~~~
+public.role_permissions
+role_permissions_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+app.is_control_plane()
+~~~
+public.role_permissions
+role_permissions_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.role_permissions
+role_permissions_update
+w
+PERMISSIVE
+PUBLIC
+app.is_control_plane()
+app.is_control_plane()
+~~~
+public.roles
+roles_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+app.is_control_plane()
+~~~
+public.roles
+roles_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.roles
+roles_update
+w
+PERMISSIVE
+PUBLIC
+app.is_control_plane()
+app.is_control_plane()
+~~~
+public.service_account_credentials
+service_account_credentials_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (service_account_id IN ( SELECT app.verified_scope_service_account_ids() AS verified_scope_service_account_ids)))
+~~~
+public.service_account_credentials
+service_account_credentials_read
+r
+PERMISSIVE
+PUBLIC
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (service_account_id IN ( SELECT app.verified_scope_service_account_ids() AS verified_scope_service_account_ids)))
+~NONE~
+~~~
+public.service_account_credentials
+service_account_credentials_update
+w
+PERMISSIVE
+PUBLIC
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (service_account_id IN ( SELECT app.verified_scope_service_account_ids() AS verified_scope_service_account_ids)))
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (service_account_id IN ( SELECT app.verified_scope_service_account_ids() AS verified_scope_service_account_ids)))
+~~~
+public.service_account_permissions
+service_account_permissions_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+app.is_control_plane()
+~~~
+public.service_account_permissions
+service_account_permissions_read
+r
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~NONE~
+~~~
+public.service_account_permissions
+service_account_permissions_update
+w
+PERMISSIVE
+PUBLIC
+app.is_control_plane()
+app.is_control_plane()
+~~~
+public.service_accounts
+service_accounts_bootstrap_read
+r
+PERMISSIVE
+freightos_binding_owner
+((tenant_id = ( SELECT app.verified_binding_tenant_scope() AS verified_binding_tenant_scope)) AND (organization_node_id IN ( SELECT app.verified_binding_scope_node_ids() AS verified_binding_scope_node_ids)))
+~NONE~
+~~~
+public.service_accounts
+service_accounts_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
+public.service_accounts
+service_accounts_read
+r
+PERMISSIVE
+freightos_admin_owner, freightos_app, freightos_hierarchy_owner, freightos_identity_guard, freightos_migrator
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~NONE~
+~~~
+public.service_accounts
+service_accounts_update
+w
+PERMISSIVE
+PUBLIC
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
+app.session_binding
+session_binding_mint
+*
+PERMISSIVE
+freightos_admin_owner
+true
+true
+~~~
+app.session_binding
+session_binding_owner_only
+*
+PERMISSIVE
+PUBLIC
+pg_has_role(CURRENT_USER, 'freightos_binding_owner'::name, 'USAGE'::text)
+~NONE~
+~~~
+public.tenants
+tenants_isolation
+*
+PERMISSIVE
+PUBLIC
+(app.is_control_plane() OR (id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+(app.is_control_plane() OR (id = ( SELECT app.current_tenant_id() AS current_tenant_id)))
+~~~
+public.users
+users_bootstrap_read
+r
+PERMISSIVE
+freightos_binding_owner
+((tenant_id = ( SELECT app.verified_binding_tenant_scope() AS verified_binding_tenant_scope)) AND (organization_node_id IN ( SELECT app.verified_binding_scope_node_ids() AS verified_binding_scope_node_ids)))
+~NONE~
+~~~
+public.users
+users_insert
+a
+PERMISSIVE
+PUBLIC
+~NONE~
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
+public.users
+users_read
+r
+PERMISSIVE
+freightos_admin_owner, freightos_app, freightos_hierarchy_owner, freightos_identity_guard, freightos_migrator
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~NONE~
+~~~
+public.users
+users_update
+w
+PERMISSIVE
+PUBLIC
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+((app.is_control_plane() OR (tenant_id = ( SELECT app.current_tenant_id() AS current_tenant_id))) AND (app.is_control_plane() OR (legal_entity_id = ( SELECT app.current_legal_entity_id() AS current_legal_entity_id))) AND (app.is_control_plane() OR (organization_node_id IN ( SELECT app.verified_scope_node_ids() AS verified_scope_node_ids))))
+~~~
