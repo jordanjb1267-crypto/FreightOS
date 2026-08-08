@@ -30,6 +30,8 @@ let app: Client;
 let fixture: Client;
 /** The administrative connection — the only way to change the authorization graph after R2-01. */
 let adminConn: Client;
+let memberConn: Client;
+let sharedConn: Client;
 let a: IdentityFixture;
 
 /**
@@ -108,15 +110,21 @@ beforeAll(async () => {
   await app.connect();
   fixture = db.connectAs('postgres');
   await fixture.connect();
-  adminConn = db.connectAs('freightos_admin');
-  await adminConn.connect();
   a = await seedIdentity(db, TENANT_A);
-}, 60_000);
+  // SEC-01 / 0026. `adminConn` is no longer the shared credential: the self-elevation guards are
+  // about what an ADMINISTRATOR may do to its own authority, and after 0026 the only way to be an
+  // administrator is to have authenticated as one. `memberConn` is the same fixture's ordinary
+  // operator, for the cases that turn on holding no identity permission.
+  adminConn = db.connectAsOperator(await db.provisionOperator('admin', TENANT_A, a.adminUserId));
+  await adminConn.connect();
+  memberConn = db.connectAsOperator(await db.provisionOperator('member', TENANT_A, a.userId));
+  await memberConn.connect();
+  sharedConn = db.connectAs('freightos_admin');
+  await sharedConn.connect();
+}, 90_000);
 
 afterAll(async () => {
-  await app?.end();
-  await fixture?.end();
-  await adminConn?.end();
+  for (const c of [app, fixture, adminConn, memberConn, sharedConn]) await c?.end();
 });
 
 describe('the seeded chain authorizes', () => {
@@ -396,12 +404,12 @@ describe('membership roles must be governed by the membership node', () => {
  * with the actor the boundary verified. That is the interesting case — the guards are what stop an
  * ADMINISTRATOR widening its own authority through a path it is otherwise entitled to use.
  */
-async function boundary(sql: string, params: readonly unknown[]) {
-  const r = await adminConn.query<{ outcome: string; message: string | null }>(sql, [...params]);
+async function boundary(sql: string, params: readonly unknown[], client: Client = adminConn) {
+  const r = await client.query<{ outcome: string; message: string | null }>(sql, [...params]);
   return r.rows[0]!;
 }
 
-const AS_ADMIN = ['human', 'identity_administration'] as const;
+const PURPOSE = 'identity_administration';
 
 /**
  * Constitution Art. I.5 — no actor grants itself authority. The same rule has to hold for a human,
@@ -483,16 +491,8 @@ describe('self-elevation is refused', () => {
 
   it('refuses an administrator granting itself a membership', async () => {
     const result = await boundary(
-      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
-      [
-        TENANT_A,
-        a.adminUserId,
-        a.legalEntityNodeId,
-        a.legalEntityId,
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
+      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)',
+      [TENANT_A, a.adminUserId, a.legalEntityNodeId, a.legalEntityId, PURPOSE, randomUUID()],
     );
     expect(result.outcome).toBe('failed');
     expect(result.message).toMatch(/may not grant itself a membership/);
@@ -505,12 +505,11 @@ describe('self-elevation is refused', () => {
     // collides with memberships_one_active_per_user_node before the guard is ever reached, and a
     // duplicate at another node would not be the membership its authority actually rests on.
     const setStatus = (status: string) =>
-      boundary('SELECT * FROM admin.set_membership_status($1, $2, $3, $4, $5, $6, $7)', [
+      boundary('SELECT * FROM admin.set_membership_status($1, $2, $3, $4, $5)', [
         TENANT_A,
         a.adminMembershipId,
         status,
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
+        PURPOSE,
         randomUUID(),
       ]);
 
@@ -576,8 +575,8 @@ describe('self-elevation is refused', () => {
     );
 
     const result = await boundary(
-      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-      [TENANT_A, membershipId, a.roleId, `user:${a.adminUserId}`, ...AS_ADMIN, randomUUID()],
+      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)',
+      [TENANT_A, membershipId, a.roleId, PURPOSE, randomUUID()],
     );
     expect(result.outcome).toBe('failed');
     expect(result.message).toMatch(/may not grant itself a role/);
@@ -599,15 +598,8 @@ describe('self-elevation is refused', () => {
     // Naming an actor that does not hold the permission would test the gate instead and lose this
     // guard's coverage entirely; that case is the separate `denied` test below.
     const result = await boundary(
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [
-        TENANT_A,
-        a.adminRoleId,
-        'identity.user.write',
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
+      [TENANT_A, a.adminRoleId, 'identity.user.write', PURPOSE, randomUUID()],
     );
     expect(result.outcome).toBe('failed');
     expect(result.message).toMatch(/may not add a permission to a role it holds/);
@@ -618,9 +610,13 @@ describe('self-elevation is refused', () => {
     // the consequential operation was attempted; `failed` means it was authorized and the
     // operation itself failed. An ordinary member holds no identity.role.write, so the request
     // never reaches the mutation.
+    // SEC-01 / 0026: the ordinary member is now AUTHENTICATED as itself rather than named. That is
+    // the same case with the impersonation removed — it holds no identity.role.write and the gate
+    // refuses it before the mutation, which is what makes this `denied` and not `failed`.
     const result = await boundary(
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [TENANT_A, a.roleId, 'identity.role.write', `user:${a.userId}`, ...AS_ADMIN, randomUUID()],
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
+      [TENANT_A, a.roleId, 'identity.role.write', PURPOSE, randomUUID()],
+      memberConn,
     );
     expect(result.outcome).toBe('denied');
     expect(result.message).toMatch(/does not hold/);
@@ -628,25 +624,24 @@ describe('self-elevation is refused', () => {
 
   it('permits an administrator granting the same permission to somebody else', async () => {
     const role = await adminConn.query<{ payload: Record<string, unknown> }>(
-      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)',
       [
         TENANT_A,
         a.legalEntityNodeId,
         a.legalEntityId,
         `granted_elsewhere_${randomUUID().slice(0, 8)}`,
         'Granted elsewhere',
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
+        PURPOSE,
         randomUUID(),
       ],
     );
     const roleId = role.rows[0]!.payload['role_id'] as string;
 
     const result = await boundary(
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [TENANT_A, roleId, 'identity.role.write', `user:${a.adminUserId}`, ...AS_ADMIN, randomUUID()],
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
+      [TENANT_A, roleId, 'identity.role.write', PURPOSE, randomUUID()],
     );
-    expect(result.outcome).toBe('succeeded');
+    expect(result.outcome, result.message ?? '').toBe('succeeded');
   });
 });
 
@@ -974,8 +969,9 @@ describe('self-elevation cannot be stood down — F-01, R2-01', () => {
     });
     try {
       const result = await boundary(
-        'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-        [TENANT_A, a.roleId, 'identity.role.write', `user:${a.userId}`, ...AS_ADMIN, randomUUID()],
+        'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
+        [TENANT_A, a.roleId, 'identity.role.write', PURPOSE, randomUUID()],
+        memberConn,
       );
       // `denied`, not `failed`: this actor is an ordinary member and 0018 §3's permission gate
       // refuses it before the self-elevation guard runs. The guard's own coverage — including the
@@ -994,9 +990,8 @@ describe('self-elevation cannot be stood down — F-01, R2-01', () => {
   });
 
   it('refuses an unattributed change however the session names itself', async () => {
-    // Both halves at once. A tenant session cannot reach the table whatever it calls itself, and
-    // the boundary refuses the same actor ids outright rather than recording an unattributable
-    // change — so neither layer depends on the other to hold.
+    // The DIRECT half is unchanged: a tenant session cannot reach the table whatever it calls
+    // itself, and it never could reach it by calling itself something better.
     for (const actorId of ['system:me', 'integration:billing_sync', 'agent:dispatch-agent', 'x']) {
       await expect(
         widenOwnRole(
@@ -1004,50 +999,77 @@ describe('self-elevation cannot be stood down — F-01, R2-01', () => {
         ),
         `direct: ${actorId}`,
       ).rejects.toThrow(/permission denied/i);
+    }
 
-      const result = await boundary(
-        'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-        [
+    // The BOUNDARY half changed shape — SEC-01 / 0026. There is no longer an actor argument to
+    // pass any of those strings in, so the boundary cannot be asked to accept an unattributable
+    // change. What replaces "does it refuse the string" is "does the string matter at all": the
+    // authenticated ADMINISTRATOR forges each of them into the legacy actor GUC and performs a
+    // mutation it is genuinely entitled to. Each must succeed as the administrator, and the ledger
+    // must name the administrator — a session variable is not identity and no longer looks like it.
+    for (const actorId of ['system:me', 'integration:billing_sync', 'agent:dispatch-agent', 'x']) {
+      const correlationId = randomUUID();
+      await adminConn.query('SELECT set_config($1, $2, false)', ['app.actor_id', actorId]);
+      try {
+        const role = await boundary('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)', [
           TENANT_A,
-          a.roleId,
-          'identity.role.write',
-          actorId,
-          'human',
-          'identity_administration',
-          randomUUID(),
-        ],
+          a.legalEntityNodeId,
+          a.legalEntityId,
+          `guc_${randomUUID().slice(0, 8)}`,
+          'GUC probe',
+          PURPOSE,
+          correlationId,
+        ]);
+        expect(role.outcome, `boundary: ${actorId}`).toBe('succeeded');
+      } finally {
+        await adminConn.query('SELECT set_config($1, NULL, false)', ['app.actor_id']);
+      }
+
+      const rows = await fixture.query<{ actor_id: string; actor_type: string }>(
+        'SELECT actor_id, actor_type FROM audit_events WHERE correlation_id = $1',
+        [correlationId],
       );
-      expect(result.outcome, `boundary: ${actorId}`).toBe('denied');
-      expect(result.message, `boundary: ${actorId}`).toMatch(
-        /must be of the form user:<uuid>|is not a user of tenant/,
-      );
+      expect(rows.rowCount, `boundary: ${actorId}`).toBeGreaterThan(0);
+      for (const row of rows.rows) {
+        expect(row.actor_type, `boundary: ${actorId}`).toBe('human');
+        expect(row.actor_id, `a session GUC chose the recorded actor: ${actorId}`).toBe(
+          `user:${a.adminUserId}`,
+        );
+      }
     }
   });
 
-  it('refuses a service account impersonating a user', async () => {
-    // A service account is not a user and cannot become one by being named like one. Art. I.5.
+  it('refuses a service principal changing the authorization graph', async () => {
+    // Art. I.5, restated for SEC-01. A service account is not a user and cannot become one by being
+    // named like one — and under 0026 it cannot be named at all, so the case is now a genuine
+    // SERVICE connection reaching for a human's authority.
+    //
+    // `sharedConn` is the shared `freightos_admin` credential, which 0026 §5 binds to
+    // `system:session-binding-issuer` and deliberately leaves OFF `admin.platform_actor`. It is the
+    // exact connection the original exploit ran over.
     const result = await boundary(
-      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-      [TENANT_A, a.membershipId, a.roleId, `user:${a.serviceAccountId}`, ...AS_ADMIN, randomUUID()],
+      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)',
+      [TENANT_A, a.membershipId, a.roleId, PURPOSE, randomUUID()],
+      sharedConn,
     );
     expect(result.outcome).toBe('denied');
-    expect(result.message).toMatch(/is not a user of tenant/);
+    expect(result.message).toMatch(/is not an approved provisioning identity/);
 
-    // And an integration actor_type is refused before the actor is even looked at.
-    const asIntegration = await boundary(
-      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-      [
-        TENANT_A,
-        a.membershipId,
-        a.roleId,
-        `integration:${a.serviceAccountId}`,
-        'integration',
-        'identity_administration',
-        randomUUID(),
-      ],
+    // Nothing landed, and no human appears anywhere in the record of the attempt.
+    const humanRows = await fixture.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM audit_events
+        WHERE actor_type = 'human' AND actor_id = $1
+          AND payload -> 'connection' ->> 'authenticated_role' = 'freightos_admin'`,
+      [`user:${a.adminUserId}`],
     );
-    expect(asIntegration.outcome).toBe('denied');
-    expect(asIntegration.message).toMatch(/may not perform a privileged operation/);
+    expect(Number(humanRows.rows[0]!.n)).toBe(0);
+
+    // The service account itself is still not a user, asserted where that fact now lives: the
+    // resolver refuses to bind a login to it at all, because `authn.provision_operator` requires a
+    // row in `users` and a service account is not one.
+    await expect(
+      db.provisionOperator('svcacct', TENANT_A, a.serviceAccountId),
+    ).rejects.toThrow(/is not a user of tenant|not an active user/i);
   });
 
   it('still lets an administrator grant authority to somebody else', async () => {
@@ -1063,17 +1085,15 @@ describe('self-elevation cannot be stood down — F-01, R2-01', () => {
       return { userId: user.rows[0]!.id };
     });
 
-    const actor = `user:${a.adminUserId}`;
     const role = await adminConn.query<{ payload: Record<string, unknown>; outcome: string }>(
-      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)',
       [
         TENANT_A,
         a.legalEntityNodeId,
         a.legalEntityId,
         `f01_grantable_${randomUUID().slice(0, 8)}`,
         'F-01 grantable',
-        actor,
-        ...AS_ADMIN,
+        PURPOSE,
         randomUUID(),
       ],
     );
@@ -1082,29 +1102,27 @@ describe('self-elevation cannot be stood down — F-01, R2-01', () => {
 
     expect(
       (
-        await boundary('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)', [
+        await boundary('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
           TENANT_A,
           roleId,
           'identity.role.read',
-          actor,
-          ...AS_ADMIN,
+          PURPOSE,
           randomUUID(),
         ])
       ).outcome,
     ).toBe('succeeded');
 
     const membership = await adminConn.query<{ payload: Record<string, unknown> }>(
-      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
-      [TENANT_A, built.userId, a.regionNodeId, a.legalEntityId, actor, ...AS_ADMIN, randomUUID()],
+      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)',
+      [TENANT_A, built.userId, a.regionNodeId, a.legalEntityId, PURPOSE, randomUUID()],
     );
     expect(
       (
-        await boundary('SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)', [
+        await boundary('SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)', [
           TENANT_A,
           membership.rows[0]!.payload['membership_id'],
           roleId,
-          actor,
-          ...AS_ADMIN,
+          PURPOSE,
           randomUUID(),
         ])
       ).outcome,

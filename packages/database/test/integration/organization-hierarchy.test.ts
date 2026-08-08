@@ -31,6 +31,18 @@ const db = new TestDatabase('freightos_test_org_hierarchy');
 
 let app: Client;
 let admin: Client;
+/**
+ * SEC-01 / 0026 — the authenticated administrator that performs the moves.
+ *
+ * `admin` above is the superuser, and it stays: it reads fixtures and asserts closure rows, which
+ * is not an authority question. Reparenting IS one, and `admin.move_organization_node` now resolves
+ * the acting human from `session_user` — so the superuser cannot perform it at all (it is bound to
+ * no FreightOS principal), and neither can the shared `freightos_admin` credential act as a person.
+ * A per-operator login bound to the tenant administrator is the only thing that can, which is the
+ * point of the migration and the reason this connection exists.
+ */
+let mover: Client;
+let moverRole: string;
 let a: IdentityFixture;
 /** The node at exactly MAX_ORGANIZATION_DEPTH, built by the depth-bound test below. */
 let deepNodeId: string;
@@ -59,11 +71,15 @@ beforeAll(async () => {
   admin = db.connectAs('postgres');
   await admin.connect();
   a = await seedIdentity(db, TENANT_A);
-}, 60_000);
+  moverRole = await db.provisionOperator('admin', TENANT_A, a.adminUserId);
+  mover = db.connectAsOperator(moverRole);
+  await mover.connect();
+}, 90_000);
 
 afterAll(async () => {
   await app?.end();
   await admin?.end();
+  await mover?.end();
 });
 
 /**
@@ -108,19 +124,13 @@ async function moveNode(
   client: Client,
   nodeId: string,
   parentId: string,
-  opts: { tenantId?: string; actor?: string } = {},
+  opts: { tenantId?: string } = {},
 ): Promise<void> {
+  // SEC-01 / 0026: no actor argument. The acting human is whoever `client` authenticated as, so
+  // choosing the connection IS choosing the actor — there is nothing left to name.
   const r = await client.query<{ outcome: string; message: string | null }>(
-    'SELECT * FROM admin.move_organization_node($1, $2, $3, $4, $5, $6, $7)',
-    [
-      opts.tenantId ?? TENANT_A,
-      nodeId,
-      parentId,
-      opts.actor ?? `user:${a.adminUserId}`,
-      'human',
-      'identity_administration',
-      randomUUID(),
-    ],
+    'SELECT * FROM admin.move_organization_node($1, $2, $3, $4, $5)',
+    [opts.tenantId ?? TENANT_A, nodeId, parentId, 'identity_administration', randomUUID()],
   );
   const row = r.rows[0]!;
   if (row.outcome !== 'succeeded') {
@@ -279,11 +289,11 @@ describe('hierarchy invariants', () => {
       addNode(c as Client, a.regionNodeId, 'business_unit', 'Cycle bait'),
     );
 
-    await expect(moveNode(admin, a.regionNodeId, descendant)).rejects.toThrow(/cycle rejected/);
+    await expect(moveNode(mover, a.regionNodeId, descendant)).rejects.toThrow(/cycle rejected/);
   });
 
   it('rejects a self-parent', async () => {
-    await expect(moveNode(admin, a.regionNodeId, a.regionNodeId)).rejects.toThrow(
+    await expect(moveNode(mover, a.regionNodeId, a.regionNodeId)).rejects.toThrow(
       /not_own_parent|cycle rejected/,
     );
   });
@@ -326,7 +336,7 @@ describe('hierarchy invariants', () => {
       return root;
     });
 
-    await expect(moveNode(admin, tallRoot, deepNodeId)).rejects.toThrow(
+    await expect(moveNode(mover, tallRoot, deepNodeId)).rejects.toThrow(
       /depth bound of 16 exceeded/,
     );
   });
@@ -346,7 +356,7 @@ describe('moving a subtree', () => {
     });
 
     // Move the branch one level deeper, under the region — through the trusted command.
-    await moveNode(admin, built.branch, a.regionNodeId);
+    await moveNode(mover, built.branch, a.regionNodeId);
 
     const moved = await asVerifiedAdministrator(async (c) => {
       const client = c as Client;
@@ -842,7 +852,7 @@ describe('the closure cannot be written by what it authorizes — F-02', () => {
     ]);
 
     // And a move rewrites it — the trigger's detach/reattach pass, still working as a definer.
-    await moveNode(admin, nodeId, a.legalEntityNodeId);
+    await moveNode(mover, nodeId, a.legalEntityNodeId);
     const moved = await asVerifiedAdministrator(async (c) => {
       const r = await c.query<{ ancestor_id: string; depth: number }>(
         `SELECT ancestor_id, depth FROM organization_node_closure
@@ -981,7 +991,12 @@ describe('concurrent hierarchy mutation — F-03', () => {
    * and ordering behaviour is unchanged.
    */
   async function openSession() {
-    const client = db.connectAs('freightos_admin');
+    // SEC-01 / 0026: the same per-operator login the rest of this file moves through, not the
+    // shared credential. Two sessions of the SAME authenticated administrator, contending for
+    // app.lock_organization_hierarchy — which is what a retried request actually looks like. The
+    // shared credential could not do this any more: it resolves to a service, and reparenting is a
+    // human act.
+    const client = db.connectAsOperator(moverRole);
     await client.connect();
     await client.query('BEGIN');
     return client;
