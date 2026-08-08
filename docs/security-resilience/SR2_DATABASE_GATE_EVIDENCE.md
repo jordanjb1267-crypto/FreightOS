@@ -1511,10 +1511,15 @@ the 200-row read at 26.2 ms median against the 100 ms guard.
 
 ### 15.12 Exact-head CI
 
-Local `HEAD`, the PR's remote head and the CI `head_sha` are the same commit,
-`beb78d129a332b0287e43e28a384b662f529c156`. Run
-[31231345800](https://github.com/jordanjb1267-crypto/FreightOS/actions/runs/31231345800), job
-`verify`, conclusion **success**. From the runner's own summary lines in the CI log:
+The remediation is commit `beb78d129a332b0287e43e28a384b662f529c156`, and CI ran against that exact
+SHA: run [31231345800](https://github.com/jordanjb1267-crypto/FreightOS/actions/runs/31231345800),
+job `verify`, conclusion **success**.
+
+This section is a later docs-only commit on the same branch, so it moves the branch head past the
+SHA it names — deliberately stated this way rather than as "local `HEAD` equals the CI `head_sha`",
+which a paragraph recording a CI result invalidates the moment it is committed. Each subsequent
+commit gets its own run against its own head, and the branch is not offered for rereview with a red
+one. From the runner's own summary lines in the CI log:
 
 ```
 pnpm test           Test Files  15 passed (15)      Tests  291 passed (291)
