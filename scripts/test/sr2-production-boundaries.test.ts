@@ -250,6 +250,10 @@ describe('SR-2 production boundaries', () => {
         // session names a fabricated actor and asserts the claim establishes nothing — under SR-2
         // the session has no verified identity at all and is refused before the human check.
         'packages/database/test/integration/hotfix-pg-temp-shadowing.test.ts',
+        // F-A. Claims a fabricated actor AND a real permissioned administrator over the runtime
+        // role, and asserts both resolve to nothing — no human, no tenant, no actor, no rows, no
+        // kill switch. The GUC write is the attack; the verified binding is the positive control.
+        'packages/database/test/integration/sr2-actor-authenticity.test.ts',
       ].sort(),
     );
     // The privileged provisioning and control-plane paths are deliberately NOT here. They reach

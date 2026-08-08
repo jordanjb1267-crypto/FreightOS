@@ -26,11 +26,12 @@ import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified
  * positive control, because a control that refuses everything is not a control (the kill-switch
  * lesson: a denial for the wrong reason is not evidence).
  *
- * This is a TWO-layer closure and is documented as such:
+ * Migration 0019 itself is a TWO-layer closure, and is documented as such:
  *   Layer 1 — no runtime/control-plane role holds TEMPORARY, so the shadow cannot be created;
  *   Layer 2 — every definer lists pg_temp LAST, so even a shadow that exists is not resolved.
- * No function body was schema-qualified, so there is no independent third layer; full qualification
- * is a follow-up hardening item.
+ * 0019 qualified no function body, so on merged main there is no independent third layer. Migration
+ * 0024 on this branch adds it for the admin bodies, and 0023 §3 for the authorization core — but
+ * this file tests 0019's own property and does not depend on either.
  */
 const db = new TestDatabase('freightos_test_hotfix_pg_temp');
 

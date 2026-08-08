@@ -1379,7 +1379,7 @@ twenty-four, and was measured against `pg_proc`: three signatures were wrong,
 `app.is_verified_platform_actor()` was missing, and all of `admin` had been overlooked. The shipped
 §2 is driven from the catalog for that reason.
 
-### 15.4 Migration 0022 — three independent layers
+### 15.4 Migration 0023 (was 0022) — the layers, and who owns each after the 0019 hotfix
 
 |        | Control                                                         | Why it is not sufficient alone                                           |
 | ------ | --------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -1542,3 +1542,51 @@ this code says otherwise.
 
 The dependency posture is unchanged and is **not** clean: 1 critical, 1 high, 3 moderate, all
 inherited Vite/Vitest/esbuild, deferred to SR-10/SR-11.
+
+---
+
+## 16. After the 0019 hotfix — renumbering, layer ownership, and F-A
+
+The emergency hotfix (PR #10) merged as migration **0019** on `main`, so this branch was rebased
+onto secured `main` and its migrations renumbered **0019→0020, 0020→0021, 0021→0022, 0022→0023**.
+The loader enforces contiguity from 0001 and rejected the collided state outright, which is what
+forced the reconciliation rather than a silent double-0019.
+
+### 16.1 Who owns each layer now
+
+| Layer                                                    | Owner                                                                                          | Scope                                         |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| 1 — no runtime/control-plane role holds `TEMPORARY`      | **main 0019**                                                                                  | database-wide, every role, present and future |
+| 2 — every `app`/`admin` definer lists `pg_temp` **last** | **main 0019** for the pre-existing set; **0020/0021** create their own definers already pinned | every definer                                 |
+| 3 — bodies name their schema                             | **0023 §3** for the authorization core; **0024** for the admin bodies                          | per-function                                  |
+
+The duplicated remediation was removed rather than maintained twice: 0023 no longer revokes
+`TEMPORARY` or sweeps the pre-existing definers, because 0019 owns both.
+
+**Two rollback defects were found by the round trip and fixed**, each of which would have let a
+revert of SR-2 silently disable a control that 0019 still owns: 0023's down re-granted `TEMPORARY`
+to PUBLIC and unpinned every definer, and it restored four bodies with the bare pin (unpinning
+`app.current_human_principal`). A third was caught in 0024 itself — its first down was generated
+from a database built by `reset()` and stepped back through a placeholder, so it captured the
+already-qualified bodies and was a no-op. All three were caught by assertions, not by reading.
+
+### 16.2 F-A — the split result, stated precisely
+
+| Path                                               | Result                                                                                                                                                                             |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `set_config('app.actor_id', …)` on `freightos_app` | **CLOSED.** Claiming a fabricated actor _or a real, permissioned administrator_ resolves `human`, `tenant` and `actor` all NULL, reads zero rows, and cannot engage a kill switch. |
+| `p_actor` on the `admin.*` boundary                | **OPEN.** A holder of the `freightos_admin` connection can name a real, permissioned human and act as them; the ledger records that human.                                         |
+
+Path 1 is **not closable inside SR-2**. Migration 0020 §7 records that the mint "does NOT
+authenticate anybody… the same trust anchor `admin.*` already rests on, and the only one available
+until a production adapter exists", and ADR-0027 §7 records that no authentication provider ships.
+Requiring `admin.*` to verify `p_actor` against a binding is circular, because minting a binding
+needs the same control-plane credential. Tracked as
+`CONTROL_PLANE_ACTOR_AUTHENTICITY=UNRESOLVED` (Section E of `SR2_FOLLOW_ON_REQUIREMENTS.md`) with
+positive acceptance criteria: per-operator login roles, or a real authentication provider.
+
+`sr2-actor-authenticity.test.ts` states both halves. For path 1 it asserts only the bounds that
+hold — an actor who is no user of the tenant is refused, a real user without the permission is
+refused, and a permissioned actor of one tenant cannot act on another — and it carries one case
+that asserts the residual is still open, so that closing it later **fails the suite** and forces
+this section and Section E to be updated rather than quietly outgrown.
