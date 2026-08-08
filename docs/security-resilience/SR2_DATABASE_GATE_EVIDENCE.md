@@ -1508,3 +1508,32 @@ sit about 2× §12.6's because this run is on a slower host — the legacy basel
 1.7 → 3.6 ms, so the verified/legacy ratio is 7.3× against 6.7× before. The acceptance standard is
 the shape, and the shape is unchanged: no per-row revalidation, no per-closure-row revalidation, and
 the 200-row read at 26.2 ms median against the 100 ms guard.
+
+### 15.12 Exact-head CI
+
+Local `HEAD`, the PR's remote head and the CI `head_sha` are the same commit,
+`beb78d129a332b0287e43e28a384b662f529c156`. Run
+[31231345800](https://github.com/jordanjb1267-crypto/FreightOS/actions/runs/31231345800), job
+`verify`, conclusion **success**. From the runner's own summary lines in the CI log:
+
+```
+pnpm test           Test Files  15 passed (15)      Tests  291 passed (291)
+pnpm test:coverage  Test Files  15 passed (15)      Tests  291 passed (291)
+                    All files   100 % stmts | 98.42 % branch | 100 % funcs | 100 % lines
+pnpm test:integration
+                    Test Files  15 passed (15)      Tests  542 passed (542)
+```
+
+Identical to the local figures in §15.10. Every step green — `format:check`, `lint`, `typecheck`,
+the handoff `sha256sum -c`, `validate_handoff.py`, the provenance and scope validators, the three
+test steps, and the gitleaks secret scan — on PostgreSQL 16.14 against 16.13 locally.
+
+### 15.13 Status
+
+F-01 and F-02 are remediated, reproduced-then-gated, and the full gate is green. That is
+**ready for an independent final rereview**, and nothing more: it is not acceptance, and it is not
+authorization to merge. The NOT ACCEPTED banner stays on the PR until a rereview that did not write
+this code says otherwise.
+
+The dependency posture is unchanged and is **not** clean: 1 critical, 1 high, 3 moderate, all
+inherited Vite/Vitest/esbuild, deferred to SR-10/SR-11.
