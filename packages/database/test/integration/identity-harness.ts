@@ -204,6 +204,40 @@ async function privileged(
  * This is PROVISIONING. Authentication is `verified-test-auth.ts`, and the two are separate modules
  * so that the fixture path cannot quietly become the application's way in.
  */
+/**
+ * A connected client authenticated as the fixture administrator's own PostgreSQL LOGIN.
+ *
+ * This is what replaces `db.connectAs('freightos_admin')` plus `p_actor` at every administrative
+ * call site — SEC-01 / 0026. The identity is no longer an argument the test chooses; it is the
+ * connection the test authenticates with, and the database reads it from `session_user`.
+ *
+ * The caller owns the client and must `end()` it. Provisioning is idempotent for the same mapping,
+ * so calling this repeatedly for one fixture is safe.
+ */
+export async function connectAsFixtureAdministrator(
+  db: TestDatabase,
+  fixture: IdentityFixture,
+): Promise<Client> {
+  const role = await db.provisionOperator('admin', fixture.tenantId, fixture.adminUserId);
+  const client = db.connectAsOperator(role);
+  await client.connect();
+  return client;
+}
+
+/**
+ * A connected client authenticated as the approved tenant-provisioning SERVICE.
+ *
+ * For the bootstrap operations that precede any human: creating a tenant, and the first role and
+ * membership inside it. `system:tenant-provisioning` is on `admin.platform_actor`, so it carries
+ * provisioning authority — and it is a service, so it can never produce human provenance.
+ */
+export async function connectAsProvisioner(db: TestDatabase): Promise<Client> {
+  const role = await db.provisionSystemLogin('prov', 'system:tenant-provisioning');
+  const client = db.connectAsOperator(role);
+  await client.connect();
+  return client;
+}
+
 export async function seedIdentity(db: TestDatabase, tenantId: string): Promise<IdentityFixture> {
   const provisioner = db.connectAsMigrator();
   await provisioner.connect();
