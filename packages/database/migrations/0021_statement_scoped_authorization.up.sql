@@ -108,7 +108,7 @@ COMMENT ON FUNCTION app.verified_scope_service_account_ids IS
 GRANT CREATE ON SCHEMA app TO freightos_binding_owner;
 
 CREATE FUNCTION app.verified_binding_scope_node_ids() RETURNS SETOF uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT c.descendant_id
     FROM app.session_binding b

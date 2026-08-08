@@ -191,7 +191,7 @@ GRANT SELECT ON organization_node_closure TO freightos_binding_owner;
 -- resolve; a transaction that never installed reports NULL and every accessor fails closed.
 CREATE FUNCTION app.verified_binding_context()
 RETURNS app.session_binding
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT b.*
     FROM app.session_binding b
@@ -209,7 +209,7 @@ ALTER FUNCTION app.verified_binding_context() OWNER TO freightos_binding_owner;
 -- binding scoped to" WITHOUT revalidating the principal — so it must never be used as a general
 -- authorization accessor. The static check enforces the consumer allowlist.
 CREATE FUNCTION app.verified_binding_tenant_scope() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT b.tenant_id
     FROM app.session_binding b
@@ -226,7 +226,7 @@ ALTER FUNCTION app.verified_binding_tenant_scope() OWNER TO freightos_binding_ow
 -- BOOTSTRAP ONLY, same rule. Reads the closure through the binding owner's own role-disjoint
 -- policy, so it does not re-enter organization_node_scope_ok() and its authoritative accessors.
 CREATE FUNCTION app.verified_binding_node_scope_ok(p_organization_node_id uuid) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT EXISTS (
     SELECT 1
@@ -342,7 +342,7 @@ CREATE TYPE app.verified_principal_result AS (
 );
 
 CREATE FUNCTION app.verified_principal() RETURNS app.verified_principal_result
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT b.principal_type,
          b.user_id,
@@ -438,7 +438,7 @@ GRANT SELECT ON service_accounts TO freightos_binding_owner;
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION app.current_tenant_id() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (app.verified_principal()).tenant_id
@@ -448,7 +448,7 @@ $$;
 ALTER FUNCTION app.current_tenant_id() OWNER TO freightos_binding_owner;
 
 CREATE OR REPLACE FUNCTION app.current_actor_id() RETURNS text
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (app.verified_principal()).actor_id
@@ -458,7 +458,7 @@ $$;
 ALTER FUNCTION app.current_actor_id() OWNER TO freightos_binding_owner;
 
 CREATE OR REPLACE FUNCTION app.current_organization_node_id() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (app.verified_principal()).organization_node_id
@@ -468,7 +468,7 @@ $$;
 ALTER FUNCTION app.current_organization_node_id() OWNER TO freightos_binding_owner;
 
 CREATE OR REPLACE FUNCTION app.current_legal_entity_id() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (app.verified_principal()).legal_entity_id
@@ -491,7 +491,7 @@ ALTER FUNCTION app.current_legal_entity_id() OWNER TO freightos_binding_owner;
 -- so the exposure was audit and legal-plane rather than tenant isolation, but the direction of the
 -- fix is the same one the other six took.
 CREATE OR REPLACE FUNCTION app.current_legal_authority_class() RETURNS app.legal_authority_class
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               -- Gated on the FULLY REVALIDATED principal, not merely on the installed row. The
@@ -507,7 +507,7 @@ $$;
 ALTER FUNCTION app.current_legal_authority_class() OWNER TO freightos_binding_owner;
 
 CREATE OR REPLACE FUNCTION app.current_operating_context() RETURNS app.operating_context
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (SELECT b.operating_context FROM app.verified_binding_context() b
@@ -522,7 +522,7 @@ ALTER FUNCTION app.current_operating_context() OWNER TO freightos_binding_owner;
 -- a person. That is what stops a service identity acquiring human authorization by principal-type
 -- manipulation — the type is an enumerated CHECK on the binding row, not a string in a GUC.
 CREATE OR REPLACE FUNCTION app.current_user_id() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN (SELECT p.user_id FROM app.verified_principal() p
@@ -553,7 +553,7 @@ ALTER FUNCTION app.current_user_id() OWNER TO freightos_binding_owner;
 GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
 SET LOCAL ROLE freightos_hierarchy_owner;
 CREATE OR REPLACE FUNCTION app.current_human_principal() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN app.current_user_id()
@@ -600,7 +600,7 @@ CREATE FUNCTION admin.issue_session_binding(
   p_issued_by            text,
   p_installable_seconds  integer DEFAULT 60
 ) RETURNS uuid
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_id uuid;
@@ -691,7 +691,7 @@ RESET ROLE;
 -- ---------------------------------------------------------------------------
 
 CREATE FUNCTION app.begin_verified_session(p_binding uuid) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_installed integer;
@@ -829,9 +829,9 @@ BEGIN
            ('app','begin_verified_session'), ('admin','issue_session_binding'))
      AND (NOT p.prosecdef OR r.rolcanlogin
           OR NOT EXISTS (SELECT 1 FROM unnest(p.proconfig) c
-                          WHERE c = 'search_path=pg_catalog, public'));
+                          WHERE c ~ 'search_path=pg_catalog, public, pg_temp$'));
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '0019 §10: % is not a NOLOGIN-owned definer with a pinned search_path', v_bad;
+    RAISE EXCEPTION '0020 §10: % is not a NOLOGIN-owned definer with a pinned search_path', v_bad;
   END IF;
 
   -- The five accessors carry the EXECUTE privilege for app.verified_principal() on behalf of every
@@ -847,10 +847,10 @@ BEGIN
            ('app','current_operating_context'))
      AND (NOT p.prosecdef OR r.rolname <> 'freightos_binding_owner'
           OR NOT EXISTS (SELECT 1 FROM unnest(p.proconfig) c
-                          WHERE c = 'search_path=pg_catalog, public'));
+                          WHERE c ~ 'search_path=pg_catalog, public, pg_temp$'));
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION
-      '0019 §6: % is not a binding-owner SECURITY DEFINER with a pinned search_path — '
+      '0020 §6: % is not a binding-owner SECURITY DEFINER with a pinned search_path — '
       'every non-runtime role would lose the accessor', v_bad;
   END IF;
 
@@ -871,7 +871,7 @@ BEGIN
            ('app','current_operating_context'))
      AND NOT has_function_privilege('public', p.oid, 'EXECUTE');
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '0019 §6: PUBLIC lost EXECUTE on accessor % — callers would fail closed', v_bad;
+    RAISE EXCEPTION '0020 §6: PUBLIC lost EXECUTE on accessor % — callers would fail closed', v_bad;
   END IF;
 
   -- Both legitimate doors to the narrowed accessor stay open.

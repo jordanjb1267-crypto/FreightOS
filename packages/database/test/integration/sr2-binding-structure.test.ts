@@ -703,7 +703,7 @@ describe('gate T — down migration restores 0018 exactly', () => {
       expect(at19).toHaveLength(6);
 
       // 19 -> 18.
-      await migrateDown(client, migrations, 18);
+      await migrateDown(client, migrations, 19);
       const at18 = await accessorState(client);
 
       // Every accessor is back to invoker rights with no pinned search_path, owned by the migrator
@@ -1157,28 +1157,29 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       const scope22 = await scopeFns();
       expect(at22.length, 'no definers found, so the comparison is empty').toBeGreaterThan(40);
       expect(scope22).toHaveLength(4);
-      expect(await publicTemp(), '0022 §1 did not revoke TEMPORARY from PUBLIC').toBe(false);
+      expect(await publicTemp(), '0019 did not revoke TEMPORARY from PUBLIC').toBe(false);
 
-      // Down one step. The defect comes back — deliberately. Reverting restores the database that
-      // shipped, not a safer one that never existed.
-      expect((await migrateDown(client, migrations, 21)).reverted).toEqual([22]);
+      // Down one step. Reverting 0023 removes only what 0023 added — the schema-qualified bodies.
+      // It must NOT re-grant TEMPORARY or unpin pg_temp: those belong to migration 0019 on main and
+      // are still applied, so rolling SR-2 back cannot silently reopen the CRITICAL 0019 closed.
+      expect((await migrateDown(client, migrations, 22)).reverted).toEqual([23]);
       const at21 = await definers();
       expect(at21.length, 'the revert dropped definers it should only have altered').toBe(
         at22.length,
       );
       for (const fn of at21) {
-        expect(fn.proconfig, `${fn.signature} lost its pinned path entirely`).toEqual([
-          'search_path=pg_catalog, public',
+        expect(fn.proconfig, `${fn.signature} lost pg_temp on the way down`).toEqual([
+          'search_path=pg_catalog, public, pg_temp',
         ]);
       }
-      expect(await publicTemp(), 'PUBLIC did not get TEMPORARY back').toBe(true);
+      expect(await publicTemp(), 'reverting SR-2 reopened the 0019 TEMPORARY hole').toBe(false);
       // The bodies really are the unqualified ones again.
       const core21 = at21.find((f) => f.signature === 'app.verified_principal()')!;
       expect(core21.body).toMatch(/\n\s*FROM users u/);
       expect(core21.body).not.toContain('public.users');
 
       // And back up. Everything 0022 touches matches where it started, field for field.
-      expect((await migrateUp(client, migrations)).applied).toEqual([22]);
+      expect((await migrateUp(client, migrations)).applied).toEqual([23]);
       expect(await definers()).toEqual(at22);
       expect(await scopeFns()).toEqual(scope22);
       expect(await publicTemp()).toBe(false);

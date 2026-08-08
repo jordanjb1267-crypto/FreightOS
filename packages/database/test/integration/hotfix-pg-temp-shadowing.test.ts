@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { withLegalContext } from '../../src/session.ts';
 import { TENANT_A, TestDatabase } from './harness.ts';
-import { seedIdentity, systemContextAt, type IdentityFixture } from './identity-harness.ts';
+import { seedIdentity, type IdentityFixture } from './identity-harness.ts';
+import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
 
 /**
  * Migration 0019 — pg_temp SECURITY DEFINER relation shadowing hotfix.
@@ -192,18 +192,14 @@ describe('0019 — the admin authorization chain cannot be shadowed (Path 1)', (
     // administrator holds identity.organization_node.write. Move region under enterprise (a no-op
     // parent in this fixture is fine — the point is the boundary authorizes and audits it).
     const bu = randomUUID();
-    await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      async (c) => {
-        // create a fresh child under the region so the move is real and legal
-        await (c as Client).query(
-          `INSERT INTO organization_nodes (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
+    await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      // create a fresh child under the region so the move is real and legal
+      await (c as Client).query(
+        `INSERT INTO organization_nodes (id, tenant_id, organization_node_id, parent_id, node_type, name, created_by)
            VALUES ($1,$2,$1,$3,'business_unit','Positive BU',$4)`,
-          [bu, TENANT_A, a.regionNodeId, `user:${a.adminUserId}`],
-        );
-      },
-    );
+        [bu, TENANT_A, a.regionNodeId, `user:${a.adminUserId}`],
+      );
+    });
     const r = await admin.query<{ outcome: string; message: string | null }>(
       'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
       [
@@ -253,7 +249,13 @@ describe('0019 — the kill-switch human reservation cannot be shadowed (Path 2)
         () => null,
         (e: Error) => e.message,
       );
-    expect(err, 'engage was not refused').toMatch(/only an active human principal/i);
+    // Under SR-2 the refusal is EARLIER and stronger than on main: a raw GUC establishes no
+    // identity at all for freightos_app, so the session has neither tenant nor human and is
+    // refused before the human check is even reached. Either refusal is correct; what must never
+    // happen is the switch being engaged.
+    expect(err, 'engage was not refused').toMatch(
+      /only an active human principal|requires tenant context/i,
+    );
     const n = await su.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM kill_switches WHERE reason='attack'`,
     );
@@ -263,17 +265,13 @@ describe('0019 — the kill-switch human reservation cannot be shadowed (Path 2)
 
   it('POSITIVE CONTROL: a real human administrator can engage a kill switch', async () => {
     const reason = `legit-${randomUUID()}`;
-    const id = await withLegalContext(
-      app,
-      systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
-      async (c) => {
-        const r = await (c as Client).query<{ id: string }>(
-          `SELECT app.engage_kill_switch('workflow'::app.kill_switch_scope, $1, 'read_only'::app.kill_switch_mode, $2) AS id`,
-          [`wf-${reason}`, reason],
-        );
-        return r.rows[0]!.id;
-      },
-    );
+    const id = await withAuthenticatedTestPrincipal(db, fixtureAdministrator(a), async (c) => {
+      const r = await (c as Client).query<{ id: string }>(
+        `SELECT app.engage_kill_switch('workflow'::app.kill_switch_scope, $1, 'read_only'::app.kill_switch_mode, $2) AS id`,
+        [`wf-${reason}`, reason],
+      );
+      return r.rows[0]!.id;
+    });
     expect(id).toBeTruthy();
     const row = await su.query<{ engaged_by: string; engaged_by_type: string }>(
       `SELECT engaged_by, engaged_by_type FROM kill_switches WHERE reason=$1`,

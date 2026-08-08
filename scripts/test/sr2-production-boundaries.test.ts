@@ -246,6 +246,10 @@ describe('SR-2 production boundaries', () => {
         // An actor claim over a live binding, asserting the binding wins; and the same claim over an
         // unbound session, asserting it resolves nothing.
         'packages/database/test/integration/identity-lifecycle.test.ts',
+        // Migration 0019's regression suite. Its set_config writes are the ATTACK: a runtime
+        // session names a fabricated actor and asserts the claim establishes nothing — under SR-2
+        // the session has no verified identity at all and is refused before the human check.
+        'packages/database/test/integration/hotfix-pg-temp-shadowing.test.ts',
       ].sort(),
     );
     // The privileged provisioning and control-plane paths are deliberately NOT here. They reach
@@ -278,8 +282,8 @@ describe('SR-2 production boundaries', () => {
  * what brings the database they build to the correct state. The floor is the enforcement point.
  */
 describe('SR-2 — migrations do not reintroduce pg_temp shadowing', () => {
-  /** 0022 is the migration that establishes the rule, so it is the first that must satisfy it. */
-  const FIRST_ENFORCED = 22;
+  /** main's 0019 hotfix establishes the rule, so it is the first that must satisfy it. */
+  const FIRST_ENFORCED = 19;
 
   const MIGRATIONS = join(ROOT, 'packages/database/migrations');
 

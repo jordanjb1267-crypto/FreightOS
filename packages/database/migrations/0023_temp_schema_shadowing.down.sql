@@ -20,7 +20,7 @@ GRANT CREATE ON SCHEMA app TO freightos_binding_owner;
 SET LOCAL ROLE freightos_binding_owner;
 
 CREATE OR REPLACE FUNCTION app.verified_principal() RETURNS app.verified_principal_result
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT b.principal_type,
          b.user_id,
@@ -67,7 +67,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION app.verified_binding_node_scope_ok(p_organization_node_id uuid)
 RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT EXISTS (
     SELECT 1
@@ -81,7 +81,7 @@ AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION app.verified_binding_scope_node_ids() RETURNS SETOF uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT c.descendant_id
     FROM app.session_binding b
@@ -145,7 +145,7 @@ $$;
 GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
 SET LOCAL ROLE freightos_hierarchy_owner;
 CREATE OR REPLACE FUNCTION app.current_human_principal() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT CASE WHEN session_user = 'freightos_app'
               THEN app.current_user_id()
@@ -164,38 +164,12 @@ $$;
 RESET ROLE;
 REVOKE CREATE ON SCHEMA app FROM freightos_hierarchy_owner;
 
--- ---------------------------------------------------------------------------
--- §2'. pg_temp goes back to being searched first.
+-- NOTE — what this down deliberately does NOT do.
 --
--- `SET search_path = pg_catalog, public` rather than RESET: every one of these functions was
--- created WITH a pinned path, so RESET would drop the proconfig entirely and leave a definer with
--- no path at all — a different and worse database than the one being restored.
--- ---------------------------------------------------------------------------
-
-DO $$
-DECLARE
-  r record;
-BEGIN
-  FOR r IN
-    SELECT p.oid::regprocedure::text AS signature, pg_get_userbyid(p.proowner) AS owner
-      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-     WHERE n.nspname IN ('app', 'admin') AND p.prosecdef
-     ORDER BY 2, 1
-  LOOP
-    EXECUTE format('SET LOCAL ROLE %I', r.owner);
-    EXECUTE format('ALTER FUNCTION %s SET search_path = pg_catalog, public', r.signature);
-    RESET ROLE;
-  END LOOP;
-END
-$$;
-
--- ---------------------------------------------------------------------------
--- §1'. PUBLIC gets TEMPORARY on the database back — PostgreSQL's own default, and the state every
--- migration up to 21 ran under.
--- ---------------------------------------------------------------------------
-
-DO $$
-BEGIN
-  EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO PUBLIC', current_database());
-END
-$$;
+-- It does not re-grant TEMPORARY to PUBLIC, and it does not put the pre-existing definers back to
+-- `pg_catalog, public`. Both of those are owned by migration 0019 on main, not by this migration.
+-- Undoing them here would mean reverting SR-2 silently reopened the CRITICAL that 0019 closed —
+-- a rollback of one change quietly disabling a different, still-applied security control. The
+-- definers this branch CREATES are dropped by the downs of 0020 and 0021, which is where they
+-- belong. Reverting past 0019 itself is the only thing that restores the vulnerable baseline, and
+-- 0019's own down says so.
