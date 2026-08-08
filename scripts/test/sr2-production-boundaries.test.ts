@@ -345,3 +345,67 @@ describe('SR-2 — migrations do not reintroduce pg_temp shadowing', () => {
     ).toBeGreaterThan(0);
   });
 });
+
+/**
+ * SEC-01 / 0026 — the residual identity audit, enforced rather than performed once.
+ *
+ * The migration removed `p_actor`, `p_actor_type` and `p_issued_by` from every administrative entry
+ * point. The question this block answers is the one an audit answers on a single day and a test
+ * answers every day afterwards: is there anywhere left in PRODUCTION code where an identity is
+ * chosen by the caller and then believed?
+ *
+ * The database-side half is asserted in the migration itself (0026 §7(a) over the catalog) and in
+ * `sr2-privilege-boundary.test.ts`. This is the source-side half, and it is deliberately textual:
+ * the point is to make a reintroduction visible in a diff, not to prove a semantic property the
+ * catalog already proves better.
+ */
+describe('SEC-01 — no production caller supplies a human identity', () => {
+  it('passes no actor argument to any admin.* entry point', () => {
+    // The three parameter names, in production source only. They still exist on the seven INTERNAL
+    // helpers — that is the calling convention between definers — but no production caller can
+    // reach those: they are revoked from PUBLIC and granted to nobody, asserted in
+    // sr2-privilege-boundary.test.ts. A production file naming one is either calling a helper it
+    // should not be able to call, or reintroducing the argument.
+    expect(filesContaining(/\bp_actor\b|\bp_actor_type\b|\bp_issued_by\b/)).toEqual([]);
+  });
+
+  it('sends no caller-asserted provenance string to the session-binding mint', () => {
+    // `assertedBy` names the adapter that authenticated a runtime principal. It is legitimate at
+    // the application boundary — packages/context defines and validates it — and it must not travel
+    // to the database, because a provenance string the caller composes is exactly the class of
+    // input F-A path 1 closed. 0026 removed `p_issued_by` from the mint; this keeps it removed.
+    const senders = productionSources()
+      .filter((f) => {
+        const code = stripComments(readFileSync(f, 'utf8'));
+        return /issue_session_binding/.test(code) && /assertedBy/.test(code);
+      })
+      .map((f) => relative(ROOT, f))
+      .sort();
+    expect(senders).toEqual([]);
+  });
+
+  it('names the operator registry from no production source at all', () => {
+    // `authn.operator_binding` decides who every administrative definer believes it is talking to.
+    // Nothing in the application tier has any business reading or writing it — provisioning is a
+    // deployment act performed by the migrator, and resolution happens inside the definers. A
+    // production file that names the table is a widening even if it only reads.
+    expect(filesContaining(/operator_binding|authn\.provision_|authn\.revoke_operator/)).toEqual([]);
+  });
+
+  it('keeps the shared administrative role name out of every authority decision', () => {
+    // Before 0026, `session_user = 'freightos_admin'` WAS the identity check —
+    // `app.is_verified_platform_actor()` treated the shared connection as a trusted human. §8
+    // rewrote it, and §8 asserts no app/admin function still matches that pattern. This is the
+    // source-side counterpart: production TypeScript must not make the same equation.
+    const comparers = productionSources()
+      .filter((f) => {
+        const code = stripComments(readFileSync(f, 'utf8'));
+        // The role NAME appearing in a connection string or a grant is fine; the role name being
+        // COMPARED against a session identity is the defect.
+        return /(session_user|current_user|sessionUser)[^\n]{0,40}freightos_admin/.test(code);
+      })
+      .map((f) => relative(ROOT, f))
+      .sort();
+    expect(comparers).toEqual([]);
+  });
+});
