@@ -143,6 +143,24 @@ ALTER TABLE authn.operator_binding ENABLE ROW LEVEL SECURITY;
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
+-- §2b. The registry owner's read door on public.users.
+--
+-- `users` carries FORCE ROW LEVEL SECURITY, so a GRANT SELECT alone shows the registry owner
+-- nothing: it holds no tenant context and matches no existing policy. Both the resolver and the
+-- provisioning function have to ask one question about a user — is this person still active — and
+-- neither can answer it without a door.
+--
+-- Role-disjoint, the same shape 0020 §4 uses for the binding owner's bootstrap policies: the
+-- policy is applicable ONLY to freightos_operator_registry_owner, so it widens nothing for
+-- freightos_app, freightos_admin or any tenant session. It is SELECT-only and the role holds no
+-- write privilege on the table, so the widest thing it can do is tell the truth about a status.
+-- ---------------------------------------------------------------------------
+
+CREATE POLICY users_operator_registry_read ON public.users
+  FOR SELECT TO freightos_operator_registry_owner
+  USING (true);
+
+-- ---------------------------------------------------------------------------
 -- §3. The resolver.
 --
 -- The single point at which the database decides who is acting. Returns NULL rather than raising,
@@ -200,8 +218,12 @@ BEGIN
 
   -- A binding is not authority. The mapped human must still exist and still be active, so that
   -- deactivating a person ends their administrative reach without touching the registry.
-  SELECT status, revoked_at, effective_from, effective_to INTO u
-    FROM public.users WHERE tenant_id = b.tenant_id AND id = b.user_id;
+  -- Aliased and column-qualified deliberately: this function's OUT parameters are named
+  -- `tenant_id` and `user_id`, and an unqualified reference resolves to the parameter, not the
+  -- column. Unaliased, PostgreSQL raises 42702 and every HUMAN resolution fails closed — which is
+  -- safe, and invisible, because the service path returns before it ever gets here.
+  SELECT u2.status, u2.revoked_at, u2.effective_from, u2.effective_to INTO u
+    FROM public.users u2 WHERE u2.tenant_id = b.tenant_id AND u2.id = b.user_id;
   IF NOT FOUND
      OR u.status <> 'active'
      OR u.revoked_at IS NOT NULL

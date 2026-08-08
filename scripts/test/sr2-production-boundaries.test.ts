@@ -254,6 +254,13 @@ describe('SR-2 production boundaries', () => {
         // role, and asserts both resolve to nothing — no human, no tenant, no actor, no rows, no
         // kill switch. The GUC write is the attack; the verified binding is the positive control.
         'packages/database/test/integration/sr2-actor-authenticity.test.ts',
+        // F-A path 1, closed. Case 4 forges the legacy actor GUC over an AUTHENTICATED operator
+        // and asserts the operation still resolves and records that operator — the GUC is the
+        // attack, and the authenticated principal is what must win.
+        'packages/database/test/integration/sr2-admin-actor-authenticity.test.ts',
+        // The A-M adversarial matrix. Case F does the same forgery against the identity layer and
+        // asserts it changes neither authorization nor provenance.
+        'packages/database/test/integration/sr2-authenticated-principal-matrix.test.ts',
       ].sort(),
     );
     // The privileged provisioning and control-plane paths are deliberately NOT here. They reach

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
+import { TENANT_A, TestDatabase } from './harness.ts';
 import { seedIdentity, type IdentityFixture } from './identity-harness.ts';
 import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
 
@@ -183,84 +183,46 @@ describe('F-A path 2 — app.actor_id establishes no authoritative identity', ()
  * because measurement says otherwise and Section E records why that is not fixable here.
  */
 describe('F-A path 1 — the bounded properties of the admin p_actor argument', () => {
-  it('refuses an actor that is no user of the tenant', async () => {
+  // THREE CASES REMOVED HERE, and where their properties went.
+  //
+  // They asserted the bounded behaviour of the `p_actor` argument: that it refused a uuid which is
+  // no user of the tenant, that it refused a real user without the permission, and that it refused
+  // an actor of one tenant acting on another. All three named the actor by argument, and 0026
+  // removed the argument, so from the shared connection every one of them now stops at the
+  // identity layer instead — which is a refusal for a different reason, and keeping them would
+  // have been a false green.
+  //
+  // Their properties are not lost. Each is asserted over an AUTHENTICATED operator, where the
+  // boundary is genuinely reachable, in sr2-authenticated-principal-matrix.test.ts:
+  //
+  //   "no user of the tenant"   -> case C: no argument on any reachable function can name a user
+  //   "does not hold"           -> case L: a bound operator without the permission is refused,
+  //                                and the message is asserted to be the permission check
+  //   "cross-tenant"            -> case L: a permissioned operator of one tenant, refused on
+  //                                another, with `is not a user of tenant`
+  //
+  // Those replacements were written and green before these were removed.
+
+  it('CLOSED: the residual this case was written to record no longer exists', async () => {
+    // This case used to assert `succeeded` — it was the honest record that a holder of the
+    // freightos_admin connection could name a real permissioned human and act as them, and that
+    // the ledger would record that human. Its own comment said that if a future change closed the
+    // hole, the test had to be replaced by the real negative assertion. Migration 0026 closed it,
+    // so here is that assertion.
+    //
+    // There is no longer any argument through which a human could be named, so the strongest
+    // remaining form of the original attack is the shared connection itself.
     const before = await regionAncestors();
-    const r = await admin.query<{ outcome: string; message: string | null }>(
-      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-      [
-        TENANT_A,
-        a.regionNodeId,
-        a.enterpriseNodeId,
-        `user:${FABRICATED}`,
-        'human',
-        'identity_administration',
-        randomUUID(),
-      ],
-    );
-    expect(r.rows[0]!.outcome).toBe('denied');
-    expect(r.rows[0]!.message, 'denied for the wrong reason').toMatch(/is not a user of tenant/i);
+    const r = await admin
+      .query<{ outcome: string; message: string | null }>(
+        'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5)',
+        [TENANT_A, a.regionNodeId, a.legalEntityNodeId, 'identity_administration', randomUUID()],
+      )
+      .then(
+        (x) => x.rows[0]!,
+        (e: Error) => ({ outcome: 'raised', message: e.message }),
+      );
+    expect(r.outcome, 'the shared connection still acts as a human').not.toBe('succeeded');
     expect(await regionAncestors(), 'a refused call still moved the node').toEqual(before);
-  });
-
-  it('refuses a real user of the tenant who does not hold the permission', async () => {
-    const before = await regionAncestors();
-    const r = await admin.query<{ outcome: string; message: string | null }>(
-      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-      [
-        TENANT_A,
-        a.regionNodeId,
-        a.enterpriseNodeId,
-        `user:${a.userId}`,
-        'human',
-        'identity_administration',
-        randomUUID(),
-      ],
-    );
-    expect(r.rows[0]!.outcome).toBe('denied');
-    expect(r.rows[0]!.message, 'denied for the wrong reason').toMatch(/does not hold/i);
-    expect(await regionAncestors()).toEqual(before);
-  });
-
-  it('does not let an actor of one tenant act on another', async () => {
-    // The administrator is real and permissioned in TENANT_A. Naming TENANT_B must not carry that.
-    const r = await admin.query<{ outcome: string; message: string | null }>(
-      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-      [
-        TENANT_B,
-        a.regionNodeId,
-        a.enterpriseNodeId,
-        `user:${a.adminUserId}`,
-        'human',
-        'identity_administration',
-        randomUUID(),
-      ],
-    );
-    expect(r.rows[0]!.outcome).toBe('denied');
-    expect(r.rows[0]!.message, 'cross-tenant call denied for the wrong reason').toMatch(
-      /is not a user of tenant/i,
-    );
-  });
-
-  it('records the OPEN residual rather than asserting a closure that does not exist', async () => {
-    // CONTROL_PLANE_ACTOR_AUTHENTICITY=UNRESOLVED. A holder of the freightos_admin connection can
-    // still name a real, permissioned human and act as them, and the ledger will record that human.
-    // This case exists so the suite states the residual instead of implying it away — if a future
-    // change closes it, this test fails and must be replaced by the real negative assertion.
-    const r = await admin.query<{ outcome: string }>(
-      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-      [
-        TENANT_A,
-        a.regionNodeId,
-        a.legalEntityNodeId,
-        `user:${a.adminUserId}`,
-        'human',
-        'identity_administration',
-        randomUUID(),
-      ],
-    );
-    expect(
-      r.rows[0]!.outcome,
-      'p_actor borrowing now appears closed — Section E and this test must be updated',
-    ).toBe('succeeded');
   });
 });

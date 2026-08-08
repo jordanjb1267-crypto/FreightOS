@@ -2,67 +2,66 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TENANT_A, TestDatabase } from './harness.ts';
-import { seedIdentity, type IdentityFixture } from './identity-harness.ts';
+import {
+  connectAsFixtureAdministrator,
+  seedIdentity,
+  type IdentityFixture,
+} from './identity-harness.ts';
 
 /**
- * SR-2 — finding F-A path 1. The administrative boundary's `p_actor` argument.
+ * SR-2 — finding F-A path 1, CLOSED. The five original exploit regressions.
  *
- * THE PROPERTY THE OWNER RULING REQUIRES, stated as the tests below assert it:
+ * These five cases were written against `d455929`, where each of them SUCCEEDED and was recorded
+ * with `it.fails`. They are now ordinary tests, and they pass. Nothing in their intent was
+ * softened; what changed is the surface they have to attack, because migration 0026 removed the
+ * one they were originally written against.
  *
- *   A holder of the `freightos_admin` connection must not be able to select a permissioned human
- *   through `p_actor`, use that identity for authorization, mutate consequential state, or record
- *   fabricated human provenance. A shared database role authenticates the connecting service; it
- *   does not authenticate the human who initiated the command.
+ * ORIGINALLY: the attack was `p_actor => 'user:<a real administrator>'` over the shared
+ * `freightos_admin` connection. That argument no longer exists on any of the sixteen functions, so
+ * the exploit cannot be expressed — which is a stronger outcome than refusing it, and is why these
+ * tests now attack the surfaces that remain: which PostgreSQL identity the caller authenticated as,
+ * and what that identity is bound to.
  *
- * THIS PROPERTY DOES NOT HOLD AT THIS HEAD. Every case marked `it.fails` below is an exploit that
- * currently SUCCEEDS — the assertion inside it is the property we require, and vitest records that
- * the assertion does not yet pass. That is deliberate and is the shape the ruling asked for: the
- * exploit is preserved as an executable regression rather than as prose.
+ * The five properties, unchanged:
  *
- * `it.fails` rather than a plain failing `it` for one reason only: it keeps the signal honest in
- * both directions. If a future change closes the hole, `it.fails` itself FAILS — the suite breaks
- * and forces someone to flip it to `it` and delete this header. A plain failing test would have to
- * be remembered; this one cannot be forgotten. Nothing about the assertions is weakened: each one
- * demands the denial, not the success.
+ *   1. a borrowed legitimate administrator cannot authorise a mutation;
+ *   2. authority cannot spread under a borrowed identity;
+ *   3. a fabricated identifier cannot become human provenance;
+ *   4. mutable session state cannot substitute for authenticated operator identity;
+ *   5. the original impersonation path is closed.
  *
- * WHY THIS IS NOT FIXABLE IN THIS FILE, measured rather than argued — see
- * docs/security-resilience/SEC01_ADMIN_BINDING_ARCHITECTURE.md:
- *
- *   - `session_user` on every administrative connection is `freightos_admin`. The database is told
- *     nothing that distinguishes one human operator from another.
- *   - The SR-2 binding cannot serve as the anchor. `freightos_admin` holds EXECUTE on
- *     `admin.issue_session_binding`, and that mint verifies only that the named principal EXISTS,
- *     is active, and is in scope — never that the caller may speak as them. Verifying `p_actor`
- *     against a binding the same role can mint is circular.
- *   - `freightos_admin` cannot install a binding on its own connection either, so on the
- *     administrative path there is not even a binding to verify against.
- *   - No key material, certificate or per-human credential exists anywhere in the schema.
- *
- * Every negative case here carries a positive control, because a denial caused by a missing
- * privilege proves nothing about the boundary under test.
+ * The full adversarial matrix lives in `sr2-authenticated-principal-matrix.test.ts`; this file is
+ * kept separate and deliberately narrow because it is the historical record of the defect, and a
+ * reviewer comparing it against the original report should be able to do so line for line.
  */
 const db = new TestDatabase('freightos_test_sr2_admin_actor');
 
-let admin: Client;
-let su: Client;
-let a: IdentityFixture;
-
 /** A uuid that is no user anywhere, in any tenant. */
 const FABRICATED = '00000000-0000-4000-8000-0000000000fa';
+const PURPOSE = 'identity_administration';
+const MOVE = 'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5)';
+const GRANT_PERM = 'SELECT * FROM admin.grant_role_permission($1,$2,$3,$4,$5)';
+
+let shared: Client;
+let operator: Client;
+let su: Client;
+let a: IdentityFixture;
 
 beforeAll(async () => {
   await db.reset();
   await db.seedTenants();
-  admin = db.connectAs('freightos_admin');
-  await admin.connect();
+  // The shared credential the original exploit was run over. It still connects, still holds
+  // EXECUTE on every one of the sixteen functions, and can no longer name a person.
+  shared = db.connectAs('freightos_admin');
+  await shared.connect();
   su = db.connectAs('postgres');
   await su.connect();
   a = await seedIdentity(db, TENANT_A);
-}, 120_000);
+  operator = await connectAsFixtureAdministrator(db, a);
+}, 180_000);
 
 afterAll(async () => {
-  await admin?.end();
-  await su?.end();
+  for (const c of [shared, operator, su]) await c?.end();
 });
 
 async function regionParent(): Promise<string | null> {
@@ -73,7 +72,6 @@ async function regionParent(): Promise<string | null> {
   return r.rows[0]?.parent_id ?? null;
 }
 
-/** Every audit row this correlation id produced, with the actor the ledger believes acted. */
 async function auditFor(
   correlationId: string,
 ): Promise<{ actor_id: string; actor_type: string }[]> {
@@ -84,182 +82,50 @@ async function auditFor(
   return r.rows;
 }
 
-describe('the administrative connection knows nothing about which human is acting', () => {
-  it('sees the same session_user for every operator — there is no per-human identity', async () => {
-    const r = await admin.query<{ su: string; cu: string }>(
-      `SELECT session_user AS su, current_user AS cu`,
-    );
-    expect(r.rows[0]!.su).toBe('freightos_admin');
-    expect(r.rows[0]!.cu).toBe('freightos_admin');
-  });
+async function call(
+  client: Client,
+  sql: string,
+  params: readonly unknown[],
+): Promise<{ outcome?: string; message?: string | null; raised?: string }> {
+  try {
+    const r = await client.query<{ outcome: string; message: string | null }>(sql, [...params]);
+    return r.rows[0]!;
+  } catch (e) {
+    return { raised: (e as Error).message };
+  }
+}
 
-  it('holds no per-human credential anywhere in the schema to check against', async () => {
-    const r = await su.query<{ t: string }>(
-      `SELECT n.nspname || '.' || c.relname AS t
-         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE c.relkind = 'r' AND n.nspname IN ('public', 'app', 'admin')
-          AND c.relname ~ 'credential|key|certificate|secret'
-        ORDER BY 1`,
-    );
-    // service_account_credentials is a REGISTRY of credential metadata for SERVICE accounts. It
-    // holds no human credential and no function verifies possession of anything in it.
-    expect(r.rows.map((x) => x.t)).toEqual(['public.service_account_credentials']);
-    const verifiers = await su.query<{ f: string }>(
-      `SELECT p.oid::regprocedure::text AS f
-         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname IN ('app', 'admin') AND p.prosrc ~* 'credential_hash|crypt\\(|digest\\('`,
-    );
-    expect(
-      verifiers.rows.map((x) => x.f),
-      'a credential verifier exists after all',
-    ).toEqual([]);
-  });
-
-  it('lets the connection mint a binding for a human it never authenticated', async () => {
-    // This is the circularity, made concrete. The mint's own guards are visible in its body: it
-    // checks that the principal exists, is active, and that a membership justifies the tenant and
-    // node. Not one of them asks whether the CALLER may speak as that principal.
-    const src = await su.query<{ prosrc: string }>(
-      `SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'admin' AND p.proname = 'issue_session_binding'`,
-    );
-    const body = src.rows[0]!.prosrc;
-    expect(body, 'the mint checks the principal exists').toMatch(/no active membership justifies/);
-    expect(
-      body,
-      'the mint gained a caller-authenticity check — this file and Section E must be updated',
-    ).not.toMatch(/session_user|caller|credential|signature|verif(y|ied)_caller/i);
-
-    const canMint = await su.query<{ ok: boolean }>(
-      `SELECT has_function_privilege('freightos_admin',
-                'admin.issue_session_binding(text,uuid,uuid,uuid,uuid,text,text,integer,text,integer)',
-                'EXECUTE') AS ok`,
-    );
-    expect(canMint.rows[0]!.ok, 'freightos_admin can no longer mint — re-evaluate F-A').toBe(true);
-  });
-});
-
-describe('F-A path 1 — borrowing a permissioned human through p_actor', () => {
-  it('REQUIRED: refuses a fabricated human, and records no provenance for it', async () => {
+describe('the identity a caller may name', () => {
+  it('1. REQUIRED: a borrowed real administrator cannot authorise a mutation', async () => {
+    // The original exploit, in its modern form. `p_actor => user:<administrator>` is gone, so the
+    // strongest remaining version is: hold the shared credential, aim at the same node, and see
+    // whether the administrator's authority can be reached at all.
     const correlationId = randomUUID();
     const before = await regionParent();
-    const r = await admin.query<{ outcome: string; message: string | null }>(
-      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-      [
-        TENANT_A,
-        a.regionNodeId,
-        a.enterpriseNodeId,
-        `user:${FABRICATED}`,
-        'human',
-        'identity_administration',
-        correlationId,
-      ],
-    );
-    expect(r.rows[0]!.outcome).toBe('denied');
-    expect(r.rows[0]!.message, 'denied for the wrong reason').toMatch(/is not a user of tenant/i);
+    const r = await call(shared, MOVE, [
+      TENANT_A,
+      a.regionNodeId,
+      a.enterpriseNodeId,
+      PURPOSE,
+      correlationId,
+    ]);
+    expect(r.raised ?? r.outcome, 'the shared credential moved the node').not.toBe('succeeded');
     expect(await regionParent(), 'a refused call still moved the node').toBe(before);
-  });
-
-  it.fails('REQUIRED: writes no human provenance for an identity it never verified', async () => {
-    // Measured: the move above is correctly DENIED, and the ledger still records
-    // actor_type='human', actor_id='user:<fabricated uuid>' for the attempt.
-    //
-    // Recording a refused attempt is right. Recording it as a HUMAN, on an identity the database
-    // never verified and which does not exist, is the same defect as the borrowing cases below —
-    // the ledger is asserting something it cannot know. Under the ruling an unverified identity
-    // may not appear as human provenance at all; a refused attempt from an unauthenticated
-    // administrative connection should be attributed to the connection, not to a person.
-    const correlationId = randomUUID();
-    await admin.query('SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)', [
-      TENANT_A,
-      a.regionNodeId,
-      a.enterpriseNodeId,
-      `user:${FABRICATED}`,
-      'human',
-      'identity_administration',
-      correlationId,
-    ]);
-    const rows = await auditFor(correlationId);
-    expect(rows.length, 'no audit row was written — the control is not exercised').toBeGreaterThan(
-      0,
-    );
-    for (const row of rows) {
-      expect(
-        `${row.actor_type}:${row.actor_id}`,
-        'the ledger recorded a fabricated human as the actor',
-      ).not.toBe(`human:user:${FABRICATED}`);
-    }
-  });
-
-  it.fails(
-    'REQUIRED: refuses a REAL permissioned human the connection did not authenticate',
-    async () => {
-      const correlationId = randomUUID();
-      const r = await admin.query<{ outcome: string; message: string | null }>(
-        'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-        [
-          TENANT_A,
-          a.regionNodeId,
-          a.legalEntityNodeId,
-          `user:${a.adminUserId}`,
-          'human',
-          'identity_administration',
-          correlationId,
-        ],
+    for (const row of await auditFor(correlationId)) {
+      expect(row.actor_id, 'the ledger named the borrowed administrator').not.toBe(
+        `user:${a.adminUserId}`,
       );
-      // A shared service credential is not a human credential. This must be refused.
-      expect(r.rows[0]!.outcome, 'a borrowed human was accepted as the authority').toBe('denied');
-    },
-  );
-
-  it.fails('REQUIRED: does not mutate consequential state on a borrowed identity', async () => {
-    const correlationId = randomUUID();
-    const before = await regionParent();
-    await admin.query('SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)', [
-      TENANT_A,
-      a.regionNodeId,
-      a.enterpriseNodeId,
-      `user:${a.adminUserId}`,
-      'human',
-      'identity_administration',
-      correlationId,
-    ]);
-    expect(await regionParent(), 'a borrowed identity moved the node').toBe(before);
-  });
-
-  it.fails('REQUIRED: does not record fabricated human provenance in the ledger', async () => {
-    const correlationId = randomUUID();
-    await admin.query('SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)', [
-      TENANT_A,
-      a.regionNodeId,
-      a.regionNodeId === a.enterpriseNodeId ? a.legalEntityNodeId : a.enterpriseNodeId,
-      `user:${a.adminUserId}`,
-      'human',
-      'identity_administration',
-      correlationId,
-    ]);
-    const rows = await auditFor(correlationId);
-    expect(
-      rows.length,
-      'no audit row was written at all — the control is not exercised',
-    ).toBeGreaterThan(0);
-    for (const row of rows) {
-      expect(
-        `${row.actor_type}:${row.actor_id}`,
-        'the ledger attributes the act to a human who never performed it',
-      ).not.toBe(`human:user:${a.adminUserId}`);
     }
   });
 
-  it.fails('REQUIRED: refuses a borrowed human on an authority GRANT, the worst case', async () => {
-    // Granting a permission to a role is how authority itself spreads. If a shared connection can
-    // do this while naming somebody else, every later authorization decision inherits the lie.
+  it('2. REQUIRED: authority cannot spread under a borrowed identity', async () => {
+    // The worst case: granting a permission to a role is how authority propagates, so a lie here
+    // is inherited by every later authorization decision.
     //
-    // The pair is CHOSEN, not hard-coded, so the refusal cannot come from somewhere else: a role
-    // the borrowed administrator does not hold (or the self-elevation guard fires first), carrying
-    // a permission it does not already have (or the uniqueness constraint fires first), named by a
-    // key that is in the catalog (or the catalog check fires first). Each of those was observed
-    // refusing this call during the reproduction, and none of them is the boundary under test.
+    // The pair is chosen so no unrelated guard can mask the result — a role the administrator does
+    // not hold, a permission it does not already have, a key that is in the catalog. All three
+    // were observed refusing this call during the original reproduction, and none of them is the
+    // boundary under test.
     const pair = await su.query<{ role_id: string; key: string }>(
       `SELECT r.id AS role_id, p.key
          FROM roles r CROSS JOIN permissions p
@@ -273,27 +139,15 @@ describe('F-A path 1 — borrowing a permissioned human through p_actor', () => 
         LIMIT 1`,
       [TENANT_A, a.adminUserId],
     );
-    expect(pair.rowCount, 'no grantable pair exists — the case would prove nothing').toBe(1);
+    expect(pair.rowCount, 'no grantable pair exists — this case would prove nothing').toBe(1);
     const { role_id: roleId, key } = pair.rows[0]!;
 
     const correlationId = randomUUID();
-    const r = await admin.query<{ outcome: string; message: string | null }>(
-      'SELECT * FROM admin.grant_role_permission($1,$2,$3,$4,$5,$6,$7)',
-      [
-        TENANT_A,
-        roleId,
-        key,
-        `user:${a.adminUserId}`,
-        'human',
-        'identity_administration',
-        correlationId,
-      ],
-    );
-    // Refused for an incidental reason is not a closure — say so explicitly.
-    expect(r.rows[0]!.message ?? '', 'refused for an incidental reason').not.toMatch(
+    const r = await call(shared, GRANT_PERM, [TENANT_A, roleId, key, PURPOSE, correlationId]);
+    expect(r.message ?? r.raised ?? '', 'refused for an incidental reason').not.toMatch(
       /not in the catalog|self-elevation|duplicate key/i,
     );
-    expect(r.rows[0]!.outcome, 'a borrowed human granted a permission').toBe('denied');
+    expect(r.raised ?? r.outcome).not.toBe('succeeded');
 
     const landed = await su.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
@@ -301,58 +155,120 @@ describe('F-A path 1 — borrowing a permissioned human through p_actor', () => 
       [roleId, key],
     );
     expect(Number(landed.rows[0]!.n), 'the authority grant landed anyway').toBe(0);
+    for (const row of await auditFor(correlationId)) {
+      expect(row.actor_id).not.toBe(`user:${a.adminUserId}`);
+    }
+  });
+
+  it('3. REQUIRED: no fabricated identifier can become human provenance', async () => {
+    // Originally: pass `user:<fabricated uuid>`, watch the call be denied, and find the ledger had
+    // recorded `human` / `user:<fabricated uuid>` anyway. There is no longer an argument that
+    // could carry it — asserted over every reachable function rather than by trying one value.
+    const reachable = await su.query<{ f: string }>(
+      `SELECT p.oid::regprocedure::text AS f
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'admin'
+          AND has_function_privilege('freightos_admin', p.oid, 'EXECUTE')
+          AND pg_get_function_arguments(p.oid) ~ '(p_actor|p_actor_type|p_issued_by)'`,
+    );
+    expect(reachable.rows.map((x) => x.f)).toEqual([]);
+
+    // And no row anywhere names one, however the fixture and the cases above exercised the system.
+    const fabricated = await su.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM audit_events
+        WHERE actor_type = 'human' AND actor_id IN ($1, 'user:operator', 'user:reviewer')`,
+      [`user:${FABRICATED}`],
+    );
+    expect(Number(fabricated.rows[0]!.n), 'a fabricated human reached the ledger').toBe(0);
+  });
+
+  it('4. REQUIRED: mutable session state cannot substitute for authenticated identity', async () => {
+    // The authenticated operator is administrator A. It forges the legacy actor GUC to name a
+    // different real user of the same tenant, then performs an operation it is genuinely entitled
+    // to. The operation must succeed AS A, and the ledger must say A.
+    const correlationId = randomUUID();
+    await operator.query('SELECT set_config($1, $2, false)', ['app.actor_id', `user:${a.userId}`]);
+    try {
+      const r = await call(operator, MOVE, [
+        TENANT_A,
+        a.regionNodeId,
+        a.legalEntityNodeId,
+        PURPOSE,
+        correlationId,
+      ]);
+      expect(r.outcome, r.message ?? r.raised ?? '').toBe('succeeded');
+      const rows = await auditFor(correlationId);
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(row.actor_type).toBe('human');
+        expect(row.actor_id, 'a session GUC chose the recorded human').toBe(
+          `user:${a.adminUserId}`,
+        );
+      }
+    } finally {
+      await operator.query('SELECT set_config($1, NULL, false)', ['app.actor_id']);
+    }
+  });
+
+  it('5. REQUIRED: the original impersonation path is closed at its root', async () => {
+    // The root of the original finding: the shared administrative credential was, by itself,
+    // enough to speak as any permissioned human. It is now a bound SERVICE — it resolves to a
+    // service identity, and no path exists from that to `actor_type = 'human'`.
+    const who = await shared.query<{ su: string }>('SELECT session_user AS su');
+    expect(who.rows[0]!.su).toBe('freightos_admin');
+
+    await su.query('SET ROLE freightos_operator_registry_owner');
+    const binding = await su.query<{ kind: string; actor: string | null }>(
+      `SELECT principal_kind AS kind, system_actor_id AS actor
+         FROM authn.operator_binding WHERE role_name = 'freightos_admin' AND revoked_at IS NULL`,
+    );
+    await su.query('RESET ROLE');
+    expect(binding.rows[0]!.kind, 'the shared credential is bound as a human').toBe('system');
+
+    const humanRows = await su.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM audit_events
+        WHERE actor_type = 'human' AND actor_id = $1
+          AND created_at > now() - interval '1 hour'
+          AND correlation_id IN (SELECT correlation_id FROM audit_events WHERE actor_type = 'system')`,
+      [`user:${a.adminUserId}`],
+    );
+    expect(
+      Number(humanRows.rows[0]!.n),
+      'a service-initiated operation produced human provenance',
+    ).toBe(0);
   });
 });
 
-describe('positive controls — the boundary under test is genuinely reached', () => {
-  it('reaches the permission check, not a missing grant: a real user without it is refused', async () => {
+describe('positive controls — the boundary is reached, not merely unreachable', () => {
+  it('the authenticated administrator can perform the same operation', async () => {
     const correlationId = randomUUID();
-    const r = await admin.query<{ outcome: string; message: string | null }>(
-      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-      [
-        TENANT_A,
-        a.regionNodeId,
-        a.enterpriseNodeId,
-        `user:${a.userId}`,
-        'human',
-        'identity_administration',
-        correlationId,
-      ],
-    );
-    expect(r.rows[0]!.outcome).toBe('denied');
-    expect(
-      r.rows[0]!.message,
-      'refused by a missing privilege rather than by the permission check',
-    ).toMatch(/does not hold/i);
+    const r = await call(operator, MOVE, [
+      TENANT_A,
+      a.regionNodeId,
+      a.enterpriseNodeId,
+      PURPOSE,
+      correlationId,
+    ]);
+    expect(r.outcome, r.message ?? r.raised ?? '').toBe('succeeded');
+    const rows = await auditFor(correlationId);
+    expect(rows.length, 'the administrative path wrote no audit row at all').toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.actor_type).toBe('human');
+      expect(row.actor_id).toBe(`user:${a.adminUserId}`);
+    }
   });
 
-  it('is not refused by a missing EXECUTE grant — the connection may call every one of these', async () => {
+  it('reaches the permission check rather than a missing grant', async () => {
+    // The shared credential holds EXECUTE on every one of these functions and always did, so a
+    // refusal above is a decision, not an absent privilege.
     const r = await su.query<{ f: string; ok: boolean }>(
       `SELECT p.oid::regprocedure::text AS f,
               has_function_privilege('freightos_admin', p.oid, 'EXECUTE') AS ok
          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'admin'
-          AND p.proname IN ('move_organization_node', 'grant_role_permission', 'set_tenant_status')
-        ORDER BY 1`,
+          AND p.proname IN ('move_organization_node', 'grant_role_permission', 'set_tenant_status')`,
     );
     expect(r.rowCount).toBeGreaterThan(0);
     expect(r.rows.filter((x) => !x.ok).map((x) => x.f)).toEqual([]);
-  });
-
-  it('writes an audit row on the legitimate path, so an empty ledger would be a real finding', async () => {
-    const correlationId = randomUUID();
-    await admin.query('SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)', [
-      TENANT_A,
-      a.regionNodeId,
-      a.legalEntityNodeId,
-      `user:${a.adminUserId}`,
-      'human',
-      'identity_administration',
-      correlationId,
-    ]);
-    expect(
-      (await auditFor(correlationId)).length,
-      'the administrative path writes no audit row at all',
-    ).toBeGreaterThan(0);
   });
 });
