@@ -266,3 +266,157 @@ describe('layer 3 — creation-path regression', () => {
     },
   );
 });
+
+/**
+ * SEC-01 / 0026 — the role and grant boundary, as a whole.
+ *
+ * The layers above are about EXECUTE on functions. This block is the surrounding question the owner
+ * ruling asks: what does the new role graph let anybody reach that it did not before, and can any
+ * principal in the administrative path reach the registry that decides who it is?
+ *
+ * Everything here is read from the catalog. A boundary described in prose and asserted nowhere is
+ * how the ACL regression in §6b survived a review in the first place.
+ */
+describe('the role and grant boundary — SEC-01', () => {
+  /** Every role that participates in the administrative path, and the registry owner itself. */
+  const BOUNDARY_ROLES = [
+    'freightos_admin',
+    'freightos_admin_owner',
+    'freightos_app',
+    'freightos_control_plane',
+    'freightos_migrator',
+    'freightos_operator_registry_owner',
+  ] as const;
+
+  it('gives no boundary role a cluster attribute that would defeat it', async () => {
+    const r = await su.query<{
+      rolname: string;
+      rolsuper: boolean;
+      rolbypassrls: boolean;
+      rolcreaterole: boolean;
+      rolcreatedb: boolean;
+      rolreplication: boolean;
+    }>(
+      `SELECT rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolreplication
+         FROM pg_roles WHERE rolname = ANY($1) ORDER BY rolname`,
+      [[...BOUNDARY_ROLES]],
+    );
+    expect(r.rows.map((x) => x.rolname)).toEqual([...BOUNDARY_ROLES].sort());
+    for (const role of r.rows) {
+      // The migrator is the deployment authority and legitimately holds CREATEROLE — it provisions
+      // operators. It must hold neither of the two that would make every RLS proof vacuous.
+      expect(role.rolsuper, `${role.rolname} rolsuper`).toBe(false);
+      expect(role.rolbypassrls, `${role.rolname} rolbypassrls`).toBe(false);
+      expect(role.rolreplication, `${role.rolname} rolreplication`).toBe(false);
+      if (role.rolname !== 'freightos_migrator') {
+        expect(role.rolcreaterole, `${role.rolname} rolcreaterole`).toBe(false);
+        expect(role.rolcreatedb, `${role.rolname} rolcreatedb`).toBe(false);
+      }
+    }
+  });
+
+  it('lets nothing in the administrative path reach the operator registry', async () => {
+    // The registry decides who each administrative definer believes it is talking to. If any role
+    // in that path could write it, the whole chain would be circular — which is precisely why the
+    // registry is owned by a role that is not freightos_admin_owner.
+    const reachers: string[] = [];
+    for (const role of ['freightos_admin', 'freightos_app', 'freightos_control_plane',
+                        'freightos_admin_owner']) {
+      for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'REFERENCES', 'TRIGGER']) {
+        const r = await su.query<{ ok: boolean }>(
+          `SELECT has_table_privilege($1, 'authn.operator_binding', $2) AS ok`,
+          [role, privilege],
+        );
+        if (r.rows[0]!.ok) reachers.push(`${role}:${privilege}`);
+      }
+      const usage = await su.query<{ ok: boolean }>(
+        `SELECT has_schema_privilege($1, 'authn', 'USAGE') AS ok`,
+        [role],
+      );
+      // freightos_admin_owner legitimately holds USAGE — its definers call the resolver. USAGE on
+      // the schema is not privilege on the table, which is the distinction the row above measures.
+      if (usage.rows[0]!.ok && role !== 'freightos_admin_owner') reachers.push(`${role}:USAGE`);
+    }
+    expect(reachers).toEqual([]);
+  });
+
+  it('gives no role CREATE on schema authn, including its own owner path', async () => {
+    const r = await su.query<{ rolname: string }>(
+      `SELECT rolname FROM pg_roles
+        WHERE rolname LIKE 'freightos%'
+          AND rolname <> 'freightos_operator_registry_owner'
+          AND has_schema_privilege(rolname, 'authn', 'CREATE')`,
+    );
+    expect(r.rows.map((x) => x.rolname)).toEqual([]);
+  });
+
+  it('keeps the registry read door role-disjoint from every other policy', async () => {
+    // 0026 §2b adds a SELECT policy on public.users for the registry owner. A PERMISSIVE policy
+    // only applies to the roles it names, so this widens nothing for anybody else — but that is an
+    // argument, and the thing to assert is that the role appears in exactly one policy in the whole
+    // database and that no other policy gained it.
+    const r = await su.query<{ schemaname: string; tablename: string; policyname: string }>(
+      `SELECT schemaname, tablename, policyname FROM pg_policies
+        WHERE 'freightos_operator_registry_owner' = ANY(roles) ORDER BY 1, 2, 3`,
+    );
+    expect(r.rows.map((x) => `${x.schemaname}.${x.tablename}:${x.policyname}`)).toEqual([
+      'public.users:users_operator_registry_read',
+    ]);
+
+    // And that policy names it alone — a policy listing it beside another role would give that
+    // other role the registry owner's reach.
+    const roles = await su.query<{ roles: string }>(
+      `SELECT roles::text AS roles FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'users'
+          AND policyname = 'users_operator_registry_read'`,
+    );
+    expect(roles.rows[0]!.roles).toBe('{freightos_operator_registry_owner}');
+  });
+
+  it('grants the provisioning surface to the deployment authority and to nobody else', async () => {
+    const r = await su.query<{ f: string; grantee: string }>(
+      `SELECT p.oid::regprocedure::text AS f, pg_get_userbyid(acl.grantee) AS grantee
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+         CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+        WHERE n.nspname = 'authn' AND acl.privilege_type = 'EXECUTE'
+          AND acl.grantee <> p.proowner
+        ORDER BY 1, 2`,
+    );
+    // Enumerated exactly rather than filtered by rule, so a new grantee has to be added here
+    // deliberately. The split is the property:
+    //
+    //   * the RESOLVER is callable by the three definer owners whose functions have to resolve a
+    //     principal — freightos_admin_owner for the sixteen administrative entry points, and
+    //     freightos_binding_owner and freightos_hierarchy_owner for the accessors 0026 §8 rewrote
+    //     to prefer the authenticated principal over the raw GUC. Reading a principal is not
+    //     authority over the registry, which is what the table-privilege test above measures.
+    //   * PROVISIONING is callable by the deployment authority and by nothing else. Any role that
+    //     could call it could bind itself to any human in any tenant, which is the whole finding.
+    expect(r.rows.map((x) => `${x.grantee} -> ${x.f}`)).toEqual([
+      'freightos_admin_owner -> authn.authenticated_principal()',
+      'freightos_binding_owner -> authn.authenticated_principal()',
+      'freightos_hierarchy_owner -> authn.authenticated_principal()',
+      'freightos_migrator -> authn.provision_operator(name,uuid,uuid,text)',
+      'freightos_migrator -> authn.provision_service_login(name,text,text)',
+      'freightos_migrator -> authn.revoke_operator(name,text)',
+    ]);
+
+    // And nothing in the administrative path can provision, said as its own assertion because it is
+    // the one that matters most: an entry point that could mint a binding could mint its own.
+    const provisioners = r.rows.filter((x) => !x.f.startsWith('authn.authenticated_principal'));
+    expect([...new Set(provisioners.map((x) => x.grantee))]).toEqual(['freightos_migrator']);
+  });
+
+  it('keeps the definer owners unable to log in', async () => {
+    const r = await su.query<{ rolname: string }>(
+      `SELECT DISTINCT o.rolname
+         FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+         JOIN pg_roles o ON o.oid = p.proowner
+        WHERE n.nspname IN ('admin', 'authn') AND p.prosecdef AND o.rolcanlogin
+        ORDER BY 1`,
+    );
+    expect(r.rows.map((x) => x.rolname)).toEqual([]);
+  });
+});

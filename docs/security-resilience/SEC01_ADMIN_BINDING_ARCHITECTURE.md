@@ -266,6 +266,13 @@ a superuser — satisfies both at once; the migrator holds every owner role `WIT
 `SET ROLE` gives it one at a time and never both. **Explicit `REVOKE`s issued by each grantor are the
 only correct construction**, which is what 0026's down migration does.
 
+## 5c. Operations
+
+The lifecycle and connection-pooling consequences of Design A — provisioning an operator, what
+requires a re-bind, revocation taking effect on already-open connections, and the pooling
+arrangements that are and are not sound in front of a per-operator login — are in
+[`SEC01_OPERATOR_LIFECYCLE.md`](SEC01_OPERATOR_LIFECYCLE.md).
+
 ## 6. Status
 
 `SEC01_ADMIN_BINDING_ARCHITECTURE_BLOCKED`. F-A path 1 remains an **open CRITICAL**. SR-2 is not

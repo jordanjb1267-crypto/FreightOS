@@ -243,8 +243,10 @@ describe('SR-2 production boundaries', () => {
         // Node, tenant, entity and operating-context claims layered on top of live verified
         // sessions, each with an in-scope positive peer in the same session.
         'packages/database/test/integration/identity-rls.test.ts',
-        // An actor claim over a live binding, asserting the binding wins; and the same claim over an
-        // unbound session, asserting it resolves nothing.
+        // An actor claim over a live binding, asserting the binding wins; the same claim over an
+        // unbound session, asserting it resolves nothing; and — SEC-01 / 0026 — four forged actor
+        // strings over an AUTHENTICATED administrator, asserting the operation still succeeds as
+        // the administrator and the ledger still names it.
         'packages/database/test/integration/identity-lifecycle.test.ts',
         // Migration 0019's regression suite. Its set_config writes are the ATTACK: a runtime
         // session names a fabricated actor and asserts the claim establishes nothing — under SR-2

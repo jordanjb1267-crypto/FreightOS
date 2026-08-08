@@ -106,7 +106,7 @@ on itself and this write can only ever be the attack.
 | File                                                            | Lines                              | Disposition                                                             |
 | --------------------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------- |
 | `packages/database/test/integration/identity-rls.test.ts`       | 402, 540, 541, 995, 996, 997, 1000 | **PERMITTED — attack over a real binding, or privileged setup**         |
-| `packages/database/test/integration/identity-lifecycle.test.ts` | 466, 477                           | **PERMITTED — attack over a real binding, and over an unbound session** |
+| `packages/database/test/integration/identity-lifecycle.test.ts` | 474, 485, 1012              | **PERMITTED — attack over a real binding, over an unbound session, and over an authenticated administrator** |
 
 - `identity-rls.test.ts:402` is an actor name on a **`postgres`** connection, so that the F-01
   self-elevation guard is satisfied and the foreign key is what has to hold. Not a runtime session.
@@ -115,10 +115,19 @@ on itself and this write can only ever be the attack.
 - `identity-rls.test.ts:995–1000` claim system context, `software_only`, an ancestor node and a
   sibling branch's legal entity on top of the same live binding. The assertion includes
   `own_node_ok = true` in the same statement, so the three falses are refusals rather than silence.
-- `identity-lifecycle.test.ts:466` claims a different user's actor id over the administrator's
+- `identity-lifecycle.test.ts:474` claims a different user's actor id over the administrator's
   binding and asserts `app.current_user_id()` returns the administrator.
-- `identity-lifecycle.test.ts:477` claims three actor strings over an unbound session and asserts
+- `identity-lifecycle.test.ts:485` claims three actor strings over an unbound session and asserts
   every one resolves to NULL.
+- `identity-lifecycle.test.ts:1012` — **SEC-01 / 0026, new**. The case "refuses an unattributed
+  change however the session names itself" used to pass `system:me`, `integration:billing_sync`,
+  `agent:dispatch-agent` and `x` as `p_actor` and assert each was refused. That argument no longer
+  exists, so the question changed from "does the boundary refuse the string" to "does the string
+  matter at all": the AUTHENTICATED administrator forges each of the four into `app.actor_id` and
+  performs a mutation it is genuinely entitled to. Each must succeed **as the administrator**, and
+  the ledger must name the administrator. The GUC write is the attack; the authenticated principal
+  is what must win. Written with `is_local = false` deliberately — a `SET LOCAL` would expire at the
+  boundary's own transaction and the forgery would never reach the audit write it is aimed at.
 
 ### 3e. Forged claims through the harness, not open-coded
 
