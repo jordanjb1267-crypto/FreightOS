@@ -248,7 +248,22 @@ its context named. A denial is only evidence when it is the right denial.
 
 ```
 CONTROL_PLANE_ACTOR_AUTHENTICITY=UNRESOLVED
+SEC01_ADMIN_BINDING_ARCHITECTURE_BLOCKED
 ```
+
+**Owner ruling, superseding the scope note that previously closed this section.**
+`SEC01_RUNTIME_ONLY_SCOPE=REJECTED`: SEC-01 closure for the runtime role alone is **not** acceptable
+scope, and the fact that migration 0019 shipped while F-A was open was a sequencing decision, not
+risk acceptance. Path 1 must be closed before SR-2 can be accepted.
+
+It cannot be closed at the current head, and the reason is architectural: there is no trust anchor a
+holder of `freightos_admin` cannot itself produce. The full measurement, the sixteen-function
+inventory, and the two smallest viable designs are in
+[`SEC01_ADMIN_BINDING_ARCHITECTURE.md`](./SEC01_ADMIN_BINDING_ARCHITECTURE.md). The exploit is
+preserved as an executable regression in
+`packages/database/test/integration/sr2-admin-actor-authenticity.test.ts`.
+
+The acceptance criteria below still stand and are now the blocking work, not a follow-on.
 
 ### What was measured
 
