@@ -199,6 +199,73 @@ owner's.
   Every one of these functions already refuses a caller without the permission, and that check is
   the thing being fed a borrowed identity.
 
+## 5b. Correction — `ALTER DEFAULT PRIVILEGES` DOES work here
+
+An earlier revision of migration 0026 §6c, and the commit message at `61f6297`, recorded the
+conclusion **"`ALTER DEFAULT PRIVILEGES` does not work here"** and declined to ship it. That
+conclusion was **wrong**, and it is corrected here rather than quietly dropped, because a false
+"this control is unavailable" is more expensive than a missing control: it argues future
+implementers out of reaching for the right tool.
+
+**What was actually measured.** Both attempts used the per-schema form:
+
+```sql
+ALTER DEFAULT PRIVILEGES FOR ROLE freightos_admin_owner IN SCHEMA admin
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;   -- succeeds, writes no row, protects nothing
+```
+
+That form cannot work, and its failure says nothing about the feature. PostgreSQL's
+EXECUTE-to-PUBLIC default for functions is a **global, built-in** default. `IN SCHEMA` creates a
+*schema-scoped* default entry, and a schema-scoped `REVOKE` can only subtract from a schema-scoped
+default — of which there is none. `pg_default_acl` gains no row and the built-in global default
+still applies.
+
+**The form that works** is global — no `IN SCHEMA` clause:
+
+```sql
+ALTER DEFAULT PRIVILEGES FOR ROLE freightos_admin_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+```
+
+Measured on the same server (PostgreSQL 16.13): `pg_default_acl` gains a row with
+`defaclnamespace = 0` and `defaclacl = {freightos_admin_owner=X/freightos_admin_owner}`, and a
+function created afterwards under that role comes out with `proacl {owner=X/owner}`,
+`has_function_privilege('public', …, 'EXECUTE') = false`.
+
+**Two further facts, both load-bearing:**
+
+- **Default privileges attach to the role that is CURRENT when the object is created** — not the
+  session role, and not a role the creator merely belongs to. The migrator is the session role on
+  every migration but never the creator; attaching a default to it would have looked right and done
+  nothing.
+- **`ALTER DEFAULT PRIVILEGES … FOR ROLE x` requires the privileges OF `x`**, not merely the ability
+  to `SET ROLE` to it. The migrator administers every owner role `WITH INHERIT FALSE`, so issuing it
+  as the migrator fails with `permission denied to change default privileges`. It must be issued
+  under `SET LOCAL ROLE`.
+
+Shipped in 0026 §6c for both definer owners, asserted by §7(k), and regression-tested in three
+separate layers by `sr2-privilege-boundary.test.ts`. Removing §6c — or downgrading it to the
+per-schema form — fails the migration.
+
+### Related: `DROP OWNED BY` is not a revocation primitive here
+
+The same commit recorded that `DROP OWNED BY` "does NOT remove privileges granted TO a role by
+somebody else". That observation was correct but unexplained. Reproduced minimally (three roles, one
+schema, one grant), the mechanism is that the statement carries **two** authorization requirements
+and only surfaces one:
+
+- To **run at all**, the current user must hold the privileges *of* the target role. Otherwise:
+  `ERROR: permission denied to drop objects`.
+- To **actually revoke** a grant the target role holds, the current user must be able to revoke that
+  grant — be its grantor, or hold the grantor's privileges. When it cannot, PostgreSQL emits
+  `WARNING: no privileges could be revoked for "<object>"` **and the statement still reports
+  success**.
+
+Run as the registry owner itself, the first requirement is trivially met and the second fails for
+every grant issued by another owner. Only a role holding both sets of privileges *with INHERIT* — or
+a superuser — satisfies both at once; the migrator holds every owner role `WITH INHERIT FALSE`, so
+`SET ROLE` gives it one at a time and never both. **Explicit `REVOKE`s issued by each grantor are the
+only correct construction**, which is what 0026's down migration does.
+
 ## 6. Status
 
 `SEC01_ADMIN_BINDING_ARCHITECTURE_BLOCKED`. F-A path 1 remains an **open CRITICAL**. SR-2 is not

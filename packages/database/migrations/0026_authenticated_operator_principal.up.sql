@@ -1772,24 +1772,60 @@ GRANT EXECUTE ON FUNCTION admin.tenant_identity_summary(p_tenant_id uuid, p_purp
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
--- §6c. Why there is no ALTER DEFAULT PRIVILEGES here.
+-- §6c. Default privileges — stop the next function acquiring PUBLIC EXECUTE at all.
 --
--- The obvious durable fix for §6b is to stop new functions acquiring PUBLIC EXECUTE at all:
+-- §6b repairs the ACL of the sixteen functions this file creates. It does nothing for the
+-- seventeenth, and the defect it repairs was produced by a DROP+CREATE exactly like the one the
+-- next signature-changing migration will write. So the default is closed at the source as well.
 --
---   ALTER DEFAULT PRIVILEGES FOR ROLE freightos_admin_owner IN SCHEMA admin
---     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+-- THE SCOPE IS THE WHOLE TRICK, AND IT IS EASY TO GET WRONG.
 --
--- It was tried, both as the owner via SET ROLE and with an explicit FOR ROLE, on PostgreSQL
--- 16.13. Measured: the statement succeeds, `pg_default_acl` gains no row, and a function created
--- immediately afterwards under that exact role still reports
--- `has_function_privilege('public', ..., 'EXECUTE') = true`.
+--   ALTER DEFAULT PRIVILEGES FOR ROLE x IN SCHEMA admin REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 --
--- Shipping it anyway would put a statement in the migration that reads as protection and provides
--- none — the same shape as the cosmetic fix this whole remediation exists to avoid. So the
--- guarantee is placed where it can be proved instead: §7(j) asserts the ACL of every function in
--- the schema, and `sr2-privilege-boundary.test.ts` creates a function under the real creation path
--- and fails if it comes out world-executable. A future signature-changing migration that forgets
--- the revoke does not get a silent default — it gets a red test.
+-- succeeds, writes NO pg_default_acl row, and changes nothing. PostgreSQL's EXECUTE-to-PUBLIC
+-- default for functions is a GLOBAL, built-in default; a per-schema command can only subtract
+-- from a schema-scoped default, and there is no schema-scoped default here to subtract from.
+--
+-- An earlier revision of this file recorded the outcome of exactly that experiment as the general
+-- conclusion "ALTER DEFAULT PRIVILEGES does not work here". That was wrong, and wrong in the
+-- expensive direction: it argued a real control away on the strength of a mis-scoped test. The
+-- global form — no IN SCHEMA — was then measured on the same server (PostgreSQL 16.13) and does
+-- what it claims: pg_default_acl gains a row with defaclnamespace = 0, and a function created
+-- afterwards under that role comes out with proacl {owner=X/owner} and public_execute = false.
+--
+-- WHO ISSUES IT MATTERS TOO. Default privileges attach to the role that is CURRENT when an object
+-- is created — not the session role, and not a role the creator merely belongs to. And
+-- ALTER DEFAULT PRIVILEGES ... FOR ROLE x requires the PRIVILEGES OF x, not merely the ability to
+-- SET ROLE to it: the migrator administers every owner role WITH INHERIT FALSE, so issuing this
+-- as the migrator fails with "permission denied to change default privileges". Hence SET LOCAL
+-- ROLE, which is in any case the role that will create the objects the default governs.
+-- ---------------------------------------------------------------------------
+
+SET LOCAL ROLE freightos_admin_owner;
+ALTER DEFAULT PRIVILEGES FOR ROLE freightos_admin_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+RESET ROLE;
+
+-- The same for the registry owner, applied on evidence rather than by analogy. That role owns
+-- exactly four functions — authn.authenticated_principal, authn.provision_operator,
+-- authn.provision_service_login, authn.revoke_operator — every one of which is reached through an
+-- explicit GRANT in §3/§4 and none of which is intended to be world-executable. Measured before
+-- applying: no function owned by either owner role is PUBLIC-executable today, so this narrows
+-- nothing currently in use and constrains only what a later migration creates.
+SET LOCAL ROLE freightos_operator_registry_owner;
+ALTER DEFAULT PRIVILEGES FOR ROLE freightos_operator_registry_owner
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+RESET ROLE;
+
+-- Deliberately NOT paired with a default GRANT to freightos_admin. A default grant would hand the
+-- shared runtime credential EXECUTE on every future administrative function automatically,
+-- including one written for a purpose that must not be reachable from the application at all.
+-- §6b's explicit per-function grants keep that decision at the point of creation, where a reviewer
+-- sees it in the diff.
+--
+-- This does not retire §7(j) or the object-level assertions. A default is what happens when nobody
+-- says otherwise, and a later migration can still say otherwise; the two controls answer different
+-- questions and both stay. §7(k) asserts this one directly, because a default privilege is
+-- invisible in every ACL until somebody creates a function.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
@@ -1799,6 +1835,7 @@ RESET ROLE;
 DO $assert$
 DECLARE
   v_bad text;
+  v_role text;
 BEGIN
   -- (a) No administrative entry point still accepts a caller-supplied human identity. This is the
   --     whole point of the migration and it is asserted over EVERY function freightos_admin can
@@ -1902,6 +1939,32 @@ BEGIN
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION '0026 §7(j): the runtime role can reach %', v_bad;
   END IF;
+
+  -- (k) §6c itself, asserted directly rather than through its effect. A default privilege changes
+  --     nothing about any object that already exists, so (j) passing says nothing about whether
+  --     §6c landed. The two things that can go wrong are both checked: the entry missing
+  --     altogether, and the entry existing but scoped to a schema — which is the mis-scoped form
+  --     that cannot subtract from the built-in global default and is therefore worse than nothing,
+  --     because it reads like protection.
+  FOREACH v_role IN ARRAY ARRAY['freightos_admin_owner', 'freightos_operator_registry_owner']
+  LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_default_acl d
+                    WHERE d.defaclrole = v_role::regrole
+                      AND d.defaclobjtype = 'f' AND d.defaclnamespace = 0) THEN
+      RAISE EXCEPTION
+        '0026 §7(k): % has no GLOBAL default function privilege entry — the next function it creates will be world-executable',
+        v_role;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_default_acl d
+               CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+                WHERE d.defaclrole = v_role::regrole
+                  AND d.defaclobjtype = 'f' AND d.defaclnamespace = 0
+                  AND a.grantee = 0 AND a.privilege_type = 'EXECUTE') THEN
+      RAISE EXCEPTION
+        '0026 §7(k): PUBLIC still holds EXECUTE in %''s default function privileges', v_role;
+    END IF;
+  END LOOP;
 
   RAISE NOTICE '0026: administrative identity now resolves from session_user only';
 END

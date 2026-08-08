@@ -1097,29 +1097,64 @@ DROP TABLE IF EXISTS authn.operator_binding;
 DROP SCHEMA IF EXISTS authn;
 RESET ROLE;
 
--- DROP OWNED BY rather than a list of REVOKEs. The role holds grants issued by more than one
--- grantor across more than one schema, and DROP ROLE reports only "privileges for schema public"
--- without saying which — enumerating them by hand is how a down migration ends up almost right.
--- The role owns no objects at this point (its schema and functions were dropped above), so this
--- removes privileges and nothing else.
 -- THE ROLE IS NOT DROPPED, and that is deliberate.
 --
--- 0020's down migration records the same conclusion in almost the same words: it was the only
--- migration that attempted a DROP ROLE, and it was wrong to. A role is a cluster-wide catalog row
--- that other databases in the same cluster may reference, and its privileges are held by several
--- grantors across several schemas — DROP ROLE reports only "privileges for schema public" without
--- saying which grant, so unwinding it by hand is how a down migration ends up almost right.
--- Measured here: REVOKE by enumeration and DROP OWNED BY both left the dependency standing.
+-- 0020's down migration records the same conclusion: it was the only migration that attempted a
+-- DROP ROLE, and it was wrong to. A role is a cluster-wide catalog row that other databases in the
+-- same cluster may reference, and its privileges are held by several grantors across several
+-- schemas — DROP ROLE reports only "privileges for schema public" without saying which grant, so
+-- unwinding it by hand is how a down migration ends up almost right.
 --
--- What reverting must actually guarantee is that the role has no reach, not that its catalog row
--- is gone. After the drops above it owns nothing, its schema does not exist, and its read door on
--- public.users is gone. A NOLOGIN role with no privileges and no objects is inert.
+-- What reverting must actually guarantee is that the role has no REACH, not that its catalog row
+-- is gone. After the drops above it owns nothing and its schema does not exist; what follows
+-- removes everything else, and the postcondition at the end of this file measures the result along
+-- every dimension a role can hold reach rather than trusting this list to be complete.
 
--- Explicit REVOKEs by the grantor. DROP OWNED BY was tried first and does NOT remove privileges
--- granted TO a role by somebody else — run as the role it dropped nothing, and the assertion at
--- the end of this file caught that rather than letting the revert claim success.
+-- Explicit REVOKEs by the grantor. DROP OWNED BY was tried first and did nothing; the assertion
+-- at the end of this file caught that rather than letting the revert claim success.
+--
+-- WHY DROP OWNED BY CANNOT DO THIS JOB, reproduced minimally (three roles, one schema, one grant):
+-- the statement carries two different authorization requirements and only surfaces one of them.
+--
+--   * To RUN at all, the current user must have the privileges OF the target role. A grantor that
+--     is not a member of it gets `ERROR: permission denied to drop objects`.
+--   * To actually REVOKE a grant the target role holds, the current user must be able to revoke
+--     that grant — i.e. be its grantor, or hold the grantor's privileges. When it cannot,
+--     PostgreSQL emits `WARNING: no privileges could be revoked for "<object>"` and the statement
+--     STILL REPORTS SUCCESS.
+--
+-- Run as the registry owner itself, requirement one is trivially satisfied and requirement two
+-- fails for every grant issued by another owner — so it warned, dropped nothing, and reported
+-- success into a migration log nobody reads line by line. Only a role holding BOTH sets of
+-- privileges with INHERIT — or a superuser — satisfies both at once, and the migrator holds every
+-- owner role WITH INHERIT FALSE, so SET ROLE gives it one of the two at a time and never both.
+-- Explicit REVOKEs issued by each grantor are the only construction that is correct here.
 REVOKE SELECT ON public.users FROM freightos_operator_registry_owner;
 REVOKE USAGE ON SCHEMA public, app FROM freightos_operator_registry_owner;
+
+-- Restore the built-in function default for both owner roles, undoing §6c. GRANT ... TO PUBLIC
+-- returns the entry to PostgreSQL's own default, at which point the server DELETES the
+-- pg_default_acl row entirely rather than storing a redundant one — so this leaves no residue,
+-- which is exactly what the postcondition below asserts.
+SET LOCAL ROLE freightos_admin_owner;
+ALTER DEFAULT PRIVILEGES FOR ROLE freightos_admin_owner GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+RESET ROLE;
+SET LOCAL ROLE freightos_operator_registry_owner;
+ALTER DEFAULT PRIVILEGES FOR ROLE freightos_operator_registry_owner
+  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+RESET ROLE;
+
+-- LAST, because it is what makes SET LOCAL ROLE above stop working: nobody may assume the residual
+-- role. This is the membership 0026 §1 granted, revoked by the role that granted it.
+--
+-- The separate ADMIN OPTION row that PostgreSQL 16 creates automatically when a CREATEROLE role
+-- runs CREATE ROLE is deliberately LEFT. It carries SET FALSE and INHERIT FALSE, so it confers no
+-- ability to become the role or to hold anything through it — and it is the only thing that lets
+-- the migrator re-grant on re-application. Revoking it would make reverting a one-way door for a
+-- non-superuser migrator, because GRANT needs ADMIN OPTION and the automatic row is not
+-- reissuable without one. The postcondition below therefore asserts the property that matters —
+-- no membership is assumable or inheritable in either direction — rather than an empty table.
+REVOKE freightos_operator_registry_owner FROM freightos_migrator GRANTED BY freightos_migrator;
 
 -- The platform actor added by 0026 §5 goes with it. `system:tenant-provisioning` predates this
 -- migration and stays. Issued as the schema owner: the migrator holds no privilege on schema
@@ -1147,19 +1182,109 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'authn') THEN
     RAISE EXCEPTION '0026 down: schema authn survived the revert';
   END IF;
-  -- The role may remain; its REACH may not. Asserted rather than assumed, because "inert" is the
-  -- entire justification for leaving the catalog row in place.
-  SELECT string_agg(nspname, ', ') INTO v_bad
-    FROM pg_namespace
-   WHERE has_schema_privilege('freightos_operator_registry_owner', oid, 'USAGE')
-     AND nspname NOT IN ('pg_catalog', 'information_schema');
-  IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '0026 down: the registry owner still holds USAGE on %', v_bad;
-  END IF;
   IF EXISTS (SELECT 1 FROM pg_policies
               WHERE schemaname = 'public' AND tablename = 'users'
                 AND policyname = 'users_operator_registry_read') THEN
     RAISE EXCEPTION '0026 down: the registry read door survived the revert';
+  END IF;
+
+  -- -------------------------------------------------------------------------
+  -- RESIDUAL-ROLE INERTNESS. The role's catalog row is left behind on purpose (see above), so
+  -- "inert" is the entire justification for leaving it — and a justification that is asserted in
+  -- prose only is a justification that decays. Every dimension along which a role can hold reach
+  -- is checked, not just the one that failed last time.
+  --
+  -- Not checked, and deliberately so: CONNECT on the current database, which every role holds via
+  -- PUBLIC on every PostgreSQL database and which 0026 neither granted nor could revoke without
+  -- changing something it does not own. It is unreachable regardless — the role is NOLOGIN, and
+  -- the assertion below is what keeps it that way.
+  -- -------------------------------------------------------------------------
+
+  -- 1. It cannot log in.
+  IF EXISTS (SELECT 1 FROM pg_roles
+              WHERE rolname = 'freightos_operator_registry_owner'
+                AND (rolcanlogin OR rolsuper OR rolcreaterole OR rolcreatedb
+                     OR rolbypassrls OR rolreplication)) THEN
+    RAISE EXCEPTION
+      '0026 down: the residual registry owner holds LOGIN or a superuser-adjacent attribute';
+  END IF;
+
+  -- 2. No schema privilege, by any route — including one inherited from PUBLIC, which is why this
+  --    uses has_schema_privilege rather than reading nspacl.
+  SELECT string_agg(nspname || ':' ||
+           concat_ws('+',
+             CASE WHEN has_schema_privilege('freightos_operator_registry_owner', oid, 'USAGE')
+                  THEN 'USAGE' END,
+             CASE WHEN has_schema_privilege('freightos_operator_registry_owner', oid, 'CREATE')
+                  THEN 'CREATE' END), ', ') INTO v_bad
+    FROM pg_namespace
+   WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+     AND (has_schema_privilege('freightos_operator_registry_owner', oid, 'USAGE')
+          OR has_schema_privilege('freightos_operator_registry_owner', oid, 'CREATE'));
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 down: the registry owner still holds schema privileges — %', v_bad;
+  END IF;
+
+  -- 3. No explicit grant of any kind survives anywhere in the database. Read from the ACLs rather
+  --    than from has_*_privilege because types and languages grant to PUBLIC by default, and a
+  --    PUBLIC privilege is not a privilege this migration handed out or may revoke.
+  SELECT string_agg(kind || ' ' || obj || ':' || privilege_type, ', ') INTO v_bad
+    FROM (
+      SELECT 'schema' AS kind, nspname AS obj, nspacl AS acl FROM pg_namespace
+      UNION ALL SELECT 'relation', c.relname, c.relacl FROM pg_class c
+      UNION ALL SELECT 'function', p.oid::regprocedure::text, p.proacl FROM pg_proc p
+      UNION ALL SELECT 'type', t.typname, t.typacl FROM pg_type t
+      UNION ALL SELECT 'sequence-or-column', a.attname, a.attacl FROM pg_attribute a
+    ) o
+    CROSS JOIN LATERAL aclexplode(o.acl) x
+   WHERE x.grantee = 'freightos_operator_registry_owner'::regrole;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 down: the registry owner still holds explicit grants — %', v_bad;
+  END IF;
+
+  -- 4. It owns nothing.
+  SELECT string_agg(kind || ' ' || obj, ', ') INTO v_bad
+    FROM (
+      SELECT 'relation' AS kind, c.relname AS obj FROM pg_class c
+       WHERE c.relowner = 'freightos_operator_registry_owner'::regrole
+      UNION ALL SELECT 'function', p.oid::regprocedure::text FROM pg_proc p
+       WHERE p.proowner = 'freightos_operator_registry_owner'::regrole
+      UNION ALL SELECT 'schema', n.nspname FROM pg_namespace n
+       WHERE n.nspowner = 'freightos_operator_registry_owner'::regrole
+      UNION ALL SELECT 'type', t.typname FROM pg_type t
+       WHERE t.typowner = 'freightos_operator_registry_owner'::regrole
+    ) o;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 down: the registry owner still owns % ', v_bad;
+  END IF;
+
+  -- 5. No membership in either direction is assumable or inheritable. The one surviving row is the
+  --    ADMIN-OPTION-only grant PostgreSQL wrote at CREATE ROLE time; it can neither be used to
+  --    become the role nor to hold anything through it, and removing it would strand a
+  --    non-superuser migrator on re-application.
+  SELECT string_agg(format('%s->%s(admin=%s,inherit=%s,set=%s)',
+                           g.rolname, mm.rolname,
+                           am.admin_option, am.inherit_option, am.set_option), ', ') INTO v_bad
+    FROM pg_auth_members am
+    JOIN pg_roles r  ON r.oid  = am.roleid
+    JOIN pg_roles mm ON mm.oid = am.member
+    JOIN pg_roles g  ON g.oid  = am.grantor
+   WHERE 'freightos_operator_registry_owner' IN (r.rolname, mm.rolname)
+     AND (am.set_option OR am.inherit_option);
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION
+      '0026 down: the registry owner is still assumable or inheritable — %', v_bad;
+  END IF;
+
+  -- 6. No default privilege entry survives for either owner role. §6c's global entries are
+  --    returned to PostgreSQL's own default above, which deletes the row rather than storing it.
+  SELECT string_agg(format('%s(ns=%s,type=%s)', pg_get_userbyid(d.defaclrole),
+                           d.defaclnamespace, d.defaclobjtype), ', ') INTO v_bad
+    FROM pg_default_acl d
+   WHERE d.defaclrole IN ('freightos_admin_owner'::regrole,
+                          'freightos_operator_registry_owner'::regrole);
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 down: §6c default privileges survived the revert — %', v_bad;
   END IF;
 END
 $assert$;
