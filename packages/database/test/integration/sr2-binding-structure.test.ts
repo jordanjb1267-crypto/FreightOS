@@ -843,6 +843,17 @@ describe('gate U — full round trip reproduces the same inventory', () => {
                        rolinherit) AS line
            FROM pg_roles WHERE rolname LIKE 'freightos%' ORDER BY rolname`,
       ),
+      // `pg_auth_members` is CLUSTER-WIDE, not per-database, and this capture runs twice with a
+      // full down-to-zero and up between the two — tens of seconds during which other test FILES
+      // are provisioning their own operator logins. Every such login is granted `freightos_admin`
+      // by the harness, so an unfiltered inventory grows between the snapshots and the comparison
+      // fails for a reason no migration controls. That is a race, and it is one this branch made
+      // reachable by giving more files authenticated operators.
+      //
+      // Harness operator logins are excluded here and asserted by SHAPE in the same test instead —
+      // a set comparison of concurrently created roles cannot be made stable, but "every operator
+      // login holds exactly one grant, and it is the administrative capability with no SET" can,
+      // and it is the property that actually matters. `op_` is `TestDatabase.operatorRoleName`.
       memberships: await one(
         `SELECT format('%s->%s admin=%s inherit=%s set=%s',
                        role.rolname, member.rolname, am.admin_option, am.inherit_option,
@@ -850,7 +861,8 @@ describe('gate U — full round trip reproduces the same inventory', () => {
            FROM pg_auth_members am
            JOIN pg_roles role ON role.oid = am.roleid
            JOIN pg_roles member ON member.oid = am.member
-          WHERE role.rolname LIKE 'freightos%' ORDER BY 1`,
+          WHERE role.rolname LIKE 'freightos%'
+            AND member.rolname NOT LIKE 'op\\_%' ORDER BY 1`,
       ),
       tables: await one(
         `SELECT format('%s.%s owner=%s rls=%s force=%s',
@@ -954,6 +966,32 @@ describe('gate U — full round trip reproduces the same inventory', () => {
       expect(a.policies.length).toBeGreaterThan(50);
       expect(a.functions.length).toBeGreaterThan(30);
       expect(a.tables.length).toBeGreaterThan(20);
+
+      // The operator logins the inventory excludes, checked by shape rather than by set — see the
+      // note on `memberships` above. A harness login may hold the administrative CAPABILITY and
+      // nothing else: INHERIT so its own statements carry the EXECUTE grants, and crucially SET
+      // FALSE, so it can never become `freightos_admin` and shed the identity that is the entire
+      // point of SEC-01. Any other grant to any operator login fails here.
+      //
+      // One is provisioned HERE so the check always has a subject. Operator roles are cluster-wide
+      // and created by other files, so "there is at least one" is exactly as racy as the set
+      // comparison this replaced — and a shape assertion over an empty set passes vacuously, which
+      // is the failure mode this whole fix exists to avoid. A service login needs no seeded tenant
+      // or user, so it works on a database that was just migrated up from zero.
+      await round.provisionSystemLogin('roundtrip', 'system:tenant-provisioning');
+
+      const operatorGrants = await client.query<{ line: string }>(
+        `SELECT format('%s admin=%s inherit=%s set=%s',
+                       role.rolname, am.admin_option, am.inherit_option, am.set_option) AS line
+           FROM pg_auth_members am
+           JOIN pg_roles role ON role.oid = am.roleid
+           JOIN pg_roles member ON member.oid = am.member
+          WHERE member.rolname LIKE 'op\\_%'
+          ORDER BY 1`,
+      );
+      expect([...new Set(operatorGrants.rows.map((r) => r.line))]).toEqual([
+        'freightos_admin admin=f inherit=t set=f',
+      ]);
     } finally {
       await client.end();
     }
