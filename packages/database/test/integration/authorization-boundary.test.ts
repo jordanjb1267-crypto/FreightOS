@@ -34,7 +34,6 @@ import {
 const db = new TestDatabase('freightos_test_authorization_boundary');
 
 let app: Client;
-let adminConn: Client;
 let fixtureConn: Client;
 let a: IdentityFixture;
 let b: IdentityFixture;
@@ -48,25 +47,69 @@ const GUARDED_TABLES = [
   'service_account_permissions',
 ] as const;
 
-const AS_ADMIN = ['human', 'identity_administration'] as const;
+const PURPOSE = 'identity_administration';
+
+/**
+ * SEC-01 / 0026 — the connections this file needs, and why there are now five of them.
+ *
+ * The boundary used to take the acting human as `p_actor`, so one `freightos_admin` connection
+ * could play every part: the administrator, an ordinary member, a colleague in another tenant, a
+ * service account, a fabricated uuid. Naming the part was the whole of becoming it.
+ *
+ * That argument is gone. A principal is now resolved from `session_user`, so every part has to be
+ * played by a connection that genuinely authenticated as it — which is the point, and which is why
+ * the cases below that used to be one function call with a different string are now separate
+ * logins. Where a case cannot be given an authenticated form at all, it is because the attack has
+ * become unsayable rather than merely refused; those are gathered and accounted for in
+ * "the actor denials, at the layer they now live" at the end of this file.
+ */
+let adminConn: Client; // administrator of tenant A — holds identity.* write
+let adminRole: string; // ...and its login role, for the cases that need a second session as it
+let operatorConn: Client; // ordinary member of tenant A — holds none of it
+let bAdminConn: Client; // administrator of tenant B
+let sharedConn: Client; // the shared freightos_admin credential — a service, and NOT on the allowlist
+let provisionerConn: Client; // a service that IS on admin.platform_actor
+let unboundConn: Client; // authenticated to PostgreSQL, bound to no FreightOS principal
 
 beforeAll(async () => {
   await db.reset();
   await db.seedTenants();
   app = db.connectAs('freightos_app');
   await app.connect();
-  adminConn = db.connectAs('freightos_admin');
-  await adminConn.connect();
   fixtureConn = db.connectAs('postgres');
   await fixtureConn.connect();
   a = await seedIdentity(db, TENANT_A);
   b = await seedIdentity(db, TENANT_B);
-}, 90_000);
+
+  adminRole = await db.provisionOperator('admin', TENANT_A, a.adminUserId);
+  adminConn = db.connectAsOperator(adminRole);
+  await adminConn.connect();
+  operatorConn = db.connectAsOperator(await db.provisionOperator('member', TENANT_A, a.userId));
+  await operatorConn.connect();
+  bAdminConn = db.connectAsOperator(await db.provisionOperator('badmin', TENANT_B, b.adminUserId));
+  await bAdminConn.connect();
+  sharedConn = db.connectAs('freightos_admin');
+  await sharedConn.connect();
+  provisionerConn = db.connectAsOperator(
+    await db.provisionSystemLogin('svc', 'system:tenant-provisioning'),
+  );
+  await provisionerConn.connect();
+  unboundConn = db.connectAsOperator(await db.provisionUnboundLogin('nobody'));
+  await unboundConn.connect();
+}, 120_000);
 
 afterAll(async () => {
-  await app?.end();
-  await adminConn?.end();
-  await fixtureConn?.end();
+  for (const c of [
+    app,
+    fixtureConn,
+    adminConn,
+    operatorConn,
+    bAdminConn,
+    sharedConn,
+    provisionerConn,
+    unboundConn,
+  ])
+    await c?.end();
 });
 
 interface PrivilegedResult {
@@ -76,8 +119,13 @@ interface PrivilegedResult {
   payload: Record<string, unknown>;
 }
 
-async function call(sql: string, params: readonly unknown[]): Promise<PrivilegedResult> {
-  const r = await adminConn.query<PrivilegedResult>(sql, [...params]);
+/** Defaults to the administrator, because that is the principal most of these cases assume. */
+async function call(
+  sql: string,
+  params: readonly unknown[],
+  client: Client = adminConn,
+): Promise<PrivilegedResult> {
+  const r = await client.query<PrivilegedResult>(sql, [...params]);
   return r.rows[0]!;
 }
 
@@ -261,37 +309,25 @@ describe('a tenant session cannot mutate the authorization graph — R2-01', () 
 });
 
 describe('the administrative boundary gates every mutation — R2-01', () => {
-  const grantPermission = (
-    actor: string,
-    actorType = 'human',
-    purpose = 'identity_administration',
-  ) =>
-    call('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)', [
-      TENANT_A,
-      a.roleId,
-      'identity.role.read',
-      actor,
-      actorType,
-      purpose,
-      randomUUID(),
-    ]);
+  const grantPermission = (client: Client = adminConn, purpose = PURPOSE) =>
+    call(
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
+      [TENANT_A, a.roleId, 'identity.role.read', purpose, randomUUID()],
+      client,
+    );
 
   it('performs a valid trusted mutation and audits it atomically', async () => {
     const correlationId = randomUUID();
-    const result = await call(
-      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-      [
-        TENANT_A,
-        a.legalEntityNodeId,
-        a.legalEntityId,
-        `valid_${randomUUID().slice(0, 8)}`,
-        'Valid',
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        correlationId,
-      ],
-    );
-    expect(result.outcome).toBe('succeeded');
+    const result = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)', [
+      TENANT_A,
+      a.legalEntityNodeId,
+      a.legalEntityId,
+      `valid_${randomUUID().slice(0, 8)}`,
+      'Valid',
+      PURPOSE,
+      correlationId,
+    ]);
+    expect(result.outcome, result.message ?? '').toBe('succeeded');
     expect(result.audit_event_id).toBeTruthy();
 
     // Same transaction, so the row and its audit record cannot exist without each other.
@@ -307,42 +343,53 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
     expect(role.rowCount).toBe(1);
   });
 
+  /**
+   * The denial table, rebuilt around WHO IS CONNECTED rather than what was typed.
+   *
+   * Four of the original eight cases named a principal the connection was not — a nonexistent
+   * uuid, a colleague in another tenant, a service account, a string that was not a uuid at all —
+   * and a fifth named no principal and a sixth named an agent. Under 0026 none of those can be
+   * expressed, so two of them are given real authenticated forms here (a genuine cross-tenant
+   * administrator; a genuine service login) and the remaining four move to the block at the end of
+   * this file, which states where each property now lives and asserts it there.
+   */
   const denials: [string, () => Promise<PrivilegedResult>, RegExp][] = [
-    ['a missing actor', () => grantPermission(''), /actor is required/],
-    [
-      'a missing purpose',
-      () => grantPermission(`user:${a.adminUserId}`, 'human', ''),
-      /purpose is required/,
-    ],
+    ['a missing purpose', () => grantPermission(adminConn, ''), /purpose is required/],
     [
       'a purpose that does not authorise it',
-      () => grantPermission(`user:${a.adminUserId}`, 'human', 'audit_export'),
+      () => grantPermission(adminConn, 'audit_export'),
       /does not authorise a change to the authorization graph/,
     ],
     [
-      'a nonexistent user actor',
-      () => grantPermission(`user:${randomUUID()}`),
+      // Was: `p_actor => user:<tenant B's administrator>` over tenant A's connection. Now: tenant
+      // B's administrator is genuinely at the keyboard, authenticated as itself, and reaches for a
+      // role in tenant A. A real administrator with real authority, in the wrong tenant.
+      'a genuine administrator of another tenant',
+      () => grantPermission(bAdminConn),
       /is not a user of tenant/,
     ],
     [
-      'a cross-tenant user actor',
-      () => grantPermission(`user:${b.adminUserId}`),
-      /is not a user of tenant/,
+      // Was: `p_actor => user:<a service account id>`, which the boundary caught only because that
+      // uuid was absent from `users`.
+      //
+      // MEASURED, AND NOT WHAT I FIRST WROTE. A bound service is NOT refused here as a class:
+      // `admin.authorization_refusal_reason` deliberately admits `actor_type = 'system'` when the
+      // actor is on the `admin.platform_actor` allowlist, because a platform actor names no user
+      // and so cannot be permission-checked against the authority tables at all (RC-E). What gates
+      // it is membership of that closed set — so the honest case is a bound service that is NOT on
+      // it. `system:session-binding-issuer` is exactly that: 0026 §5 binds the shared
+      // `freightos_admin` credential to it and deliberately leaves it OFF the allowlist, so minting
+      // session bindings confers no identity-administration authority.
+      'a bound service that is not an approved provisioning identity',
+      () => grantPermission(sharedConn),
+      /is not an approved provisioning identity/,
     ],
     [
-      'a service account claiming to be a user',
-      () => grantPermission(`user:${a.serviceAccountId}`),
-      /is not a user of tenant/,
-    ],
-    [
-      'a fabricated actor that is not even a uuid',
-      () => grantPermission('user:not-a-uuid'),
-      /must be of the form user:<uuid>/,
-    ],
-    [
-      'an agent actor type',
-      () => grantPermission(`user:${a.adminUserId}`, 'agent'),
-      /may not perform a privileged operation/,
+      // Unchanged in substance: an ordinary member of tenant A, now authenticated as itself rather
+      // than named. 0018 §3's permission gate is what refuses it.
+      'an authenticated member that holds no identity permission',
+      () => grantPermission(operatorConn),
+      /does not hold/,
     ],
   ];
 
@@ -355,73 +402,122 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
   }
 
   it('denies a missing request id', async () => {
-    const result = await call(
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [TENANT_A, a.roleId, 'identity.role.read', `user:${a.adminUserId}`, ...AS_ADMIN, null],
-    );
+    const result = await call('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
+      TENANT_A,
+      a.roleId,
+      'identity.role.read',
+      PURPOSE,
+      null,
+    ]);
     expect(result.outcome).toBe('denied');
     expect(result.message).toMatch(/correlation id is required/);
   });
 
-  it('denies a revoked principal', async () => {
-    const revoked = await withLegalContext(
+  it('denies a principal whose user is revoked after the connection was bound', async () => {
+    // The strongest form of this case, and one the old `p_actor` version could not reach: the
+    // operator authenticates while it is legitimate, the user is revoked underneath it, and the
+    // OPEN connection is asked to act. The binding is still there; the person is not.
+    const doomedUser = await withLegalContext(
       fixtureConn,
       systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
       async (c) => {
         const r = await (c as Client).query<{ id: string }>(
           `INSERT INTO users
              (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
-              authentication_subject, display_name, status, revoked_at, revoked_by, created_by)
-           VALUES ($1, $2, $3, 'oidc:example', $4, 'Revoked', 'revoked', now(), 'test', 'test')
+              authentication_subject, display_name, status, created_by)
+           VALUES ($1, $2, $3, 'oidc:example', $4, 'Doomed', 'active', 'test')
            RETURNING id`,
-          [TENANT_A, a.regionNodeId, a.legalEntityId, `revoked-${randomUUID()}`],
+          [TENANT_A, a.regionNodeId, a.legalEntityId, `doomed-${randomUUID()}`],
         );
         return r.rows[0]!.id;
       },
     );
-    const result = await grantPermission(`user:${revoked}`);
-    expect(result.outcome).toBe('denied');
-    expect(result.message).toMatch(/is not an active principal/);
+    const doomed = db.connectAsOperator(
+      await db.provisionOperator('doomed', TENANT_A, doomedUser),
+    );
+    await doomed.connect();
+    try {
+      await withLegalContext(
+        fixtureConn,
+        systemContextAt(TENANT_A, a.enterpriseNodeId, a.legalEntityId, `user:${a.adminUserId}`),
+        async (c) => {
+          await (c as Client).query(
+            `UPDATE users SET status = 'revoked', revoked_at = now(), revoked_by = 'test',
+                              updated_by = 'test'
+              WHERE id = $1`,
+            [doomedUser],
+          );
+        },
+      );
+      // The refusal moved one layer UPSTREAM and changed shape, and that is asserted as what it
+      // is rather than papered over. A revoked user resolves to no principal, so the connection
+      // cannot act at all — it raises instead of returning `denied`. Stronger than the old
+      // behaviour (which resolved the actor, then refused it) and deliberately not disguised as
+      // the same thing: a denial that moved does not satisfy a test written for where it was.
+      await expect(grantPermission(doomed)).rejects.toThrow(/bound to no FreightOS principal/i);
+
+      // And nothing landed. Asserted against a role created for this case alone: `a.roleId` is
+      // granted `identity.role.read` by legitimate cases elsewhere in this file, so counting rows
+      // on it would have proved nothing either way.
+      const target = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)', [
+        TENANT_A,
+        a.legalEntityNodeId,
+        a.legalEntityId,
+        `revoked_probe_${randomUUID().slice(0, 8)}`,
+        'Revoked probe',
+        PURPOSE,
+        randomUUID(),
+      ]);
+      await expect(
+        call(
+          'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
+          [TENANT_A, target.payload['role_id'], 'identity.role.read', PURPOSE, randomUUID()],
+          doomed,
+        ),
+      ).rejects.toThrow(/bound to no FreightOS principal/i);
+      const landed = await fixtureConn.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM role_permissions WHERE role_id = $1`,
+        [target.payload['role_id']],
+      );
+      expect(Number(landed.rows[0]!.n)).toBe(0);
+    } finally {
+      await doomed.end();
+    }
   });
 
   it('refuses a cross-tenant target', async () => {
-    const result = await call(
-      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-      [TENANT_A, b.membershipId, a.roleId, `user:${a.adminUserId}`, ...AS_ADMIN, randomUUID()],
-    );
+    const result = await call('SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)', [
+      TENANT_A,
+      b.membershipId,
+      a.roleId,
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(result.outcome).toBe('denied');
     expect(result.message).toMatch(/is not in tenant/);
   });
 
   it('refuses a cross-legal-entity and a cross-organization-node target', async () => {
-    const crossEntity = await call(
-      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-      [
-        TENANT_A,
-        a.legalEntityNodeId,
-        b.legalEntityId,
-        `cross_entity_${randomUUID().slice(0, 8)}`,
-        'Cross entity',
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
-    );
+    const crossEntity = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)', [
+      TENANT_A,
+      a.legalEntityNodeId,
+      b.legalEntityId,
+      `cross_entity_${randomUUID().slice(0, 8)}`,
+      'Cross entity',
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(crossEntity.outcome).toBe('denied');
     expect(crossEntity.message).toMatch(/does not govern organization node/);
 
-    const crossNode = await call(
-      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
-      [
-        TENANT_A,
-        a.userId,
-        b.terminalNodeId,
-        a.legalEntityId,
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
-    );
+    const crossNode = await call('SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)', [
+      TENANT_A,
+      a.userId,
+      b.terminalNodeId,
+      a.legalEntityId,
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(crossNode.outcome).toBe('denied');
     expect(crossNode.message).toMatch(/is not in tenant/);
   });
@@ -431,22 +527,18 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
     // used rather than the operator because 0018 §3's permission gate refuses an ordinary member
     // before the self-elevation guard runs — `denied`, correctly, but it would erase this guard's
     // coverage. The gate's own refusal is asserted separately below.
-    const direct = await call(
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [
-        TENANT_A,
-        a.adminRoleId,
-        'identity.user.write',
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
-    );
+    const direct = await call('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
+      TENANT_A,
+      a.adminRoleId,
+      'identity.user.write',
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(direct.outcome).toBe('failed');
     expect(direct.message).toMatch(/may not add a permission to a role it holds/);
 
     // And the gate itself: an ordinary member never reaches the guard at all.
-    const gated = await grantPermission(`user:${a.userId}`);
+    const gated = await grantPermission(operatorConn);
     expect(gated.outcome).toBe('denied');
     expect(gated.message).toMatch(/does not hold/);
 
@@ -454,50 +546,36 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
     // attack, so it runs as the administrator, which genuinely holds identity.role.write. Before
     // 0018 §3 the operator could create it too — the gate had no permission argument and any
     // active member passed — and that is authority the remediation removed on purpose.
-    const created = await call(
-      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-      [
-        TENANT_A,
-        a.legalEntityNodeId,
-        a.legalEntityId,
-        `self_assign_${randomUUID().slice(0, 8)}`,
-        'Self assign',
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
-    );
+    const created = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)', [
+      TENANT_A,
+      a.legalEntityNodeId,
+      a.legalEntityId,
+      `self_assign_${randomUUID().slice(0, 8)}`,
+      'Self assign',
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(created.outcome).toBe('succeeded');
 
     // The operator aiming that role at its own membership never reaches the guard: the gate
     // refuses it first, before any row is touched.
     const assignedByOperator = await call(
-      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-      [
-        TENANT_A,
-        a.membershipId,
-        created.payload['role_id'],
-        `user:${a.userId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
+      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)',
+      [TENANT_A, a.membershipId, created.payload['role_id'], PURPOSE, randomUUID()],
+      operatorConn,
     );
     expect(assignedByOperator.outcome).toBe('denied');
     expect(assignedByOperator.message).toMatch(/does not hold/);
 
     // And the guard, on an actor that does pass the gate: the administrator assigning the new
     // role to its OWN membership is stopped during the mutation, not before it.
-    const assigned = await call(
-      'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-      [
-        TENANT_A,
-        a.adminMembershipId,
-        created.payload['role_id'],
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
-    );
+    const assigned = await call('SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)', [
+      TENANT_A,
+      a.adminMembershipId,
+      created.payload['role_id'],
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(assigned.outcome).toBe('failed');
     expect(assigned.message).toMatch(/may not grant itself a role/);
 
@@ -518,20 +596,17 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
       a.legalEntityId,
       `idempotent_${randomUUID().slice(0, 8)}`,
       'Idempotent',
-      `user:${a.adminUserId}`,
-      ...AS_ADMIN,
+      PURPOSE,
       correlationId,
     ];
-    const first = await call(
-      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-      params,
-    );
-    expect(first.outcome).toBe('succeeded');
+    const first = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)', params);
+    expect(first.outcome, first.message ?? '').toBe('succeeded');
 
-    const retry = await call(
-      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-      [...params.slice(0, 3), `${params[3]}_other`, ...params.slice(4)],
-    );
+    const retry = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)', [
+      ...params.slice(0, 3),
+      `${params[3]}_other`,
+      ...params.slice(4),
+    ]);
     expect(retry.outcome).toBe('succeeded');
     expect(retry.payload['idempotent_replay']).toBe(true);
     expect(retry.audit_event_id).toBe(first.audit_event_id);
@@ -546,34 +621,30 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
 
   it('lets exactly one of two concurrent duplicate grants through', async () => {
     // Two real connections, both inside transactions, the second issued while the first is open.
-    const role = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)', [
+    const role = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)', [
       TENANT_A,
       a.legalEntityNodeId,
       a.legalEntityId,
       `concurrent_${randomUUID().slice(0, 8)}`,
       'Concurrent',
-      `user:${a.adminUserId}`,
-      ...AS_ADMIN,
+      PURPOSE,
       randomUUID(),
     ]);
     const roleId = role.payload['role_id'];
 
-    const one = db.connectAs('freightos_admin');
-    const two = db.connectAs('freightos_admin');
+    // Two AUTHENTICATED administrator connections, not two copies of the shared credential. The
+    // race is between two sessions of the same person, which is what a retried request or two
+    // browser tabs actually look like; before 0026 it could only be staged as two connections
+    // typing the same name.
+    const one = db.connectAsOperator(adminRole);
+    const two = db.connectAsOperator(adminRole);
     await one.connect();
     await two.connect();
     try {
       const grant = (client: Client) =>
         client.query<PrivilegedResult>(
-          'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-          [
-            TENANT_A,
-            roleId,
-            'identity.role.read',
-            `user:${a.adminUserId}`,
-            ...AS_ADMIN,
-            randomUUID(),
-          ],
+          'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
+          [TENANT_A, roleId, 'identity.role.read', PURPOSE, randomUUID()],
         );
 
       await one.query('BEGIN');
@@ -598,12 +669,18 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
   it('keeps a denial transaction-bound, as ADR-0026 §5 states', async () => {
     // TRANSACTION_BOUND_DENIAL_AUDIT is unchanged by this boundary: a denial is written in the
     // caller's transaction and goes with it if the caller rolls back.
+    // The denial is now provoked by an unauthorised PURPOSE rather than by a fabricated actor
+    // string, because a fabricated actor string is no longer an input. Same denial path, same
+    // transaction semantics — only the reason it is reached has changed.
     const correlationId = randomUUID();
     await adminConn.query('BEGIN');
-    const result = await call(
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [TENANT_A, a.roleId, 'identity.role.read', 'user:not-a-uuid', ...AS_ADMIN, correlationId],
-    );
+    const result = await call('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
+      TENANT_A,
+      a.roleId,
+      'identity.role.read',
+      'audit_export',
+      correlationId,
+    ]);
     expect(result.outcome).toBe('denied');
     await adminConn.query('ROLLBACK');
 
@@ -615,37 +692,28 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
   });
 
   it('preserves revocation and effective dating', async () => {
-    const role = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)', [
+    const role = await call('SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)', [
       TENANT_A,
       a.legalEntityNodeId,
       a.legalEntityId,
       `lifecycle_${randomUUID().slice(0, 8)}`,
       'Lifecycle',
-      `user:${a.adminUserId}`,
-      ...AS_ADMIN,
+      PURPOSE,
       randomUUID(),
     ]);
-    const granted = await call(
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [
-        TENANT_A,
-        role.payload['role_id'],
-        'identity.role.read',
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
-    );
-    const revoked = await call(
-      'SELECT * FROM admin.revoke_role_permission($1, $2, $3, $4, $5, $6)',
-      [
-        TENANT_A,
-        granted.payload['role_permission_id'],
-        `user:${a.adminUserId}`,
-        ...AS_ADMIN,
-        randomUUID(),
-      ],
-    );
+    const granted = await call('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
+      TENANT_A,
+      role.payload['role_id'],
+      'identity.role.read',
+      PURPOSE,
+      randomUUID(),
+    ]);
+    const revoked = await call('SELECT * FROM admin.revoke_role_permission($1, $2, $3, $4)', [
+      TENANT_A,
+      granted.payload['role_permission_id'],
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(revoked.outcome).toBe('succeeded');
 
     // Revoked, not deleted: the row survives with its revocation recorded, which is what makes an
@@ -675,5 +743,109 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
     expect(r.rows.map((x) => x.proname)).not.toContain('publish_actor');
     expect(r.rows.map((x) => x.proname)).not.toContain('authorization_refusal_reason');
     expect(r.rows.map((x) => x.proname)).not.toContain('prior_success');
+  });
+});
+
+/**
+ * SEC-01 / 0026 — the actor denials, at the layer they now live.
+ *
+ * Four cases were removed from the denial table above, and this block is the reason it was safe to
+ * remove them. Each one attacked `p_actor` / `p_actor_type`, arguments that no longer exist on any
+ * administrative entry point, so the attack cannot be expressed rather than being refused. The
+ * property each protected is re-asserted here in the form it now takes:
+ *
+ *   a missing actor                 → an authenticated login bound to no principal cannot act
+ *   a nonexistent user actor        → the same: an unmapped login resolves to nothing
+ *   a fabricated non-uuid actor     → the same, plus the guard below, which still holds the parse
+ *   an agent actor type             → the resolver returns `human` or `system` and nothing else
+ *
+ * The full adversarial treatment is `sr2-authenticated-principal-matrix.test.ts` cases F, G and J.
+ * What is here is the authorization-boundary-shaped restatement, so a reader comparing this file
+ * against the original R2-01 report can see where each property went.
+ */
+describe('the actor denials, at the layer they now live — SEC-01', () => {
+  it('an unbound authenticated login cannot change the authorization graph', async () => {
+    await expect(
+      unboundConn.query('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
+        TENANT_A,
+        a.roleId,
+        'identity.role.read',
+        PURPOSE,
+        randomUUID(),
+      ]),
+    ).rejects.toThrow(/bound to no FreightOS principal/i);
+  });
+
+  it('no entry point accepts a caller-supplied actor at all', async () => {
+    // The structural version, over every function the shared credential can reach. This is what
+    // makes "a fabricated actor" and "an agent actor type" unsayable rather than merely refused.
+    const r = await fixtureConn.query<{ f: string }>(
+      `SELECT p.oid::regprocedure::text AS f
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'admin'
+          AND has_function_privilege('freightos_admin', p.oid, 'EXECUTE')
+          AND pg_get_function_arguments(p.oid) ~ '(p_actor|p_actor_type|p_issued_by)'`,
+    );
+    expect(r.rows.map((x) => x.f)).toEqual([]);
+  });
+
+  it('keeps the actor-shape guards in admin.authorization_refusal_reason', async () => {
+    // The guards are not deleted from the database — the internal calling convention still passes
+    // an actor between definers, and this is what catches an unresolved one. Unreachable by
+    // `freightos_admin` (asserted above), so exercised directly as the superuser.
+    const cases: [string, string, RegExp][] = [
+      ['user:not-a-uuid', 'human', /must be of the form user:<uuid>/],
+      [`user:${randomUUID()}`, 'human', /is not a user of tenant/],
+      ['agent:dispatch', 'agent', /may not perform a privileged operation/],
+      ['system:not-approved', 'system', /is not an approved provisioning identity/],
+    ];
+    for (const [actor, actorType, expected] of cases) {
+      const r = await fixtureConn.query<{ reason: string | null }>(
+        `SELECT admin.authorization_refusal_reason($1, $2, $3, $4, $5, 'identity.role.write') AS reason`,
+        [actor, actorType, PURPOSE, TENANT_A, randomUUID()],
+      );
+      expect(r.rows[0]!.reason ?? '', `${actor} / ${actorType}`).toMatch(expected);
+    }
+
+    // The control: the administrator passes, so the four above are refusals rather than a function
+    // that refuses everything.
+    const ok = await fixtureConn.query<{ reason: string | null }>(
+      `SELECT admin.authorization_refusal_reason($1, 'human', $2, $3, $4, 'identity.role.write') AS reason`,
+      [`user:${a.adminUserId}`, PURPOSE, TENANT_A, randomUUID()],
+    );
+    expect(ok.rows[0]!.reason).toBeNull();
+  });
+
+  it('admits an approved platform actor, and only because it is on the allowlist — RC-E', async () => {
+    // The other half of the service case, and the one that explains why a bound service is not
+    // refused as a class. A platform actor names no user by construction, so it cannot be
+    // permission-checked against the authority tables; what authorises it is membership of the
+    // closed `admin.platform_actor` set, and nothing else.
+    const approved = await call(
+      'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)',
+      [
+        TENANT_A,
+        a.legalEntityNodeId,
+        a.legalEntityId,
+        `platform_${randomUUID().slice(0, 8)}`,
+        'Platform actor',
+        PURPOSE,
+        randomUUID(),
+      ],
+      provisionerConn,
+    );
+    expect(approved.outcome, approved.message ?? '').toBe('succeeded');
+
+    // And the allowlist is a closed set of exactly one entry, so the authority above is narrow and
+    // has to be widened deliberately rather than by adding a binding.
+    const allowlist = await fixtureConn.query<{ actor_id: string }>(
+      'SELECT actor_id FROM admin.platform_actor ORDER BY 1',
+    );
+    expect(allowlist.rows.map((x) => x.actor_id)).toEqual(['system:tenant-provisioning']);
+
+    // `system:session-binding-issuer` — the identity 0026 §5 gives the shared credential — is
+    // deliberately absent, which is what keeps minting a session binding from conferring
+    // identity-administration authority.
+    expect(allowlist.rows.map((x) => x.actor_id)).not.toContain('system:session-binding-issuer');
   });
 });
