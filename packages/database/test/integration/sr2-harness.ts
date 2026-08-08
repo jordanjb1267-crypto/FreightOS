@@ -53,7 +53,10 @@ export async function backendPid(client: Client): Promise<number> {
  */
 export async function mintBinding(admin: Client, request: MintRequest): Promise<string> {
   const r = await admin.query<{ issue_session_binding: string }>(
-    'SELECT admin.issue_session_binding($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+    // SEC-01 / 0026: `p_issued_by` is gone. The issuing identity is resolved from the
+    // authenticated control-plane login, so `request.issuedBy` no longer travels — it was a
+    // caller-supplied provenance string, which is the class F-A path 1 closed.
+    'SELECT admin.issue_session_binding($1, $2, $3, $4, $5, $6, $7, $8, $9)',
     [
       request.principalType,
       request.principalId,
@@ -63,7 +66,6 @@ export async function mintBinding(admin: Client, request: MintRequest): Promise<
       request.legalAuthorityClass ?? 'carrier_agent',
       request.operatingContext ?? 'carrier',
       request.targetBackendPid,
-      request.issuedBy ?? 'test:issuer',
       request.installableSeconds ?? 60,
     ],
   );

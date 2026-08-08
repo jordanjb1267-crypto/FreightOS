@@ -426,7 +426,8 @@ describe('fail closed', () => {
           async issue(principal, pid) {
             const binding = await issuer.issue(principal, pid);
             await admin.query(
-              `SELECT admin.issue_session_binding($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+              // SEC-01 / 0026: `p_issued_by` removed; the issuer is resolved from the connection.
+              `SELECT admin.issue_session_binding($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
               [
                 'human',
                 fixture.userId,
@@ -436,7 +437,6 @@ describe('fail closed', () => {
                 'carrier_agent',
                 'carrier',
                 pid,
-                'test:adapter',
                 1,
               ],
             );

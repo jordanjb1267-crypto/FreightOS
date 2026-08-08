@@ -1718,6 +1718,60 @@ $function$;
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
+-- §6b. Restore the execute ACLs the DROP discarded.
+--
+-- FOUND BY THE ADVERSARIAL MATRIX, not by review. Dropping a function and creating a new one does
+-- not carry the old one's ACL: the new function gets PostgreSQL's default, which is EXECUTE to
+-- PUBLIC. §6 therefore left ALL SIXTEEN administrative entry points world-executable, and
+-- `freightos_app` could reach `admin.issue_session_binding` — the mint whose whole purpose is to
+-- be unreachable from the runtime role.
+--
+-- It was not exploitable, because the runtime role holds no USAGE on schema `admin` and so cannot
+-- name the function. That is one wall where two were designed, and F-B is the standing lesson
+-- about relying on the one that happens to still be standing. §7(j) now asserts the ACL directly.
+--
+-- Restated because it is easy to lose: 0020 §9 revoked PUBLIC from its definers deliberately, and
+-- a migration that recreates a function silently undoes that unless it says so.
+-- ---------------------------------------------------------------------------
+
+SET LOCAL ROLE freightos_admin_owner;
+
+REVOKE ALL ON FUNCTION admin.assign_membership_role(p_tenant_id uuid, p_membership_id uuid, p_role_id uuid, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.assign_membership_role(p_tenant_id uuid, p_membership_id uuid, p_role_id uuid, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.create_role(p_tenant_id uuid, p_organization_node_id uuid, p_legal_entity_id uuid, p_key text, p_name text, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.create_role(p_tenant_id uuid, p_organization_node_id uuid, p_legal_entity_id uuid, p_key text, p_name text, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.export_tenant_audit(p_tenant_id uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.export_tenant_audit(p_tenant_id uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.grant_membership(p_tenant_id uuid, p_user_id uuid, p_organization_node_id uuid, p_legal_entity_id uuid, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.grant_membership(p_tenant_id uuid, p_user_id uuid, p_organization_node_id uuid, p_legal_entity_id uuid, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.grant_role_permission(p_tenant_id uuid, p_role_id uuid, p_permission_key text, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.grant_role_permission(p_tenant_id uuid, p_role_id uuid, p_permission_key text, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.grant_service_account_permission(p_tenant_id uuid, p_service_account_id uuid, p_permission_key text, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.grant_service_account_permission(p_tenant_id uuid, p_service_account_id uuid, p_permission_key text, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.issue_session_binding(p_principal_type text, p_principal_id uuid, p_tenant_id uuid, p_organization_node_id uuid, p_legal_entity_id uuid, p_legal_authority_class text, p_operating_context text, p_target_backend_pid integer, p_installable_seconds integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.issue_session_binding(p_principal_type text, p_principal_id uuid, p_tenant_id uuid, p_organization_node_id uuid, p_legal_entity_id uuid, p_legal_authority_class text, p_operating_context text, p_target_backend_pid integer, p_installable_seconds integer) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.move_organization_node(p_tenant_id uuid, p_node_id uuid, p_new_parent_id uuid, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.move_organization_node(p_tenant_id uuid, p_node_id uuid, p_new_parent_id uuid, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.provision_tenant(p_tenant_id uuid, p_name text, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.provision_tenant(p_tenant_id uuid, p_name text, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.revoke_membership(p_tenant_id uuid, p_membership_id uuid, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.revoke_membership(p_tenant_id uuid, p_membership_id uuid, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.revoke_membership_role(p_tenant_id uuid, p_membership_role_id uuid, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.revoke_membership_role(p_tenant_id uuid, p_membership_role_id uuid, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.revoke_role_permission(p_tenant_id uuid, p_role_permission_id uuid, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.revoke_role_permission(p_tenant_id uuid, p_role_permission_id uuid, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.revoke_service_account_permission(p_tenant_id uuid, p_service_account_permission_id uuid, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.revoke_service_account_permission(p_tenant_id uuid, p_service_account_permission_id uuid, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.set_membership_status(p_tenant_id uuid, p_membership_id uuid, p_status text, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.set_membership_status(p_tenant_id uuid, p_membership_id uuid, p_status text, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.set_tenant_status(p_tenant_id uuid, p_status text, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.set_tenant_status(p_tenant_id uuid, p_status text, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+REVOKE ALL ON FUNCTION admin.tenant_identity_summary(p_tenant_id uuid, p_purpose text, p_correlation_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION admin.tenant_identity_summary(p_tenant_id uuid, p_purpose text, p_correlation_id uuid) TO freightos_admin;
+
+RESET ROLE;
+
+-- ---------------------------------------------------------------------------
 -- §7. Assertions. Measured from the catalog after the fact, not from this file's own text.
 -- ---------------------------------------------------------------------------
 
@@ -1809,6 +1863,23 @@ BEGIN
    WHERE has_schema_privilege(g, 'authn', 'CREATE');
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION '0026 §7(h): % holds CREATE on schema authn', v_bad;
+  END IF;
+
+  -- (j) No administrative entry point is world-executable, and the mint is not reachable by the
+  --     runtime role. Both were true before 0026, both were silently undone by §6's DROP, and
+  --     neither was caught by anything but the adversarial matrix.
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'admin' AND has_function_privilege('public', p.oid, 'EXECUTE');
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 §7(j): PUBLIC holds EXECUTE on %', v_bad;
+  END IF;
+
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'admin' AND has_function_privilege('freightos_app', p.oid, 'EXECUTE');
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 §7(j): the runtime role can reach %', v_bad;
   END IF;
 
   RAISE NOTICE '0026: administrative identity now resolves from session_user only';

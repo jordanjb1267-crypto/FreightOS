@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TENANT_A, TestDatabase } from './harness.ts';
-import { seedIdentity, type IdentityFixture } from './identity-harness.ts';
+import {
+  connectAsFixtureAdministrator,
+  seedIdentity,
+  type IdentityFixture,
+} from './identity-harness.ts';
 import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified-test-auth.ts';
 
 /**
@@ -48,11 +52,15 @@ beforeAll(async () => {
   await db.seedTenants();
   app = db.connectAs('freightos_app');
   await app.connect();
-  admin = db.connectAs('freightos_admin');
-  await admin.connect();
   su = db.connectAs('postgres');
   await su.connect();
   a = await seedIdentity(db, TENANT_A);
+  // SEC-01 / 0026: an AUTHENTICATED administrator, not the shared credential. These cases are
+  // about which `users` table the definer resolves, and the shared connection is now refused at
+  // the identity gate before it ever looks — which would make every one of them pass without
+  // exercising the shadowing property they exist for. Connected after the seed, because the
+  // operator is bound to a user the seed creates.
+  admin = await connectAsFixtureAdministrator(db, a);
 }, 120_000);
 
 afterAll(async () => {
@@ -161,31 +169,37 @@ describe('0019 — Layer 2: every definer and user_has_permission lists pg_temp 
 });
 
 describe('0019 — the admin authorization chain cannot be shadowed (Path 1)', () => {
-  it('refuses a fabricated actor and does not mutate the real hierarchy or forge audit', async () => {
-    const before = await regionAncestors();
-    // The shadow cannot even be created under Layer 1; attempt it, ignore the CREATE denial, and
-    // prove the definer still refuses on the real users table.
+  it('resolves the real authority tables, so a shadow claiming FAKE changes nothing', async () => {
+    // ORIGINALLY: this named FAKE_ACTOR through `p_actor` and asserted the definer refused it on
+    // the real `users` table rather than authorising it from a shadow. 0026 removed the argument,
+    // so a fabricated actor can no longer be named at all — and the caller is now a real
+    // authenticated administrator.
+    //
+    // The shadowing property is unchanged and still worth proving: plant a shadow that would
+    // authorise FAKE and strip the real administrator's authority, and the operation must still
+    // behave exactly as the real tables say — succeed, and be attributed to the real person.
+    const correlationId = randomUUID();
     await buildAuthorizationShadow(admin).catch(() => undefined);
     const r = await admin.query<{ outcome: string; message: string | null }>(
-      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-      [
-        TENANT_A,
-        a.regionNodeId,
-        a.enterpriseNodeId,
-        FAKE_ACTOR,
-        'human',
-        'identity_administration',
-        randomUUID(),
-      ],
+      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5)',
+      [TENANT_A, a.regionNodeId, a.legalEntityNodeId, 'identity_administration', correlationId],
     );
-    expect(r.rows[0]!.outcome).toBe('denied');
-    expect(r.rows[0]!.message, 'denied for the wrong reason').toMatch(/is not a user of tenant/i);
-    expect(await regionAncestors(), 'the real hierarchy was mutated').toEqual(before);
+    expect(r.rows[0]!.outcome, r.rows[0]!.message ?? '').toBe('succeeded');
+    const rows = await su.query<{ actor_id: string; actor_type: string }>(
+      'SELECT actor_id, actor_type FROM audit_events WHERE correlation_id = $1',
+      [correlationId],
+    );
+    expect(rows.rowCount).toBeGreaterThan(0);
+    for (const row of rows.rows) {
+      expect(row.actor_type).toBe('human');
+      expect(row.actor_id, 'a shadow chose the recorded human').toBe(`user:${a.adminUserId}`);
+    }
+    // And nothing anywhere was ever attributed to the fabricated actor the shadow named.
     const forged = await su.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM audit_events WHERE actor_id=$1 AND outcome='succeeded'`,
+      `SELECT count(*)::text AS n FROM audit_events WHERE actor_id=$1`,
       [FAKE_ACTOR],
     );
-    expect(Number(forged.rows[0]!.n), 'a forged success audit row was written').toBe(0);
+    expect(Number(forged.rows[0]!.n), 'the shadow produced provenance for FAKE').toBe(0);
   });
 
   it('POSITIVE CONTROL: the real administrator, holding the permission, can move a node', async () => {
@@ -202,16 +216,8 @@ describe('0019 — the admin authorization chain cannot be shadowed (Path 1)', (
       );
     });
     const r = await admin.query<{ outcome: string; message: string | null }>(
-      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-      [
-        TENANT_A,
-        bu,
-        a.legalEntityNodeId,
-        `user:${a.adminUserId}`,
-        'human',
-        'identity_administration',
-        randomUUID(),
-      ],
+      'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5)',
+      [TENANT_A, bu, a.legalEntityNodeId, 'identity_administration', randomUUID()],
     );
     expect(r.rows[0]!.outcome, r.rows[0]!.message ?? '').toBe('succeeded');
     const audited = await su.query<{ n: string }>(
@@ -288,7 +294,10 @@ describe('0019 — the kill-switch human reservation cannot be shadowed (Path 2)
 describe('0019 — Layer 2 is independently sufficient (TEMPORARY restored)', () => {
   it('resolves the real relation even when the shadow is genuinely created', async () => {
     // Neutralize Layer 1 on this disposable database only, so the attacker CAN create the shadow.
-    await su.query('GRANT TEMPORARY ON DATABASE freightos_test_hotfix_pg_temp TO freightos_admin');
+    // Granted to the OPERATOR login, which is the connection that now carries the attack.
+    await su.query(
+      `GRANT TEMPORARY ON DATABASE freightos_test_hotfix_pg_temp TO ${db.operatorRoleName('admin')}`,
+    );
     try {
       const before = await regionAncestors();
       await buildAuthorizationShadow(admin);
@@ -299,26 +308,29 @@ describe('0019 — Layer 2 is independently sufficient (TEMPORARY restored)', ()
         Number(visible.rows[0]!.n),
         'the shadow was not actually created — proves nothing',
       ).toBe(1);
+      // The shadow is real and visible on this connection. Layer 2 must make the definer read the
+      // REAL tables anyway: the operation resolves the genuine administrator and succeeds, and the
+      // fabricated actor the shadow authorises gets nothing.
+      const correlationId = randomUUID();
       const r = await admin.query<{ outcome: string; message: string | null }>(
-        'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5,$6,$7)',
-        [
-          TENANT_A,
-          a.regionNodeId,
-          a.enterpriseNodeId,
-          FAKE_ACTOR,
-          'human',
-          'identity_administration',
-          randomUUID(),
-        ],
+        'SELECT * FROM admin.move_organization_node($1,$2,$3,$4,$5)',
+        [TENANT_A, a.regionNodeId, a.legalEntityNodeId, 'identity_administration', correlationId],
       );
-      expect(r.rows[0]!.outcome).toBe('denied');
-      expect(r.rows[0]!.message, 'Layer 2 did not resolve the real users table').toMatch(
-        /is not a user of tenant/i,
+      expect(r.rows[0]!.outcome, r.rows[0]!.message ?? '').toBe('succeeded');
+      const rows = await su.query<{ actor_id: string }>(
+        'SELECT actor_id FROM audit_events WHERE correlation_id = $1',
+        [correlationId],
       );
-      expect(await regionAncestors()).toEqual(before);
+      expect(rows.rowCount).toBeGreaterThan(0);
+      for (const row of rows.rows) {
+        expect(row.actor_id, 'Layer 2 did not resolve the real users table').toBe(
+          `user:${a.adminUserId}`,
+        );
+      }
+      void before;
     } finally {
       await su.query(
-        'REVOKE TEMPORARY ON DATABASE freightos_test_hotfix_pg_temp FROM freightos_admin',
+        `REVOKE TEMPORARY ON DATABASE freightos_test_hotfix_pg_temp FROM ${db.operatorRoleName('admin')}`,
       );
       // drop the shadow so it cannot leak into another test on this connection
       await admin.query('DISCARD TEMP').catch(() => undefined);

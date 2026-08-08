@@ -144,7 +144,9 @@ describe('gate B — trusted mint', () => {
         organization_node_id: fixtureA.terminalNodeId,
         legal_entity_id: fixtureA.legalEntityId,
         target_backend_pid: pid,
-        issued_by: 'test:issuer',
+        // SEC-01 / 0026: `p_issued_by` is gone. This was 'test:issuer' — a provenance string the
+        // caller chose. It is now the identity the control-plane connection authenticated as.
+        issued_by: 'system:session-binding-issuer',
         installed_xact_id: null,
         installed_backend_pid: null,
         installed_at: null,
@@ -243,7 +245,7 @@ describe('gate B — trusted mint', () => {
     const app = await connect('freightos_app');
     try {
       const refusal = await refusalFrom(() =>
-        app.query('SELECT admin.issue_session_binding($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [
+        app.query('SELECT admin.issue_session_binding($1,$2,$3,$4,$5,$6,$7,$8,$9)', [
           'human',
           fixtureA.userId,
           TENANT_A,
@@ -252,7 +254,6 @@ describe('gate B — trusted mint', () => {
           'carrier_agent',
           'carrier',
           0,
-          'attacker',
           60,
         ]),
       );
