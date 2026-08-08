@@ -1091,7 +1091,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
   }, 300_000);
 
   /**
-   * 22 -> 21 -> 22, at full fidelity over everything 0022 touches.
+   * 24 -> 23 -> 24, at full fidelity over everything the SR-2 migrations touch.
    *
    * Gate T already proves 22 -> 18 -> 22 for the six accessors. This is the narrower, stricter
    * one: every SECURITY DEFINER in both schemas, compared on body, owner, security mode,
@@ -1100,8 +1100,8 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
    * the failure mode of writing RESET instead of SET — would pass a looser comparison and is
    * exactly what this catches.
    */
-  it('restores the pre-0022 database on the way down and the fixed one on the way back', async () => {
-    const rt = new TestDatabase('freightos_test_sr2_0022_roundtrip');
+  it('restores the pre-0024 database on the way down and the fixed one on the way back', async () => {
+    const rt = new TestDatabase('freightos_test_sr2_roundtrip_24');
     await rt.reset();
     const client = rt.connectAsMigrator();
     await client.connect();
@@ -1162,7 +1162,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       // Down one step. Reverting 0023 removes only what 0023 added — the schema-qualified bodies.
       // It must NOT re-grant TEMPORARY or unpin pg_temp: those belong to migration 0019 on main and
       // are still applied, so rolling SR-2 back cannot silently reopen the CRITICAL 0019 closed.
-      expect((await migrateDown(client, migrations, 22)).reverted).toEqual([23]);
+      expect((await migrateDown(client, migrations, 23)).reverted).toEqual([24]);
       const at21 = await definers();
       expect(at21.length, 'the revert dropped definers it should only have altered').toBe(
         at22.length,
@@ -1174,12 +1174,21 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       }
       expect(await publicTemp(), 'reverting SR-2 reopened the 0019 TEMPORARY hole').toBe(false);
       // The bodies really are the unqualified ones again.
-      const core21 = at21.find((f) => f.signature === 'app.verified_principal()')!;
-      expect(core21.body).toMatch(/\n\s*FROM users u/);
-      expect(core21.body).not.toContain('public.users');
+      // At 23 the AUTHORIZATION CORE is still schema-qualified — 0023 §3 owns that and is still
+      // applied. What 0024's down reverts is the ADMIN bodies, so that is what is checked here.
+      const core23 = at21.find((f) => f.signature === 'app.verified_principal()')!;
+      expect(core23.body, 'reverting 0024 unqualified the authorization core').toContain(
+        'public.users',
+      );
+      const adminBody = at21.find((f) =>
+        f.signature.startsWith('admin.authorization_refusal_reason('),
+      )!;
+      expect(adminBody.body, '0024 down did not restore the unqualified admin body').toMatch(
+        /\n\s*FROM users\b/,
+      );
 
       // And back up. Everything 0022 touches matches where it started, field for field.
-      expect((await migrateUp(client, migrations)).applied).toEqual([23]);
+      expect((await migrateUp(client, migrations)).applied).toEqual([24]);
       expect(await definers()).toEqual(at22);
       expect(await scopeFns()).toEqual(scope22);
       expect(await publicTemp()).toBe(false);
