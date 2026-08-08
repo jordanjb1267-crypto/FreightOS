@@ -1083,6 +1083,10 @@ RESET ROLE;
 -- order, and only what 0026 created.
 -- ---------------------------------------------------------------------------
 
+-- The §2b read door goes first: it names the registry owner, so the role cannot be dropped while
+-- it exists. Dropping the policy also removes the only widening 0026 made to public.users.
+DROP POLICY IF EXISTS users_operator_registry_read ON public.users;
+
 -- As the owner: the migrator holds USAGE on schema authn and nothing else, by design.
 SET LOCAL ROLE freightos_operator_registry_owner;
 DROP FUNCTION IF EXISTS authn.provision_operator(name, uuid, uuid, text);
@@ -1093,17 +1097,29 @@ DROP TABLE IF EXISTS authn.operator_binding;
 DROP SCHEMA IF EXISTS authn;
 RESET ROLE;
 
-REVOKE USAGE ON SCHEMA public, app FROM freightos_operator_registry_owner;
-REVOKE SELECT ON public.users FROM freightos_operator_registry_owner;
+-- DROP OWNED BY rather than a list of REVOKEs. The role holds grants issued by more than one
+-- grantor across more than one schema, and DROP ROLE reports only "privileges for schema public"
+-- without saying which — enumerating them by hand is how a down migration ends up almost right.
+-- The role owns no objects at this point (its schema and functions were dropped above), so this
+-- removes privileges and nothing else.
+-- THE ROLE IS NOT DROPPED, and that is deliberate.
+--
+-- 0020's down migration records the same conclusion in almost the same words: it was the only
+-- migration that attempted a DROP ROLE, and it was wrong to. A role is a cluster-wide catalog row
+-- that other databases in the same cluster may reference, and its privileges are held by several
+-- grantors across several schemas — DROP ROLE reports only "privileges for schema public" without
+-- saying which grant, so unwinding it by hand is how a down migration ends up almost right.
+-- Measured here: REVOKE by enumeration and DROP OWNED BY both left the dependency standing.
+--
+-- What reverting must actually guarantee is that the role has no reach, not that its catalog row
+-- is gone. After the drops above it owns nothing, its schema does not exist, and its read door on
+-- public.users is gone. A NOLOGIN role with no privileges and no objects is inert.
 
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'freightos_operator_registry_owner') THEN
-    -- Owns nothing now, so the drop cannot cascade into anything else.
-    DROP ROLE freightos_operator_registry_owner;
-  END IF;
-END
-$$;
+-- Explicit REVOKEs by the grantor. DROP OWNED BY was tried first and does NOT remove privileges
+-- granted TO a role by somebody else — run as the role it dropped nothing, and the assertion at
+-- the end of this file caught that rather than letting the revert claim success.
+REVOKE SELECT ON public.users FROM freightos_operator_registry_owner;
+REVOKE USAGE ON SCHEMA public, app FROM freightos_operator_registry_owner;
 
 -- The platform actor added by 0026 §5 goes with it. `system:tenant-provisioning` predates this
 -- migration and stays. Issued as the schema owner: the migrator holds no privilege on schema
@@ -1130,6 +1146,20 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'authn') THEN
     RAISE EXCEPTION '0026 down: schema authn survived the revert';
+  END IF;
+  -- The role may remain; its REACH may not. Asserted rather than assumed, because "inert" is the
+  -- entire justification for leaving the catalog row in place.
+  SELECT string_agg(nspname, ', ') INTO v_bad
+    FROM pg_namespace
+   WHERE has_schema_privilege('freightos_operator_registry_owner', oid, 'USAGE')
+     AND nspname NOT IN ('pg_catalog', 'information_schema');
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 down: the registry owner still holds USAGE on %', v_bad;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies
+              WHERE schemaname = 'public' AND tablename = 'users'
+                AND policyname = 'users_operator_registry_read') THEN
+    RAISE EXCEPTION '0026 down: the registry read door survived the revert';
   END IF;
 END
 $assert$;

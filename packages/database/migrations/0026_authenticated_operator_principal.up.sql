@@ -1772,6 +1772,27 @@ GRANT EXECUTE ON FUNCTION admin.tenant_identity_summary(p_tenant_id uuid, p_purp
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
+-- §6c. Why there is no ALTER DEFAULT PRIVILEGES here.
+--
+-- The obvious durable fix for §6b is to stop new functions acquiring PUBLIC EXECUTE at all:
+--
+--   ALTER DEFAULT PRIVILEGES FOR ROLE freightos_admin_owner IN SCHEMA admin
+--     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+--
+-- It was tried, both as the owner via SET ROLE and with an explicit FOR ROLE, on PostgreSQL
+-- 16.13. Measured: the statement succeeds, `pg_default_acl` gains no row, and a function created
+-- immediately afterwards under that exact role still reports
+-- `has_function_privilege('public', ..., 'EXECUTE') = true`.
+--
+-- Shipping it anyway would put a statement in the migration that reads as protection and provides
+-- none — the same shape as the cosmetic fix this whole remediation exists to avoid. So the
+-- guarantee is placed where it can be proved instead: §7(j) asserts the ACL of every function in
+-- the schema, and `sr2-privilege-boundary.test.ts` creates a function under the real creation path
+-- and fails if it comes out world-executable. A future signature-changing migration that forgets
+-- the revoke does not get a silent default — it gets a red test.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
 -- §7. Assertions. Measured from the catalog after the fact, not from this file's own text.
 -- ---------------------------------------------------------------------------
 
