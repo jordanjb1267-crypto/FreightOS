@@ -1294,3 +1294,217 @@ Every step green, secret scan included, on PostgreSQL 16.14 against 16.13 locall
 
 The rereview earning two findings is the point. A rereview that confirms everything has told you
 nothing about the code and something about the rereview.
+
+---
+
+## 15. F-01 and F-02 — relation shadowing through `pg_temp`
+
+The final owner acceptance review returned **NOT ACCEPTED** with two findings. Both are
+acceptance-blocking because both move the verified-actor authorization boundary itself, and the
+owner ruled them in scope for this PR rather than deferred.
+
+### 15.1 The mechanism
+
+`SET search_path = pg_catalog, public` reads like a closed path and is not one.
+
+> PostgreSQL searches the session's temporary schema **first** for relations whenever `pg_temp` is
+> not explicitly listed in `search_path`.
+
+That holds inside a `SECURITY DEFINER` with a pinned path exactly as it holds anywhere else: pinning
+two schemas does not exclude the implicit third, and listing `pg_temp` explicitly — last — is the
+only thing that demotes it. PostgreSQL also grants `TEMPORARY` on every database to `PUBLIC` by
+default, so `freightos_app` already held the single privilege the attack needs.
+
+Every authorization function in this schema referenced its tables by unqualified name.
+
+### 15.2 Reproduced before anything was modified
+
+Both were reproduced on the unmodified head `c4f5389`, on a session holding a **genuine** verified
+binding — not a forged claim, not an unbound session. The reproducers were written first and
+observed failing, and they are in the suite now as
+`packages/database/test/integration/sr2-temp-shadow.test.ts`.
+
+```
+→ the runtime role can still create temporary relations: expected true to be false
+→ the closure shadow was created: expected 'created' to match /permission denied/i
+```
+
+|                     | Attack                                                                                                               | Measured before 0022                                                                                                                                            | Must be              |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| **F-01** — CRITICAL | shadow `users` + `memberships`, then the control plane revokes the real membership and commits on another connection | `app.current_tenant_id()` still returned the tenant on the **next statement of the same open transaction**                                                      | `NULL`               |
+| **F-02** — HIGH     | shadow `organization_node_closure`                                                                                   | `app.verified_scope_node_ids()` returned **4 nodes instead of 1**, and a principal bound at the TERMINAL node read a user row on the legal-entity node above it | 1 node, 0 rows above |
+
+F-01 is a fail-open: §2 of ADR-0027 makes same-transaction revocation visibility a contract, and
+gate K and gate V case 4 exist to prove it. F-02 makes node scope caller-determined.
+
+**F-02 is pre-existing, verified rather than assumed.** Measured against a database migrated down to
+21, with the same shadow in place:
+
+```
+[probe] TEMPORARY at 21: true
+[probe] verified_scope_node_ids() rows at 21 WITH shadow: 4
+[probe] rows for the node ABOVE the membership at 21: 1
+```
+
+The identical attack succeeds against 1..19, so migration 0020 carried the pattern forward rather
+than introducing it.
+
+### 15.3 The blast radius is wider than the two findings
+
+A catalog sweep, not a reading of the two functions named in the review:
+
+| Population                                             | Count | State before 0022                                                     |
+| ------------------------------------------------------ | ----: | --------------------------------------------------------------------- |
+| functions referencing a protected relation unqualified |    46 | —                                                                     |
+| …of those, `SECURITY DEFINER`                          |    31 | all pinned `pg_catalog, public`, which does **not** exclude `pg_temp` |
+| …of those, invoker-rights                              |    15 | no `search_path` at all                                               |
+| `SECURITY DEFINER` in schema `app`                     |    25 | every one pinned `pg_catalog, public`                                 |
+| `SECURITY DEFINER` in schema `admin`                   |    23 | every one pinned `pg_catalog, public`                                 |
+
+Reachable in the caller's own session: `app.reject_membership_role_self_elevation`,
+`app.reject_role_permission_self_elevation`, `app.kill_switch_before_write`. Fixing only the two
+reported symptoms would have left the class open.
+
+**Schema `admin` is in scope and it is not a formality.** Those twenty-three functions _are_ the
+authorization-mutation boundary — `admin.grant_membership`, `admin.assign_membership_role`,
+`admin.grant_role_permission`, `admin.issue_session_binding` — and each verifies its request against
+`users`, `memberships`, `roles` and `permissions` before writing. `freightos_app` cannot name schema
+`admin`; `freightos_admin` can. A control-plane operator session that shadowed those tables would
+have `admin.issue_session_binding` confirm a membership existing only in the caller's temporary
+schema, and hand back a binding for a principal who holds nothing. The mint is the trust anchor the
+entire binding chain hangs from.
+
+This was found because the first draft of the remediation enumerated the functions by hand, named
+twenty-four, and was measured against `pg_proc`: three signatures were wrong,
+`app.is_verified_platform_actor()` was missing, and all of `admin` had been overlooked. The shipped
+§2 is driven from the catalog for that reason.
+
+### 15.4 Migration 0022 — three independent layers
+
+|        | Control                                                         | Why it is not sufficient alone                                           |
+| ------ | --------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **§1** | `REVOKE TEMPORARY ON DATABASE … FROM PUBLIC`                    | Most likely of the three to be undone by an operator restoring a default |
+| **§2** | every definer in `app` and `admin` lists `pg_temp` **last**     | Per-function; says nothing about a function added later                  |
+| **§3** | the authorization core schema-qualifies its relation references | Per-function, and a moving target across 46 call sites                   |
+
+§1 was safe to apply because it was measured first, not assumed: `freightos_app` holds `CREATE` on
+**no** schema (`admin`, `app`, `public` all false), every `freightos%` role held `TEMPORARY` only
+through the `PUBLIC` default, and nothing in the repository creates a temporary table. After 0022,
+only `freightos_migrator` retains it, through database ownership — recorded in §15.7.
+
+No `SET` clause was added to the four invoker-rights scope functions. A `proconfig` blocks SQL
+function inlining, which is the property P-01 depends on, so those are protected by §3 alone.
+
+### 15.5 The layers are independently effective — asserted, not claimed
+
+The first three reproducer cases pass because the database refuses the DDL, which exercises §1 and
+nothing else. A three-layer claim tested only at the outermost layer is a one-layer fix. So the
+suite carries a case that grants `TEMPORARY` back for its duration:
+
+- the shadow **is** created (asserted, or the case proves nothing);
+- `app.verified_scope_node_ids()` still returns 1 node and the row above the membership stays
+  invisible — §2 and §3 alone;
+- then the caller sets its **own** `search_path` to `pg_temp, public, pg_catalog` and the same
+  three assertions hold — §3 alone, since `app.verified_scope_node_ids()` carries no `SET` clause
+  and §2 does not reach it.
+
+### 15.6 The cost of listing `pg_temp`, measured
+
+The implicit first-search rule covers relations and data types only. Naming the schema explicitly
+also makes it visible for **functions and operators**, which is a surface the fix itself introduces.
+Probed directly rather than reasoned about:
+
+```
+[probe] temp pg_backend_pid(): created
+[probe] temp always_true: created; temp operator =: created
+[probe] current_tenant_id() with temp fn + operator: 11111111-1111-4111-8111-111111111111
+[probe] verified_scope_node_ids() rows: 1 (must be 1)
+[probe] users visible: 1 (must be 1 — alice only)
+[probe] current_tenant_id() with caller path pg_temp-first: 11111111-1111-4111-8111-111111111111
+[probe] verified_scope_node_ids() with pg_temp-first: 1
+```
+
+Both objects were created and neither changed a resolved value: `pg_catalog` precedes `pg_temp` in
+the pinned path, and a definer's `proconfig` overrides the caller's session path outright. The trade
+is a severe relation-shadowing hole for a function-resolution surface measurement shows unreachable
+— and §1 removes the ability to create the object at all.
+
+### 15.7 Residuals, stated rather than left implicit
+
+| Residual                                                         | Disposition                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `freightos_migrator` retains `TEMPORARY`                         | Through database **ownership**, not a grant, and not removable without giving up ownership. It is the deployment authority, owns every object it could shadow, and can already `ALTER` anything a shadow would fake. Not an authorization-boundary crossing. |
+| A migration after 0022 could add a definer with the ordinary pin | Two checks, one static and one runtime — §15.8.                                                                                                                                                                                                              |
+| `pg_temp` visible for functions and operators                    | Measured unreachable — §15.6.                                                                                                                                                                                                                                |
+| The `admin` definers were altered, not rewritten                 | Their bodies still reference relations unqualified. §1 and §2 cover them; §3 is applied only to the authorization core, where the decision is actually made.                                                                                                 |
+
+### 15.8 What keeps it closed
+
+| Check                                                                    | Where                               | Scope                                                                                           |
+| ------------------------------------------------------------------------ | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `gate Z` — every `app`/`admin` definer's path ends with `pg_temp`        | `sr2-binding-structure.test.ts`     | live catalog, whole schema, **no allowlist**                                                    |
+| `gate Z` — `freightos_app` holds no `TEMPORARY` and no `CREATE` anywhere | same                                | live catalog                                                                                    |
+| `gate Z` — 22 → 21 → 22 restores every definer field for field           | same                                | body, owner, security mode, volatility, `search_path`, ACL, plus the database `TEMPORARY` grant |
+| new migrations may not pin a path leaving `pg_temp` first                | `sr2-production-boundaries.test.ts` | migration **text**, versions ≥ 22, verified to fire against a planted violation                 |
+| the four property reproducers                                            | `sr2-temp-shadow.test.ts`           | behaviour, not mechanism                                                                        |
+| §4 of 0022                                                               | migration                           | once, at apply time                                                                             |
+
+The static and runtime checks are both wanted: the static one cannot see a function created by a
+`DO` block, the runtime one cannot see a migration nobody has run, and §4 expires the moment 0022
+finishes. The static check was verified by planting a `0023` with `SET search_path = pg_catalog,
+public` and confirming it failed.
+
+Migrations 0001–0021 are excluded from the static rule **by version number**, not by content: their
+text is checksummed in `schema_migrations`, editing one is a detected corruption, and 0022 is what
+brings the database they build to the correct state.
+
+### 15.9 Application trust boundary
+
+The attack needs a `freightos_app` connection and raw DDL. It needs no application code, which is
+why the remediation is entirely in the database — a TypeScript control would be decoration.
+
+Swept across `packages/*/src` and `scripts/*.mjs`: **zero** occurrences of `CREATE TEMP`,
+`CREATE TEMPORARY`, `pg_temp`, or any `search_path` write. No production module manipulates either.
+Connection affinity is unchanged and remains enforced by `withVerifiedTransaction` in
+`packages/database/src/verified-session.ts`, which leases one client for the whole lifecycle rather
+than reaching into a pool per statement; a temporary object could not have outlived its transaction
+in any case, and after 0022 cannot be created at all.
+
+### 15.10 Results on the remediated head
+
+Counts from the runner's final `Tests` summary line, per §5 of ADR-0027.
+
+| Gate                                                         | Before (c4f5389)             | After                          |
+| ------------------------------------------------------------ | ---------------------------- | ------------------------------ |
+| integration                                                  | 535 passed (535), 14 files   | **542 passed (542)**, 15 files |
+| unit                                                         | 289 passed (289)             | **291 passed (291)**           |
+| SR-2 database security gate (runtime + structure)            | 114 passed (114)             | **117 passed (117)**           |
+| SR-2 file set incl. verified-session and the new reproducers | —                            | **132 passed (132)**, 4 files  |
+| static fences                                                | 17                           | **19**                         |
+| coverage                                                     | 100 % stmts / 98.42 % branch | **unchanged**                  |
+| `pnpm verify`                                                | green                        | **green end to end**           |
+
+Migration round trip: 1..22 up, 22 → 21 → 22 at full fidelity (gate Z), 22 → 18 → 22 (gate T), and
+zero → 22 → zero → 22 (gate U).
+
+### 15.11 P-01 re-measured, because §3 changed function bodies
+
+Schema-qualifying the resolver changes its `prosrc`, so performance could not be carried forward
+from a superseded head. Same method as §12.6 — medians and p95 over nine runs per size, whole
+verified transaction including mint and install.
+
+| users | verified median | verified p95 | legacy median | max buffers | plan exec |
+| ----: | --------------: | -----------: | ------------: | ----------: | --------: |
+|     2 |         24.7 ms |      25.9 ms |        3.4 ms |         124 |  10.30 ms |
+|    10 |         26.1 ms |      43.3 ms |        3.6 ms |          89 |   9.56 ms |
+|    50 |         26.2 ms |      32.3 ms |        3.4 ms |         135 |  10.59 ms |
+|   200 |     **26.2 ms** |  **31.6 ms** |        3.6 ms |         146 |  11.58 ms |
+
+Closure widened to 370 rows: buffers 146 → 176, exec 9.04 → 10.16 ms, with
+`hashed SubPlan 2 loops=1` and `InitPlan 3 (returns $2) loops=1`.
+
+Flat in rows (24.7 → 26.2 ms from 2 to 200) and flat in closure cardinality. The absolute figures
+sit about 2× §12.6's because this run is on a slower host — the legacy baseline moved with them,
+1.7 → 3.6 ms, so the verified/legacy ratio is 7.3× against 6.7× before. The acceptance standard is
+the shape, and the shape is unchanged: no per-row revalidation, no per-closure-row revalidation, and
+the 200-row read at 26.2 ms median against the 100 ms guard.

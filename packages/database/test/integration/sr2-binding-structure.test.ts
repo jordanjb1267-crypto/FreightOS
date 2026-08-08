@@ -61,6 +61,17 @@ const BOOTSTRAP_TABLES = [
   'service_accounts',
 ] as const;
 
+/**
+ * The one pinned path every SR-2 definer carries — 0022, F-01/F-02.
+ *
+ * `pg_temp` is listed, and listed LAST. PostgreSQL searches the session's temporary schema FIRST
+ * for RELATIONS whenever the path does not name it, and that holds inside a SECURITY DEFINER with
+ * a pinned path too: pinning `pg_catalog, public` does not exclude the implicit `pg_temp`. Naming
+ * it is the only thing that demotes it. Asserted as a whole array rather than a substring, because
+ * the position is the property — `pg_temp, pg_catalog, public` would satisfy any `toContain`.
+ */
+const PINNED_PATH = ['search_path=pg_catalog, public, pg_temp'] as const;
+
 let migrator: Client;
 
 interface FunctionFacts {
@@ -136,7 +147,7 @@ describe('gate A — structure', () => {
       const fn = facts.get(signature)!;
       expect(fn.prosecdef, signature).toBe(true);
       expect(fn.owner_can_login, signature).toBe(false);
-      expect(fn.proconfig, signature).toEqual(['search_path=pg_catalog, public']);
+      expect(fn.proconfig, signature).toEqual(PINNED_PATH);
     }
   });
 
@@ -164,7 +175,7 @@ describe('gate A — structure', () => {
       const fn = facts.get(signature)!;
       expect(fn.owner, signature).toBe('freightos_binding_owner');
       expect(fn.prosecdef, signature).toBe(true);
-      expect(fn.proconfig, signature).toEqual(['search_path=pg_catalog, public']);
+      expect(fn.proconfig, signature).toEqual(PINNED_PATH);
       expect(fn.owner_can_login, signature).toBe(false);
     }
   });
@@ -1004,6 +1015,173 @@ describe('gate X — the statement-scoped primitives are owner-only where they m
         expect(row.prosecdef, `${row.proname} became a definer`).toBe(false);
         expect(row.pronargs, `${row.proname} gained an argument`).toBe(0);
       }
+    } finally {
+      await client.end();
+    }
+  }, 300_000);
+});
+
+// ---------------------------------------------------------------------------
+// GATE Z — no SECURITY DEFINER anywhere leaves pg_temp searched first. F-01/F-02.
+// ---------------------------------------------------------------------------
+
+/**
+ * The durable half of migration 0022.
+ *
+ * §4 of that migration asserts the same property, but it asserts it ONCE, at the moment 0022 runs.
+ * A definer added by migration 0023 would carry PostgreSQL's ordinary `pg_catalog, public` pin,
+ * reopen the class, and pass every check in the suite — which is exactly how F-01 survived four
+ * migrations. This is the check that does not expire.
+ *
+ * It is deliberately a WHOLE-SCHEMA sweep with no allowlist. An exemption list is the mechanism by
+ * which this defect returns: the first draft of 0022's own remediation enumerated the functions by
+ * hand and missed twenty-four of forty-eight, including the entire authorization-mutation boundary
+ * in schema `admin`.
+ */
+describe('gate Z — pg_temp is demoted for every definer, not just the reviewed ones', () => {
+  it('ends every app and admin definer search_path with pg_temp', async () => {
+    const client = new TestDatabase('freightos_test_sr2_structure').connectAs('postgres');
+    await client.connect();
+    try {
+      const r = await client.query<{ signature: string; path: string | null }>(
+        `SELECT n.nspname || '.' || p.proname AS signature,
+                substring(p.proconfig::text from 'search_path=([^"}]*)') AS path
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname IN ('app', 'admin') AND p.prosecdef
+          ORDER BY 1`,
+      );
+      // A sweep that matched nothing would pass silently, which is the one way this check could
+      // be useless.
+      expect(r.rows.length, 'the sweep found no definers at all').toBeGreaterThan(40);
+
+      const bad = r.rows.filter((x) => !/pg_temp\s*$/.test(x.path ?? ''));
+      expect(
+        bad.map((x) => `${x.signature} → ${x.path ?? 'NO PINNED PATH'}`),
+        'a definer searches pg_temp before the schemas it means to read',
+      ).toEqual([]);
+    } finally {
+      await client.end();
+    }
+  }, 300_000);
+
+  it('leaves the runtime role no way to introduce a relation at all', async () => {
+    // The other half: even a definer that forgot the pin is unreachable if the attacker cannot
+    // create the shadowing object. `freightos_app` holds TEMPORARY on no database and CREATE on no
+    // schema, so pg_temp was its only route and it is closed.
+    const client = new TestDatabase('freightos_test_sr2_structure').connectAs('postgres');
+    await client.connect();
+    try {
+      const r = await client.query<{ temp: boolean }>(
+        `SELECT has_database_privilege('freightos_app', current_database(), 'TEMPORARY') AS temp`,
+      );
+      expect(r.rows[0]!.temp, 'freightos_app can create temporary relations').toBe(false);
+
+      const schemas = await client.query<{ nspname: string }>(
+        `SELECT n.nspname FROM pg_namespace n
+          WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
+            AND has_schema_privilege('freightos_app', n.nspname, 'CREATE')`,
+      );
+      expect(
+        schemas.rows.map((x) => x.nspname),
+        'freightos_app holds CREATE somewhere',
+      ).toEqual([]);
+    } finally {
+      await client.end();
+    }
+  }, 300_000);
+
+  /**
+   * 22 -> 21 -> 22, at full fidelity over everything 0022 touches.
+   *
+   * Gate T already proves 22 -> 18 -> 22 for the six accessors. This is the narrower, stricter
+   * one: every SECURITY DEFINER in both schemas, compared on body, owner, security mode,
+   * volatility, search_path and ACL together, plus the database-level TEMPORARY grant that §1
+   * revokes. A down migration that "works" while leaving a function with no pinned path at all —
+   * the failure mode of writing RESET instead of SET — would pass a looser comparison and is
+   * exactly what this catches.
+   */
+  it('restores the pre-0022 database on the way down and the fixed one on the way back', async () => {
+    const rt = new TestDatabase('freightos_test_sr2_0022_roundtrip');
+    await rt.reset();
+    const client = rt.connectAsMigrator();
+    await client.connect();
+    try {
+      const migrations = loadMigrations(MIGRATIONS_DIR);
+
+      interface Definer {
+        signature: string;
+        owner: string;
+        prosecdef: boolean;
+        provolatile: string;
+        proconfig: string[] | null;
+        proacl: string | null;
+        body: string;
+      }
+      const definers = async (): Promise<Definer[]> =>
+        (
+          await client.query<Definer>(
+            `SELECT n.nspname || '.' || p.proname || '(' || oidvectortypes(p.proargtypes) || ')'
+                      AS signature,
+                    o.rolname AS owner, p.prosecdef, p.provolatile, p.proconfig,
+                    p.proacl::text AS proacl, p.prosrc AS body
+               FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+               JOIN pg_roles o ON o.oid = p.proowner
+              WHERE n.nspname IN ('app', 'admin') AND p.prosecdef
+              ORDER BY 1`,
+          )
+        ).rows;
+
+      /** The four invoker-rights scope functions 0022 §3 also rewrites. */
+      const scopeFns = async (): Promise<Definer[]> =>
+        (
+          await client.query<Definer>(
+            `SELECT p.proname AS signature, o.rolname AS owner, p.prosecdef, p.provolatile,
+                    p.proconfig, p.proacl::text AS proacl, p.prosrc AS body
+               FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+               JOIN pg_roles o ON o.oid = p.proowner
+              WHERE n.nspname = 'app'
+                AND p.proname IN ('verified_scope_node_ids', 'verified_scope_service_account_ids',
+                                  'organization_node_scope_ok', 'service_account_scope_ok')
+              ORDER BY 1`,
+          )
+        ).rows;
+
+      const publicTemp = async (): Promise<boolean> =>
+        (
+          await client.query<{ t: boolean }>(
+            `SELECT has_database_privilege('public', current_database(), 'TEMPORARY') AS t`,
+          )
+        ).rows[0]!.t;
+
+      const at22 = await definers();
+      const scope22 = await scopeFns();
+      expect(at22.length, 'no definers found, so the comparison is empty').toBeGreaterThan(40);
+      expect(scope22).toHaveLength(4);
+      expect(await publicTemp(), '0022 §1 did not revoke TEMPORARY from PUBLIC').toBe(false);
+
+      // Down one step. The defect comes back — deliberately. Reverting restores the database that
+      // shipped, not a safer one that never existed.
+      expect((await migrateDown(client, migrations, 21)).reverted).toEqual([22]);
+      const at21 = await definers();
+      expect(at21.length, 'the revert dropped definers it should only have altered').toBe(
+        at22.length,
+      );
+      for (const fn of at21) {
+        expect(fn.proconfig, `${fn.signature} lost its pinned path entirely`).toEqual([
+          'search_path=pg_catalog, public',
+        ]);
+      }
+      expect(await publicTemp(), 'PUBLIC did not get TEMPORARY back').toBe(true);
+      // The bodies really are the unqualified ones again.
+      const core21 = at21.find((f) => f.signature === 'app.verified_principal()')!;
+      expect(core21.body).toMatch(/\n\s*FROM users u/);
+      expect(core21.body).not.toContain('public.users');
+
+      // And back up. Everything 0022 touches matches where it started, field for field.
+      expect((await migrateUp(client, migrations)).applied).toEqual([22]);
+      expect(await definers()).toEqual(at22);
+      expect(await scopeFns()).toEqual(scope22);
+      expect(await publicTemp()).toBe(false);
     } finally {
       await client.end();
     }

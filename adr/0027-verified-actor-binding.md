@@ -81,6 +81,61 @@ initialisation, including the arm of a `CASE` that will not be taken** — so a 
 evaluating the legacy branch was still refused for `app.verified_principal()`. That was found by
 measurement, not by reading.
 
+### 3a. A pinned `search_path` was not a pinned `search_path`
+
+`pg_catalog, public` reads like a closed path and is not one. **PostgreSQL searches the session's
+temporary schema FIRST for relations whenever `pg_temp` is not explicitly listed** — inside a
+`SECURITY DEFINER` with a pinned path exactly as anywhere else, because pinning two schemas does not
+exclude the implicit third. Naming `pg_temp` is the only thing that demotes it, and `TEMPORARY` is
+granted to `PUBLIC` on every database by default, so `freightos_app` held the one privilege the
+attack needed.
+
+Findings F-01 (critical) and F-02 (high), both measured against a session holding a **genuine**
+verified binding:
+
+| | Attack | Observed before 0022 |
+| --- | --- | --- |
+| **F-01** | shadow `users` and `memberships`, then let the control plane revoke the real membership and commit | `app.current_tenant_id()` still returned the tenant on the next statement of the same transaction. A committed revocation was not observed — §2 above, failing open |
+| **F-02** | shadow `organization_node_closure` | `app.verified_scope_node_ids()` went from 1 node to 4, and a principal bound at the terminal node read a user row on the legal-entity node above it |
+
+Neither is a logging discrepancy. Both are authorization decisions taken from a table the caller
+wrote, which is the exact thing SR-2 exists to make impossible. F-02 is **pre-existing**: the
+identical attack succeeds against migrations 1..19, so 0020 carried the pattern forward rather than
+creating it.
+
+Migration 0022 closes the class in three layers, because a boundary with one control is not a
+boundary:
+
+1. **The runtime role loses `TEMPORARY`.** It already held `CREATE` on no schema — measured — so
+   `pg_temp` was its only route to introducing a relation at all. This is a database-level
+   privilege, so it holds for every function present and future and cannot be undone by any
+   statement the session can issue.
+2. **Every `SECURITY DEFINER` in `app` and `admin` lists `pg_temp` LAST.** Forty-eight functions,
+   enumerated from `pg_proc` rather than from migration text — a hand-written list missed
+   twenty-four of them, including the whole authorization-mutation boundary.
+3. **The authorization core schema-qualifies its relation references**, so it is correct under any
+   `search_path` a caller can arrange.
+
+`admin` is in scope and it is not a formality: `admin.issue_session_binding` verifies the requested
+principal against `users` and `memberships` before minting. A control-plane session able to shadow
+those tables would get a binding for a principal who holds nothing — and the mint is the anchor the
+whole chain hangs from.
+
+The layers are independently effective, which is asserted rather than claimed:
+`sr2-temp-shadow.test.ts` grants `TEMPORARY` back for the duration of one case and shows the attack
+still fails on layers 2 and 3, and then sets the caller's own `search_path` to `pg_temp, public,
+pg_catalog` and shows it still fails on layer 3 alone — which is the only layer protecting the
+invoker-rights scope functions, since those deliberately carry no `SET` clause (a `proconfig` blocks
+SQL inlining and would undo §Consequences' plan shapes).
+
+**Listing `pg_temp` has a cost, measured rather than assumed.** The implicit rule covers relations
+and types only; naming the schema explicitly also makes it visible for functions and operators.
+Probed directly: a temporary `pg_backend_pid()` and a temporary `=` operator on `uuid` were both
+created and neither changed any resolved value, because `pg_catalog` precedes `pg_temp` in the
+pinned path and a definer's `proconfig` overrides the caller's session path outright. The trade is
+a severe relation-shadowing hole for a function-resolution surface that measurement shows is not
+reachable, and layer 1 removes the ability to create the object at all.
+
 ### 4. Role-disjoint bootstrap policies
 
 The binding owner must read `users`, `memberships`, `service_accounts` and
@@ -140,11 +195,19 @@ SR-2 does not fabricate a production identity provider, and there is deliberatel
 `NODE_ENV === 'test'` switch anywhere: no production path becomes privileged because a variable says
 so. The test-only boundary is privileged because it is a file the production build never resolves.
 
-`scripts/test/sr2-production-boundaries.test.ts` enforces this and sixteen other properties from the
+`scripts/test/sr2-production-boundaries.test.ts` enforces this and eighteen other properties from the
 catalog and the file tree, including which single module may brand a principal, mint, install, or
 write a legacy identity GUC; which test files may contain a raw GUC write at all; that the
-statement-scoped policy primitives and the capability predicates stay out of application code; and
-that no production module installs a principal cache.
+statement-scoped policy primitives and the capability predicates stay out of application code; that
+no production module installs a principal cache; and that no migration from 0022 onward pins a
+`search_path` which leaves `pg_temp` searched first.
+
+That last one has a runtime counterpart, `gate Z` in `sr2-binding-structure.test.ts`, which sweeps
+every `SECURITY DEFINER` in `app` and `admin` against the live catalog. Both are wanted: the static
+check cannot see a function created by a `DO` block, and the catalog check cannot see a migration
+nobody has run. §4 of migration 0022 asserts the same property once, at the moment it runs, and that
+is the one that expires — a definer added by 0023 would carry the ordinary pin and pass everything
+except these two.
 
 ## Alternatives rejected
 
@@ -155,6 +218,10 @@ that no production module installs a principal cache.
 | Trust an application-supplied JWT claim | The same claim with more syntax, unless the server verifies it against an issuer — which is the provider SR-2 deliberately does not fabricate. |
 | Accept actor id and organization id independently | Lets a real actor be paired with a scope it does not hold. The binding carries them together and the mint refuses the pair no membership justifies. |
 | Rename `app.actor_id` to something authoritative-sounding | Explicitly prohibited by the owner, and correctly: it changes nothing about who decides. |
+| Fix F-01/F-02 by schema-qualifying the two reported functions | Fixes two symptoms of a class. Forty-six functions referenced protected relations unqualified, including the self-elevation guards and the kill-switch write trigger, all of which fire in the caller's own session. |
+| Revoke `TEMPORARY` and stop there | One control is not a boundary, and it is the layer most likely to be undone by a future operator restoring a default. |
+| Add `SET search_path` to the invoker-rights scope functions | A `proconfig` blocks SQL function inlining. Measured during P-01: that is what makes `app.is_control_plane()` collapse to `pg_has_role()`, and losing it would return the policies to per-row resolution. Schema-qualification achieves the same safety with no plan cost. |
+| Leave `pg_temp` off the path and rely on qualification alone | Per-function and therefore a moving target: a function added later reopens it silently, which is how this survived four migrations. |
 | Audit after authorization | Records who claimed what, after the claim has already worked. |
 | Session-scoped rather than transaction-scoped binding | Survives a pooled connection's return to the pool. Transaction scope makes connection reuse safe by construction. |
 

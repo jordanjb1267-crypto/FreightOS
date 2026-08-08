@@ -129,6 +129,12 @@ That is the pattern a new adversarial case should follow: the attack primitive i
 
 ## 4. What is deliberately absent
 
+`sr2-temp-shadow.test.ts` is the F-01/F-02 reproducer and contains no raw GUC write at all. It is
+worth naming here because it is adversarial and new: the attack it mounts is DDL rather than a
+claim, and it reaches its verified sessions through `controlPlaneIssuer` and `installBinding` —
+the legitimate mint-and-install path — so the identity underneath every one of its assertions is
+real. An attack that had to forge a claim to set itself up would be proving something weaker.
+
 `identity-harness.ts` and `organization-hierarchy.test.ts` both establish privileged legal contexts
 — provisioning over the migrator, and control-plane fixture writes over `postgres` — and neither
 appears above. They reach the same GUCs through `withLegalContext` in

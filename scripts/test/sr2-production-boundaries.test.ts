@@ -263,3 +263,68 @@ describe('SR-2 production boundaries', () => {
     expect(bypasses).toEqual([]);
   });
 });
+
+/**
+ * SR-2 F-01/F-02 — pg_temp may not be left searched first by a future migration.
+ *
+ * `gate Z` in sr2-binding-structure.test.ts asserts the same property against the live catalog,
+ * which is the authoritative check. This one is cheaper and earlier: it reads the migration TEXT,
+ * so a `SECURITY DEFINER` written with the old pin fails before anybody applies it, rather than
+ * after. Both are wanted — the catalog check cannot see a migration nobody has run, and this one
+ * cannot see a function created by a `DO` block or an `ALTER` in a file it does not parse.
+ *
+ * Migrations 0001–0021 are excluded BY NUMBER and not by content. They are applied history: their
+ * text is checksummed in `schema_migrations`, editing one is a detected corruption, and 0022 is
+ * what brings the database they build to the correct state. The floor is the enforcement point.
+ */
+describe('SR-2 — migrations do not reintroduce pg_temp shadowing', () => {
+  /** 0022 is the migration that establishes the rule, so it is the first that must satisfy it. */
+  const FIRST_ENFORCED = 22;
+
+  const MIGRATIONS = join(ROOT, 'packages/database/migrations');
+
+  it('ends every pinned search_path in a new migration with pg_temp', () => {
+    const offenders: string[] = [];
+
+    for (const entry of readdirSync(MIGRATIONS).sort()) {
+      const version = Number(entry.slice(0, 4));
+      if (!Number.isFinite(version) || version < FIRST_ENFORCED) continue;
+      // The down migration of an enforced version legitimately restores an earlier state, defect
+      // included — reverting is not the same as authoring.
+      if (entry.endsWith('.down.sql')) continue;
+
+      const sql = readFileSync(join(MIGRATIONS, entry), 'utf8');
+      // Strip SQL line comments so the prose explaining the rule cannot trip it — the same
+      // false-positive lesson the TypeScript rules above already learned.
+      const code = sql
+        .split('\n')
+        .filter((line) => !/^\s*--/.test(line))
+        .join('\n');
+
+      // Only a real SET clause, and only one whose value is a plain schema list. Requiring the
+      // leading SET and an identifier-only value is what keeps this off the two things in 0022
+      // that mention the name without pinning anything: the format() template that writes the
+      // clause, and the catalog assertion that reads it back out of proconfig. A looser pattern
+      // matched both and reported the migration as its own violation.
+      for (const m of code.matchAll(/\bSET\s+search_path\s*=\s*([a-z0-9_, "$]+)/gi)) {
+        const path = m[1]!.trim();
+        if (!/pg_temp$/.test(path)) offenders.push(`${entry}: SET search_path = ${path}`);
+      }
+    }
+
+    expect(
+      offenders,
+      'a migration pins a search_path that leaves pg_temp searched first — F-01/F-02',
+    ).toEqual([]);
+  });
+
+  it('actually examined a migration, so the rule cannot pass by matching nothing', () => {
+    const enforced = readdirSync(MIGRATIONS).filter(
+      (e) => Number(e.slice(0, 4)) >= FIRST_ENFORCED && e.endsWith('.up.sql'),
+    );
+    expect(
+      enforced.length,
+      'no migration is in scope, so the check above proves nothing',
+    ).toBeGreaterThan(0);
+  });
+});
