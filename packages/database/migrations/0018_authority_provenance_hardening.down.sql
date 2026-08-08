@@ -7,13 +7,100 @@
 --
 -- Sections are undone in reverse order of the up migration.
 
--- §10 — the governed node move and the platform-tenant fallback in admin.record. admin.record is
--- dropped rather than restored: 0013 re-creates its own definition when re-applied, and the
--- fallback only matters while §1's referential constraint exists.
+-- §10 — the governed node move and the platform-tenant fallback in admin.record.
+--
+-- CORRECTED. This section used to DROP admin.record on the reasoning that "0013 re-creates its own
+-- definition when re-applied". It does not, and cannot: reverting 0018 does not revert 0013, so
+-- 0013 never runs again and its function simply stays missing at version 17. Two things followed,
+-- and 0026 §7(a) is what caught the second:
+--
+--   1. a database reverted to 17 was left WITHOUT admin.record, although 0013 created it — an
+--      intermediate state no migration describes;
+--   2. re-applying 0018 turned its `CREATE OR REPLACE` into a plain CREATE, so the function came
+--      back with PostgreSQL's default ACL — PUBLIC EXECUTE — instead of the tight one 0013's
+--      REVOKE established. The internal audit writer became callable by every role in the cluster,
+--      including freightos_admin and freightos_app, on any database that had ever been rolled back
+--      past 18 and rolled forward again.
+--
+-- (2) is the same class of defect as the one 0026 §6b repairs: DROP discards an ACL, CREATE takes
+-- the default, and nothing says so out loud. The fix is to restore 0013's definition here rather
+-- than drop it, REVOKE included, so reverting lands on the state 0013 actually left behind.
+--
+-- Verbatim from 0013 §admin.record, including its `SET search_path = pg_catalog, public` — the
+-- pg_temp demotion is 0024's and belongs to 0024's own revert, not to this one.
 SET LOCAL ROLE freightos_admin_owner;
 DROP FUNCTION IF EXISTS admin.move_organization_node(uuid, uuid, uuid, text, text, text, uuid);
-DROP FUNCTION IF EXISTS admin.record(
-  uuid, uuid, text, text, text, uuid, text, text, text, text, text, jsonb);
+
+CREATE OR REPLACE FUNCTION admin.record(
+  p_tenant_id uuid,
+  p_legal_entity_id uuid,
+  p_actor text,
+  p_actor_type text,
+  p_purpose text,
+  p_correlation_id uuid,
+  p_event_type text,
+  p_resource_type text,
+  p_resource_id text,
+  p_action text,
+  p_outcome text,
+  p_payload jsonb
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  INSERT INTO audit_events (
+    tenant_id, legal_entity_id, legal_authority_class, operating_context,
+    actor_type, actor_id, event_type, resource_type, resource_id,
+    correlation_id, payload, created_by, operation_class, purpose, outcome)
+  VALUES (
+    -- A refusal for a missing tenant scope still has to be recorded somewhere. The designated
+    -- system tenant is where platform-scope evidence lives, and payload.offered_tenant_id keeps
+    -- the fact that none was supplied.
+    coalesce(p_tenant_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    p_legal_entity_id,
+    'software_only',
+    'system',
+    CASE WHEN p_actor_type IN ('human', 'system') THEN p_actor_type ELSE 'system' END,
+    coalesce(nullif(btrim(p_actor), ''), 'unknown:actor-not-supplied'),
+    p_event_type,
+    p_resource_type,
+    p_resource_id,
+    coalesce(p_correlation_id, gen_random_uuid()),
+    p_payload
+      || jsonb_build_object('action', p_action)
+      -- Non-forgeable, and last so it wins — F-06.
+      || jsonb_build_object(
+           'connection', jsonb_build_object(
+             'authenticated_role', session_user,
+             'effective_role', current_user,
+             'backend_pid', pg_backend_pid(),
+             'recorded_at', statement_timestamp()),
+           'claimed_actor', p_actor,
+           'claimed_actor_type', p_actor_type),
+    coalesce(nullif(btrim(p_actor), ''), 'unknown:actor-not-supplied'),
+    'privileged',
+    -- Only a valid privileged purpose is stored. An absent or rejected one stays absent, and the
+    -- denial payload carries what was offered.
+    CASE WHEN p_purpose IS NOT NULL AND app.is_privileged_purpose(p_purpose)
+         THEN p_purpose ELSE NULL END,
+    p_outcome)
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END
+$$;
+
+-- 0013's own REVOKE, restated. CREATE OR REPLACE above preserves an existing ACL, so on the
+-- ordinary path this is a no-op; on the path where the function had been dropped it is the thing
+-- that keeps the audit writer internal. Issued INSIDE the SET LOCAL ROLE block: a REVOKE has to
+-- come from the object's owner, and the migrator holds no privilege on schema admin at all.
+REVOKE ALL ON FUNCTION
+  admin.record(uuid, uuid, text, text, text, uuid, text, text, text, text, text, jsonb)
+  FROM PUBLIC;
 RESET ROLE;
 REVOKE UPDATE ON organization_nodes FROM freightos_admin_owner;
 

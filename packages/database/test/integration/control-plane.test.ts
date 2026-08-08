@@ -4,7 +4,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PRIVILEGED_PURPOSES, PURPOSES } from '@freightos/identity';
 import { withLegalContext } from '../../src/session.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
-import { seedIdentity, systemContext, type IdentityFixture } from './identity-harness.ts';
+import {
+  connectAsProvisioner,
+  seedIdentity,
+  systemContext,
+  type IdentityFixture,
+} from './identity-harness.ts';
 
 /**
  * ADR-0020 — control-plane access is narrow, audited, and never BYPASSRLS.
@@ -104,12 +109,23 @@ describe('the shape ADR-0020 requires', () => {
       // it inserts its own tenant's rows through the existing isolation policy and has no use for
       // an RLS bypass.
       'freightos_audit_writer',
+      // SR-2 / 0020 §1. The session-binding definer owner: NOLOGIN, owns app.session_binding and
+      // the five authoritative accessors, and deliberately NOT a control-plane member — the
+      // bootstrap policies must be satisfied by its own role-disjoint path rather than by the
+      // control-plane disjunct of the policies that survive.
+      'freightos_binding_owner',
       'freightos_control_plane',
       // F-02. The hierarchy maintenance definer: NOLOGIN, owns the closure and re-depths nodes.
       'freightos_hierarchy_owner',
       // F-01. The self-elevation guards' definer owner: NOLOGIN, SELECT on three tables.
       'freightos_identity_guard',
       'freightos_migrator',
+      // SEC-01 / 0026 §1. The operator-binding registry owner: NOLOGIN, owns schema authn and the
+      // table that maps an authenticated login to a FreightOS principal. Deliberately NOT
+      // freightos_admin_owner and deliberately NOT a control-plane member — the registry decides
+      // who the administrative definers believe they are talking to, so owning it with the same
+      // role that owns those definers would put the answer inside the authority it constrains.
+      'freightos_operator_registry_owner',
     ]);
     for (const role of r.rows) {
       expect(role.rolbypassrls, `${role.rolname} BYPASSRLS`).toBe(false);
@@ -187,16 +203,25 @@ describe('the shape ADR-0020 requires', () => {
         // moving a node rewrites the closure and therefore changes who has authority over what.
         'claim_operation',
         'move_organization_node',
+        // SR-2 / 0020 §7: the trusted mint boundary. It records that something already holding
+        // control-plane credentials asserted an authentication result, and independently verifies
+        // that an active membership (human) or the account's own scope (service) justifies the
+        // requested tenant and node. It authenticates nobody.
+        'issue_session_binding',
       ].sort(),
     );
   });
 
   it('grants EXECUTE on the four operations to the administrative connection and nobody else', async () => {
+    // SEC-01 / 0026 §6. Two arguments shorter than they were: `p_actor text, p_actor_type text`
+    // are gone from every signature. Naming the signatures literally is what makes that visible —
+    // if a pre-0026 overload were ever restored, these lookups would resolve to it and the test
+    // would keep passing while the vulnerable function sat beside the safe one.
     const operations = [
-      'admin.provision_tenant(uuid, text, text, text, text, uuid)',
-      'admin.set_tenant_status(uuid, text, text, text, text, uuid)',
-      'admin.export_tenant_audit(uuid, timestamptz, timestamptz, text, text, text, uuid)',
-      'admin.tenant_identity_summary(uuid, text, text, text, uuid)',
+      'admin.provision_tenant(uuid, text, text, uuid)',
+      'admin.set_tenant_status(uuid, text, text, uuid)',
+      'admin.export_tenant_audit(uuid, timestamptz, timestamptz, text, uuid)',
+      'admin.tenant_identity_summary(uuid, text, uuid)',
     ];
     for (const operation of operations) {
       const granted = await admin.query<{ ok: boolean }>(
@@ -283,16 +308,32 @@ describe('a tenant session cannot reach the control plane', () => {
   });
 });
 
+/**
+ * SEC-01 / 0026. Two connections, and the difference between them is the finding.
+ *
+ * `adminConn` is the shared `freightos_admin` credential. It still holds EXECUTE on all sixteen
+ * entry points and still cannot read a single table directly — that half of ADR-0020 is unchanged,
+ * and the first three cases below are the same tests they always were.
+ *
+ * `operatorConn` is a per-operator PostgreSQL login bound to a real FreightOS principal, and it is
+ * what performs the work. Before 0026 the shared credential could do all of this while naming any
+ * human it liked; now the identity is resolved from `session_user` and the shared credential
+ * resolves to a SERVICE, which is why `admin.provision_tenant` over it produces
+ * `actor_type = 'system'` rather than whatever the caller asked for.
+ */
 describe('the administrative connection reaches tables only through functions', () => {
   let adminConn: Client;
+  let operatorConn: Client;
 
   beforeAll(async () => {
     adminConn = db.connectAs('freightos_admin');
     await adminConn.connect();
-  });
+    operatorConn = await connectAsProvisioner(db);
+  }, 60_000);
 
   afterAll(async () => {
     await adminConn?.end();
+    await operatorConn?.end();
   });
 
   it('cannot select from a domain table directly', async () => {
@@ -319,9 +360,9 @@ describe('the administrative connection reaches tables only through functions', 
     const newTenant = randomUUID();
     const correlation = randomUUID();
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
-      [newTenant, 'Provisioned Co', 'user:operator', 'human', 'tenant_provisioning', correlation],
+      operatorConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`,
+      [newTenant, 'Provisioned Co', 'tenant_provisioning', correlation],
     );
 
     expect(result.outcome).toBe('succeeded');
@@ -329,9 +370,11 @@ describe('the administrative connection reaches tables only through functions', 
 
     const row = await auditRow(result.audit_event_id!);
     // ADR-0020's nine required fields, each mapped onto a column the ledger already had or that
-    // OQ-20 added.
-    expect(row.actor_id).toBe('user:operator');
-    expect(row.actor_type).toBe('human');
+    // OQ-20 added. SEC-01: actor_id and actor_type are no longer among the arguments — they are
+    // resolved from the authenticated login, so what is asserted here is that the ledger names the
+    // principal this connection is BOUND to and not one it asked for.
+    expect(row.actor_id).toBe('system:tenant-provisioning');
+    expect(row.actor_type).toBe('system');
     expect(row.correlation_id).toBe(correlation);
     expect(row.purpose).toBe('tenant_provisioning');
     expect(row.tenant_id).toBe(newTenant);
@@ -346,9 +389,9 @@ describe('the administrative connection reaches tables only through functions', 
 
   it('records a failure without changing anything', async () => {
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
-      [TENANT_A, 'Duplicate', 'user:operator', 'human', 'tenant_provisioning', randomUUID()],
+      operatorConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`,
+      [TENANT_A, 'Duplicate', 'tenant_provisioning', randomUUID()],
     );
     expect(result.outcome).toBe('failed');
 
@@ -365,10 +408,10 @@ describe('the administrative connection reaches tables only through functions', 
 
   it('reads another tenant audit trail through the approved function only', async () => {
     const result = await call(
-      adminConn,
+      operatorConn,
       `SELECT * FROM admin.export_tenant_audit($1, now() - interval '1 hour', now() + interval '1 hour',
-                                        $2, $3, $4, $5)`,
-      [TENANT_A, 'user:auditor', 'human', 'audit_export', randomUUID()],
+                                        $2, $3)`,
+      [TENANT_A, 'audit_export', randomUUID()],
     );
     expect(result.outcome).toBe('succeeded');
     expect(Array.isArray(result.payload!['events'])).toBe(true);
@@ -376,9 +419,9 @@ describe('the administrative connection reaches tables only through functions', 
 
   it('summarises a tenant identity graph for an access review', async () => {
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.tenant_identity_summary($1, $2, $3, $4, $5)`,
-      [TENANT_A, 'user:reviewer', 'human', 'access_review', randomUUID()],
+      operatorConn,
+      `SELECT * FROM admin.tenant_identity_summary($1, $2, $3)`,
+      [TENANT_A, 'access_review', randomUUID()],
     );
     expect(result.outcome).toBe('succeeded');
     // Two users: the operator the fixture works through and the administrator that seeded it.
@@ -394,9 +437,9 @@ describe('the administrative connection reaches tables only through functions', 
 
   it('changes a tenant lifecycle state', async () => {
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4, $5, $6)`,
-      [TENANT_B, 'suspended', 'user:operator', 'human', 'tenant_lifecycle', randomUUID()],
+      operatorConn,
+      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4)`,
+      [TENANT_B, 'suspended', 'tenant_lifecycle', randomUUID()],
     );
     expect(result.outcome).toBe('succeeded');
 
@@ -409,12 +452,34 @@ describe('the administrative connection reaches tables only through functions', 
 
   it('reports a tenant that does not exist as failed rather than silently succeeding', async () => {
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4, $5, $6)`,
-      [randomUUID(), 'suspended', 'user:operator', 'human', 'tenant_lifecycle', randomUUID()],
+      operatorConn,
+      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4)`,
+      [randomUUID(), 'suspended', 'tenant_lifecycle', randomUUID()],
     );
     expect(result.outcome).toBe('failed');
     expect(result.message).toBe('tenant not found');
+  });
+
+  it('refuses the same work over the shared credential with no principal behind it', async () => {
+    // The positive control for this whole block, and the finding restated: `adminConn` is the
+    // credential the original exploit ran over. It reaches the function — asserted above — and it
+    // is a bound SERVICE, so it CAN provision. What it can no longer do is claim to be a person.
+    const correlationId = randomUUID();
+    const result = await call(adminConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
+      randomUUID(),
+      'Shared Credential Co',
+      'tenant_provisioning',
+      correlationId,
+    ]);
+    const row = await admin.query<{ actor_id: string; actor_type: string }>(
+      'SELECT actor_id, actor_type FROM audit_events WHERE correlation_id = $1',
+      [correlationId],
+    );
+    expect(result.outcome, result.message ?? '').toBe('succeeded');
+    expect(row.rows[0]!.actor_type, 'the shared credential produced human provenance').toBe(
+      'system',
+    );
+    expect(row.rows[0]!.actor_id).toBe('system:session-binding-issuer');
   });
 });
 
@@ -424,29 +489,24 @@ describe('the administrative connection reaches tables only through functions', 
  * very record ADR-0020 §8 mandates, and the ledger would show silence where a denial belongs.
  */
 describe('a privileged call fails closed', () => {
-  let adminConn: Client;
+  let operatorConn: Client;
 
   beforeAll(async () => {
-    adminConn = db.connectAs('freightos_admin');
-    await adminConn.connect();
-  });
+    operatorConn = await connectAsProvisioner(db);
+  }, 60_000);
 
   afterAll(async () => {
-    await adminConn?.end();
+    await operatorConn?.end();
   });
 
   async function provision(
-    actor: string | null,
-    actorType: string | null,
     purpose: string | null,
     tenantId: string | null = randomUUID(),
     correlationId: string | null = randomUUID(),
   ) {
-    return call(adminConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`, [
+    return call(operatorConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
       tenantId,
       'Refused Co',
-      actor,
-      actorType,
       purpose,
       correlationId,
     ]);
@@ -457,29 +517,9 @@ describe('a privileged call fails closed', () => {
     return Number(r.rows[0]!.count);
   }
 
-  it('refuses a missing actor and records the refusal', async () => {
-    const before = await tenantCount();
-    const result = await provision(null, 'human', 'tenant_provisioning');
-    expect(result.outcome).toBe('denied');
-    expect(result.message).toContain('actor is required');
-    expect(await tenantCount()).toBe(before);
-
-    const row = await auditRow(result.audit_event_id!);
-    expect(row.outcome).toBe('denied');
-    expect(row.operation_class).toBe('privileged');
-    // No purpose is invented for a refusal. OQ-20: absence is never defaulted or backfilled.
-    expect(row.payload['reason']).toContain('actor is required');
-  });
-
-  it('refuses a blank actor', async () => {
-    const result = await provision('   ', 'human', 'tenant_provisioning');
-    expect(result.outcome).toBe('denied');
-    expect(result.message).toContain('actor is required');
-  });
-
   it('refuses a missing purpose and leaves the purpose column null', async () => {
     const before = await tenantCount();
-    const result = await provision('user:operator', 'human', null);
+    const result = await provision(null);
     expect(result.outcome).toBe('denied');
     expect(result.message).toContain('purpose is required');
     expect(await tenantCount()).toBe(before);
@@ -487,10 +527,13 @@ describe('a privileged call fails closed', () => {
     const row = await auditRow(result.audit_event_id!);
     expect(row.purpose).toBeNull();
     expect(row.outcome).toBe('denied');
+    expect(row.operation_class).toBe('privileged');
+    // No purpose is invented for a refusal. OQ-20: absence is never defaulted or backfilled.
+    expect(row.payload['reason']).toContain('purpose is required');
   });
 
   it('refuses a purpose outside the vocabulary', async () => {
-    const result = await provision('user:operator', 'human', 'because_i_said_so');
+    const result = await provision('because_i_said_so');
     expect(result.outcome).toBe('denied');
     expect(result.message).toContain('outside the approved privileged vocabulary');
 
@@ -500,34 +543,18 @@ describe('a privileged call fails closed', () => {
   });
 
   it('refuses service_operation, the routine purpose, for privileged work', async () => {
-    const result = await provision('user:operator', 'human', 'service_operation');
+    const result = await provision('service_operation');
     expect(result.outcome).toBe('denied');
   });
 
   it('refuses a purpose that is valid but does not authorise this operation', async () => {
-    const result = await provision('user:operator', 'human', 'audit_export');
+    const result = await provision('audit_export');
     expect(result.outcome).toBe('denied');
     expect(result.message).toContain('does not authorise tenant provisioning');
   });
 
-  it('refuses an agent actor and records what it offered', async () => {
-    const result = await provision('agent:dispatch', 'agent', 'tenant_provisioning');
-    expect(result.outcome).toBe('denied');
-    expect(result.message).toContain('never an agent');
-
-    const row = await auditRow(result.audit_event_id!);
-    expect(row.payload['offered_actor_type']).toBe('agent');
-    // The ledger records the attempt without asserting it was an authorised privileged actor.
-    expect(row.actor_type).toBe('system');
-  });
-
-  it('refuses an integration actor', async () => {
-    const result = await provision('integration:partner', 'integration', 'tenant_provisioning');
-    expect(result.outcome).toBe('denied');
-  });
-
   it('refuses a missing tenant scope', async () => {
-    const result = await provision('user:operator', 'human', 'tenant_provisioning', null);
+    const result = await provision('tenant_provisioning', null);
     expect(result.outcome).toBe('denied');
     expect(result.message).toContain('tenant scope is required');
 
@@ -538,22 +565,16 @@ describe('a privileged call fails closed', () => {
   });
 
   it('refuses a missing correlation id', async () => {
-    const result = await provision(
-      'user:operator',
-      'human',
-      'tenant_provisioning',
-      randomUUID(),
-      null,
-    );
+    const result = await provision('tenant_provisioning', randomUUID(), null);
     expect(result.outcome).toBe('denied');
     expect(result.message).toContain('correlation id is required');
   });
 
   it('refuses an unbounded audit export window', async () => {
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.export_tenant_audit($1, NULL, NULL, $2, $3, $4, $5)`,
-      [TENANT_A, 'user:auditor', 'human', 'audit_export', randomUUID()],
+      operatorConn,
+      `SELECT * FROM admin.export_tenant_audit($1, NULL, NULL, $2, $3)`,
+      [TENANT_A, 'audit_export', randomUUID()],
     );
     expect(result.outcome).toBe('denied');
     expect(result.message).toContain('bounded window');
@@ -561,9 +582,9 @@ describe('a privileged call fails closed', () => {
 
   it('refuses a status outside the tenant lifecycle vocabulary', async () => {
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4, $5, $6)`,
-      [TENANT_A, 'deleted', 'user:operator', 'human', 'tenant_lifecycle', randomUUID()],
+      operatorConn,
+      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4)`,
+      [TENANT_A, 'deleted', 'tenant_lifecycle', randomUUID()],
     );
     expect(result.outcome).toBe('denied');
     expect(result.message).toContain('not a tenant lifecycle state');
@@ -574,7 +595,119 @@ describe('a privileged call fails closed', () => {
       `SELECT count(*)::text AS count FROM audit_events
         WHERE operation_class = 'privileged' AND outcome = 'denied'`,
     );
-    expect(Number(denied.rows[0]!.count)).toBeGreaterThanOrEqual(11);
+    expect(Number(denied.rows[0]!.count)).toBeGreaterThanOrEqual(8);
+  });
+});
+
+/**
+ * SEC-01 / 0026 — where the four actor refusals went.
+ *
+ * This block used to hold four more cases: a missing actor, a blank actor, an agent actor and an
+ * integration actor, each passed as `p_actor` / `p_actor_type` and each refused with an audit row.
+ * Those arguments no longer exist, so the four attacks cannot be expressed against the boundary at
+ * all — a stronger outcome than refusing them, and the reason they are not simply deleted here.
+ *
+ * Each property is re-asserted at the layer where it still has meaning:
+ *
+ *   missing / blank actor  → an UNBOUND authenticated login cannot act. The refusal moved upstream
+ *                            and became a raise rather than a denial, because there is no longer a
+ *                            principal to attribute a denial record to. Case G of
+ *                            `sr2-authenticated-principal-matrix.test.ts` owns the full version;
+ *                            the case below is the control-plane-shaped restatement.
+ *   agent / integration    → the resolver returns `human` or `system` and nothing else, so no
+ *                            administrative call can carry either type. Asserted structurally.
+ *
+ * And the guard itself has not been deleted from the database — `admin.refusal_reason` still holds
+ * all four checks, and the internal calling convention still depends on them. It is unreachable by
+ * `freightos_admin` (asserted in the ADR-0020 block above), so it is exercised directly here. That
+ * matters: if a future definer passes an unresolved value, the guard is the thing that catches it.
+ */
+describe('the four actor refusals, at the layer they now live', () => {
+  let unbound: Client;
+
+  beforeAll(async () => {
+    const role = await db.provisionUnboundLogin('cp_unbound');
+    unbound = db.connectAsOperator(role);
+    await unbound.connect();
+  }, 60_000);
+
+  afterAll(async () => {
+    await unbound?.end();
+  });
+
+  it('an authenticated login bound to no principal cannot act, and leaves no human behind', async () => {
+    const correlationId = randomUUID();
+    const before = await admin.query<{ n: string }>('SELECT count(*)::text AS n FROM tenants');
+    await expect(
+      unbound.query(`SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
+        randomUUID(),
+        'Unbound Co',
+        'tenant_provisioning',
+        correlationId,
+      ]),
+    ).rejects.toThrow(/bound to no FreightOS principal/i);
+
+    const after = await admin.query<{ n: string }>('SELECT count(*)::text AS n FROM tenants');
+    expect(after.rows[0]!.n, 'an unbound connection provisioned a tenant').toBe(before.rows[0]!.n);
+
+    // A raise rolls its own statement back, so there is deliberately no audit row — and, more to
+    // the point, no row naming anybody. The pre-0026 defect was that a refused call still wrote
+    // `actor_type = 'human'` with a name the caller chose.
+    const rows = await admin.query<{ n: string }>(
+      'SELECT count(*)::text AS n FROM audit_events WHERE correlation_id = $1',
+      [correlationId],
+    );
+    expect(Number(rows.rows[0]!.n)).toBe(0);
+  });
+
+  it('no administrative entry point can produce an agent or integration actor', async () => {
+    // Structural rather than attempted: there is no argument to attempt it with. Asserted over
+    // every function the shared credential can reach rather than over a chosen one.
+    const r = await admin.query<{ f: string }>(
+      `SELECT p.oid::regprocedure::text AS f
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'admin'
+          AND has_function_privilege('freightos_admin', p.oid, 'EXECUTE')
+          AND pg_get_function_arguments(p.oid) ~ '(p_actor|p_actor_type|p_issued_by)'`,
+    );
+    expect(r.rows.map((x) => x.f)).toEqual([]);
+
+    const everWritten = await admin.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM audit_events
+        WHERE operation_class = 'privileged' AND actor_type NOT IN ('human', 'system')`,
+    );
+    expect(Number(everWritten.rows[0]!.n)).toBe(0);
+  });
+
+  it('keeps the four guards in admin.refusal_reason, which the internal convention still needs', async () => {
+    // Called as the superuser because `freightos_admin` cannot reach it — that unreachability is
+    // itself asserted above, and it is why this is the only way to exercise the guard directly.
+    const cases: [string | null, string | null, RegExp][] = [
+      [null, 'human', /actor is required/],
+      ['   ', 'human', /actor is required/],
+      ['agent:dispatch', 'agent', /never an agent/],
+      ['integration:partner', 'integration', /never an agent or a tenant integration/],
+    ];
+    for (const [actor, actorType, expected] of cases) {
+      const r = await admin.query<{ reason: string | null }>(
+        `SELECT admin.refusal_reason($1, $2, 'tenant_provisioning', $3, $4) AS reason`,
+        [actor, actorType, TENANT_A, randomUUID()],
+      );
+      expect(r.rows[0]!.reason ?? '', `${actor} / ${actorType}`).toMatch(expected);
+    }
+
+    // And the control: a resolved principal of either legitimate type passes the same guard, so
+    // the four above are refusals and not a function that refuses everything.
+    for (const [actor, actorType] of [
+      ['user:someone', 'human'],
+      ['system:tenant-provisioning', 'system'],
+    ]) {
+      const r = await admin.query<{ reason: string | null }>(
+        `SELECT admin.refusal_reason($1, $2, 'tenant_provisioning', $3, $4) AS reason`,
+        [actor, actorType, TENANT_A, randomUUID()],
+      );
+      expect(r.rows[0]!.reason, `${actor} / ${actorType}`).toBeNull();
+    }
   });
 });
 
@@ -783,60 +916,81 @@ describe('the outbox carries a mandatory envelope purpose', () => {
 });
 
 /**
- * F-06 — a privileged audit record is mostly the caller's own account of itself.
+ * F-06, REMAPPED BY SEC-01 / 0026 — provenance is no longer a claim that can be contradicted,
+ * because there is no longer a claim.
  *
- * actor_id, actor_type, purpose, correlation id, resource and tenant are all parameters. The
- * database cannot authenticate the person behind an administrative connection, so it cannot do
- * better than record the claim — but recording only the claim makes the ledger forgeable, and
- * Art. II.1 makes the ledger authoritative. Provenance the caller does not supply is what turns an
- * unverifiable claim into a claim that can be contradicted.
+ * WHAT F-06 ORIGINALLY SAID. `actor_id` and `actor_type` were parameters. The database could not
+ * authenticate the person behind an administrative connection, so it could not do better than
+ * record the claim — and recording only the claim made an authoritative ledger (Art. II.1)
+ * forgeable. The mitigation was to stamp `payload.connection` with `session_user`, `current_user`
+ * and the backend pid, so a claimed actor no connection could have made became a CONTRADICTION
+ * VISIBLE IN THE RECORD rather than something indistinguishable from the truth.
+ *
+ * WHAT IT SAYS NOW. `payload.connection` is unchanged and still stamped. What changed is the other
+ * half: `actor_id` is resolved from `session_user` through `authn.operator_binding`, so the two are
+ * derived from the same authenticated principal and CANNOT disagree. F-06's mitigation detected a
+ * forgery; 0026 removed the ability to commit one. The detection is kept because it is free, it is
+ * defence in depth, and it is what would surface a future regression that reintroduced a
+ * caller-supplied identity by another name.
+ *
+ * A NAMING DEFECT, RECORDED RATHER THAN TIDIED AWAY. `admin.record` still writes the payload keys
+ * `claimed_actor` and `claimed_actor_type`. Under Design A they carry the RESOLVED principal, so
+ * the word "claimed" is now wrong — they are no more a claim than `actor_id` is. The keys are left
+ * alone deliberately: renaming them would be a schema change to the audit payload made for
+ * readability in the middle of a security migration, and the ledger is append-only, so old rows
+ * would keep the old key and new rows would not. It is flagged here and asserted below with its
+ * real meaning, not quietly normalised into a changed expectation.
  */
 describe('privileged audit records carry non-forgeable provenance — F-06', () => {
   let adminConn: Client;
+  let operatorConn: Client;
+  let operatorRole: string;
 
   beforeAll(async () => {
     adminConn = db.connectAs('freightos_admin');
     await adminConn.connect();
-  }, 30_000);
+    operatorRole = await db.provisionSystemLogin('f06', 'system:tenant-provisioning');
+    operatorConn = db.connectAsOperator(operatorRole);
+    await operatorConn.connect();
+  }, 60_000);
 
   afterAll(async () => {
     await adminConn?.end();
+    await operatorConn?.end();
   });
 
   async function recordFor(correlationId: string) {
-    const r = await admin.query<{ payload: Record<string, unknown>; actor_id: string }>(
-      'SELECT payload, actor_id FROM audit_events WHERE correlation_id = $1',
-      [correlationId],
-    );
+    const r = await admin.query<{
+      payload: Record<string, unknown>;
+      actor_id: string;
+      actor_type: string;
+    }>('SELECT payload, actor_id, actor_type FROM audit_events WHERE correlation_id = $1', [
+      correlationId,
+    ]);
     return r.rows[0]!;
   }
 
-  it('stamps the authenticated connection beside the claimed actor', async () => {
+  it('stamps the authenticated connection, and it agrees with the recorded actor', async () => {
     const correlationId = randomUUID();
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
-      [
-        randomUUID(),
-        'F-06 Tenant',
-        'user:someone-who-was-not-here',
-        'human',
-        'tenant_provisioning',
-        correlationId,
-      ],
+      operatorConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`,
+      [randomUUID(), 'F-06 Tenant', 'tenant_provisioning', correlationId],
     );
-    expect(result.outcome).toBe('succeeded');
+    expect(result.outcome, result.message ?? '').toBe('succeeded');
 
     const row = await recordFor(correlationId);
-    // The claim is still recorded — it is what the application asserted, and losing it would lose
-    // the only account of who acted.
-    expect(row.actor_id).toBe('user:someone-who-was-not-here');
-    expect(row.payload['claimed_actor']).toBe('user:someone-who-was-not-here');
+    // Both halves of the record, and the fact that they are now the same fact. `claimed_actor` is
+    // the vestigial key named above; it holds the resolved principal, not a caller's assertion.
+    expect(row.actor_id).toBe('system:tenant-provisioning');
+    expect(row.payload['claimed_actor']).toBe(row.actor_id);
+    expect(row.payload['claimed_actor_type']).toBe(row.actor_type);
 
-    // And beside it, what actually happened. A claimed actor no connection could have made is now
-    // a contradiction visible in the record rather than indistinguishable from the truth.
     const connection = row.payload['connection'] as Record<string, unknown>;
-    expect(connection['authenticated_role']).toBe('freightos_admin');
+    // The authenticated role is this operator's OWN login — the thing that did not exist before
+    // 0026 and is the entire trust anchor. Not `freightos_admin`, which is what it used to be for
+    // every administrative call regardless of who was behind it.
+    expect(connection['authenticated_role']).toBe(operatorRole);
     expect(connection['effective_role']).toBe('freightos_admin_owner');
     expect(typeof connection['backend_pid']).toBe('number');
     expect(typeof connection['recorded_at']).toBe('string');
@@ -848,42 +1002,58 @@ describe('privileged audit records carry non-forgeable provenance — F-06', () 
     // ordering is asserted rather than reviewed.
     const correlationId = randomUUID();
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.export_tenant_audit($1, $2, $3, $4, $5, $6, $7)`,
+      operatorConn,
+      `SELECT * FROM admin.export_tenant_audit($1, $2, $3, $4, $5)`,
       [
         TENANT_A,
         new Date(Date.now() - 86_400_000).toISOString(),
         new Date().toISOString(),
-        'user:auditor',
-        'human',
         'audit_export',
         correlationId,
       ],
     );
-    expect(result.outcome).toBe('succeeded');
+    expect(result.outcome, result.message ?? '').toBe('succeeded');
     const row = await recordFor(correlationId);
     const connection = row.payload['connection'] as Record<string, unknown>;
-    expect(connection['authenticated_role']).toBe('freightos_admin');
+    expect(connection['authenticated_role']).toBe(operatorRole);
   });
 
   it('stamps a denial the same way', async () => {
     // A refusal is the record most worth forging: it is the evidence that somebody tried. It has
-    // to carry the same provenance as a success, and it does.
+    // to carry the same provenance as a success, and it does. The denial reason is now a purpose
+    // refusal rather than a rejected actor type, because a rejected actor type is no longer
+    // reachable from here — see "the four actor refusals, at the layer they now live".
     const correlationId = randomUUID();
     const result = await call(
-      adminConn,
-      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4, $5, $6)`,
-      [TENANT_A, 'suspended', 'user:impersonated', 'agent', 'tenant_lifecycle', correlationId],
+      operatorConn,
+      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4)`,
+      [TENANT_A, 'suspended', 'audit_export', correlationId],
     );
     expect(result.outcome).toBe('denied');
 
     const row = await recordFor(correlationId);
     const connection = row.payload['connection'] as Record<string, unknown>;
+    expect(connection['authenticated_role']).toBe(operatorRole);
+    expect(row.payload['offered_purpose']).toBe('audit_export');
+  });
+
+  it('records the shared credential as itself, not as whoever is using it', async () => {
+    // The F-06 property that mattered most, in its post-0026 form. The shared administrative
+    // credential is exactly the connection whose provenance used to be unfalsifiable-but-unverified.
+    // It is now bound as a SERVICE, so the connection stamp and the recorded actor agree — and
+    // agree on something that is not a person.
+    const correlationId = randomUUID();
+    await call(adminConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
+      randomUUID(),
+      'F-06 Shared',
+      'tenant_provisioning',
+      correlationId,
+    ]);
+    const row = await recordFor(correlationId);
+    const connection = row.payload['connection'] as Record<string, unknown>;
     expect(connection['authenticated_role']).toBe('freightos_admin');
-    // The rejected actor_type is preserved as offered rather than coerced away, so the denial says
-    // what was attempted and not merely that something was.
-    expect(row.payload['claimed_actor_type']).toBe('agent');
-    expect(row.payload['offered_actor_type']).toBe('agent');
+    expect(row.actor_type).toBe('system');
+    expect(row.actor_id).toBe('system:session-binding-issuer');
   });
 });
 
@@ -902,9 +1072,11 @@ describe('denial audit is transaction-bound — F-07', () => {
   let adminConn: Client;
 
   beforeAll(async () => {
-    adminConn = db.connectAs('freightos_admin');
-    await adminConn.connect();
-  }, 30_000);
+    // An authenticated operator, because the denial under test is a purpose refusal and a purpose
+    // refusal is only reached once a principal has resolved. Over an unbound connection the call
+    // raises instead, which is a different property and is covered where it belongs.
+    adminConn = await connectAsProvisioner(db);
+  }, 60_000);
 
   afterAll(async () => {
     await adminConn?.end();
@@ -921,11 +1093,12 @@ describe('denial audit is transaction-bound — F-07', () => {
   it('keeps the denial when the caller commits', async () => {
     const correlationId = randomUUID();
     await adminConn.query('BEGIN');
-    const result = await call(
-      adminConn,
-      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
-      [randomUUID(), 'F-07 Committed', 'user:operator', 'human', 'audit_export', correlationId],
-    );
+    const result = await call(adminConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
+      randomUUID(),
+      'F-07 Committed',
+      'audit_export',
+      correlationId,
+    ]);
     // Wrong purpose for this operation, so it is refused.
     expect(result.outcome).toBe('denied');
     await adminConn.query('COMMIT');
@@ -936,11 +1109,12 @@ describe('denial audit is transaction-bound — F-07', () => {
   it('loses the denial when the caller rolls back — the stated limit', async () => {
     const correlationId = randomUUID();
     await adminConn.query('BEGIN');
-    const result = await call(
-      adminConn,
-      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
-      [randomUUID(), 'F-07 Rolled back', 'user:operator', 'human', 'audit_export', correlationId],
-    );
+    const result = await call(adminConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
+      randomUUID(),
+      'F-07 Rolled back',
+      'audit_export',
+      correlationId,
+    ]);
     expect(result.outcome).toBe('denied');
     await adminConn.query('ROLLBACK');
 
@@ -954,11 +1128,12 @@ describe('denial audit is transaction-bound — F-07', () => {
     // call changed nothing. Losing the evidence never means losing the refusal.
     const tenantId = randomUUID();
     await adminConn.query('BEGIN');
-    const result = await call(
-      adminConn,
-      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4, $5, $6)`,
-      [tenantId, 'F-07 Never created', 'user:operator', 'human', 'audit_export', randomUUID()],
-    );
+    const result = await call(adminConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
+      tenantId,
+      'F-07 Never created',
+      'audit_export',
+      randomUUID(),
+    ]);
     expect(result.outcome).toBe('denied');
     await adminConn.query('COMMIT');
 
@@ -1007,10 +1182,14 @@ describe('the role graph, described accurately — R2-05', () => {
       'freightos_admin_owner',
       'freightos_app',
       'freightos_audit_writer',
+      // SR-2 / 0020 §1.
+      'freightos_binding_owner',
       'freightos_control_plane',
       'freightos_hierarchy_owner',
       'freightos_identity_guard',
       'freightos_migrator',
+      // SEC-01 / 0026 §1.
+      'freightos_operator_registry_owner',
     ]);
 
     // No FreightOS role holds either attribute that would make every RLS proof in the suite vacuous.
@@ -1019,13 +1198,20 @@ describe('the role graph, described accurately — R2-05', () => {
       expect(role.rolbypassrls, `${role.rolname} BYPASSRLS`).toBe(false);
     }
 
-    // The four definer owners are NOLOGIN: they are identities code runs AS, never connections.
+    // The six definer owners are NOLOGIN: they are identities code runs AS, never connections.
+    // 0026's registry owner is the sixth, and NOLOGIN matters more for it than for any of the
+    // others — a login role that owned the operator binding could authenticate and then rewrite
+    // the mapping that decides who it is.
     const nologin = r.rows.filter((x) => !x.rolcanlogin).map((x) => x.rolname);
     expect(nologin).toEqual([
       'freightos_admin_owner',
       'freightos_audit_writer',
+      // SR-2 / 0020 §1.
+      'freightos_binding_owner',
       'freightos_hierarchy_owner',
       'freightos_identity_guard',
+      // SEC-01 / 0026 §1.
+      'freightos_operator_registry_owner',
     ]);
   });
 
@@ -1069,9 +1255,16 @@ describe('the role graph, described accurately — R2-05', () => {
       // 0018 §1's audit writer, on the same terms as the other definer owners: administered by
       // the migrator, never inherited, SET only so `ALTER FUNCTION ... OWNER TO` can reach it.
       'freightos_migrator -> freightos_audit_writer admin=true inherit=false set=true',
+      // SR-2 / 0020 §1. SET so ownership of app.session_binding and the accessors can be
+      // transferred; INHERIT false so no ordinary migrator statement picks its rights up.
+      'freightos_migrator -> freightos_binding_owner admin=true inherit=false set=true',
       'freightos_migrator -> freightos_control_plane admin=true inherit=false set=false',
       'freightos_migrator -> freightos_hierarchy_owner admin=true inherit=false set=true',
       'freightos_migrator -> freightos_identity_guard admin=true inherit=false set=true',
+      // SEC-01 / 0026 §1. Same shape as every other definer owner: administered so the migrator
+      // can provision operators, SET so it can create and own schema authn, INHERIT FALSE so no
+      // ordinary migrator statement picks up the ability to read or write the binding table.
+      'freightos_migrator -> freightos_operator_registry_owner admin=true inherit=false set=true',
     ]);
 
     // And what the list does NOT contain, said out loud: the audit writer is not a control-plane
@@ -1109,12 +1302,21 @@ describe('the role graph, described accurately — R2-05', () => {
       // 0018 §1. The migrator has to reach it to create and own app.record_audit_event; it is
       // NOLOGIN, so this is the only way in, and nothing else in the graph has a path to it.
       'freightos_audit_writer',
+      // SR-2 / 0020 §1. Same reason: the migrator has to become it to transfer ownership of
+      // app.session_binding and the five accessors. The membership is SET TRUE, INHERIT FALSE, so
+      // an ordinary migrator statement picks up none of its rights.
+      'freightos_binding_owner',
       // Reachable TRANSITIVELY, through freightos_admin_owner. Not a direct grant — the direct
       // membership is SET FALSE — and not inherited, but reachable by a deliberate two-step
       // SET ROLE. The documentation said "cannot"; "does not inherit" is what was proved.
       'freightos_control_plane',
       'freightos_hierarchy_owner',
       'freightos_identity_guard',
+      // SEC-01 / 0026 §1. The migrator has to become it to create schema authn and the binding
+      // table, and to provision operators. Reachable and NOT inherited — the assertion above
+      // covers that for every role in this list, and for this one it is the property that keeps a
+      // deployment session from silently holding write access to the identity registry.
+      'freightos_operator_registry_owner',
     ]);
 
     // freightos_app is the one runtime role with no path at all, direct or transitive.

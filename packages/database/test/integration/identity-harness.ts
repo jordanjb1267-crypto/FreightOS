@@ -185,21 +185,86 @@ async function privileged(
   return result.payload;
 }
 
-/** Seed one tenant's full identity graph. The tenant row itself must already exist. */
+/**
+ * Seed one tenant's full identity graph. The tenant row itself must already exist.
+ *
+ * PROVISIONS OVER THE MIGRATOR CONNECTION, NOT `freightos_app` — SR-2.
+ *
+ * After migration 0020 the runtime role fails closed without a verified binding, and a binding can
+ * only be minted for a principal that already exists with an active membership. The first user of a
+ * tenant is precisely the row that would justify one, so a verified runtime session cannot create
+ * it. The circularity is real and is recorded as an open production question; it is not something a
+ * fixture may resolve by loosening the database.
+ *
+ * The migrator is the deployment authority the runbooks already name, and 0020 §4 keeps it in the
+ * authoritative policy role lists. The connection remains fully RLS-subject — every table here
+ * carries FORCE ROW LEVEL SECURITY — so the seed is still refused by exactly the policies a real
+ * provisioning path would meet. What changed is which role performs it, not whether the rules apply.
+ *
+ * This is PROVISIONING. Authentication is `verified-test-auth.ts`, and the two are separate modules
+ * so that the fixture path cannot quietly become the application's way in.
+ */
+/**
+ * A connected client authenticated as the fixture administrator's own PostgreSQL LOGIN.
+ *
+ * This is what replaces `db.connectAs('freightos_admin')` plus `p_actor` at every administrative
+ * call site — SEC-01 / 0026. The identity is no longer an argument the test chooses; it is the
+ * connection the test authenticates with, and the database reads it from `session_user`.
+ *
+ * The caller owns the client and must `end()` it. Provisioning is idempotent for the same mapping,
+ * so calling this repeatedly for one fixture is safe.
+ */
+export async function connectAsFixtureAdministrator(
+  db: TestDatabase,
+  fixture: IdentityFixture,
+): Promise<Client> {
+  const role = await db.provisionOperator('admin', fixture.tenantId, fixture.adminUserId);
+  const client = db.connectAsOperator(role);
+  await client.connect();
+  return client;
+}
+
+/**
+ * A connected client authenticated as the approved tenant-provisioning SERVICE.
+ *
+ * For the bootstrap operations that precede any human: creating a tenant, and the first role and
+ * membership inside it. `system:tenant-provisioning` is on `admin.platform_actor`, so it carries
+ * provisioning authority — and it is a service, so it can never produce human provenance.
+ */
+export async function connectAsProvisioner(db: TestDatabase): Promise<Client> {
+  const role = await db.provisionSystemLogin('prov', 'system:tenant-provisioning');
+  const client = db.connectAsOperator(role);
+  await client.connect();
+  return client;
+}
+
 export async function seedIdentity(db: TestDatabase, tenantId: string): Promise<IdentityFixture> {
-  const app = db.connectAs('freightos_app');
-  await app.connect();
-  const admin = db.connectAs('freightos_admin');
+  const provisioner = db.connectAsMigrator();
+  await provisioner.connect();
+  // SEC-01 / 0026. The bootstrap chain always ran as `system:tenant-provisioning`; what changed is
+  // that the actor is now RESOLVED from an authenticated login instead of asserted as an argument.
+  // The shared `freightos_admin` connection can no longer perform any of this, which is the point.
+  const admin = db.connectAsOperator(
+    await db.provisionSystemLogin('prov', 'system:tenant-provisioning'),
+  );
   await admin.connect();
   try {
-    return await seedIdentityWith(app, admin, tenantId);
+    return await seedIdentityWith(provisioner, admin, tenantId);
   } finally {
-    await app.end();
+    await provisioner.end();
     await admin.end();
   }
 }
 
-async function seedIdentityWith(
+/**
+ * Seed over connections the caller supplies.
+ *
+ * Exported for the SR-2 gate, which must provision over the migrator connection rather than over
+ * `freightos_app`: after 0019 the runtime role fails closed without a binding, and the first user of
+ * a tenant is precisely the row that would justify one. See sr2-harness.ts for why that is a
+ * provisioning path and not a runtime one.
+ */
+export async function seedIdentityWith(
   app: Client,
   admin: Client,
   tenantId: string,
@@ -338,31 +403,27 @@ async function seedIdentityWith(
   // Once the administrator holds identity.role.write, later operations name the human. The seed
   // proves both halves: `bootstrap` gets the tenant off the ground, and the tests in
   // authority-remediation.test.ts §7 prove the human path works afterwards.
-  const bootstrap = 'system:tenant-provisioning';
-  const asPlatform = ['system', 'identity_administration'] as const;
 
   const role = await privileged(
     admin,
-    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)',
     [
       tenantId,
       legalEntityNodeId,
       legalEntityId,
       'fleet_administrator',
       'Fleet Administrator',
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
   const roleId = role['role_id'] as string;
 
-  await privileged(admin, 'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)', [
+  await privileged(admin, 'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
     tenantId,
     roleId,
     'identity.user.read',
-    bootstrap,
-    ...asPlatform,
+    'identity_administration',
     randomUUID(),
   ]);
 
@@ -379,15 +440,14 @@ async function seedIdentityWith(
   // administer authority are not the people the authority is about.
   const adminRole = await privileged(
     admin,
-    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+    'SELECT * FROM admin.create_role($1, $2, $3, $4, $5, $6, $7)',
     [
       tenantId,
       legalEntityNodeId,
       legalEntityId,
       'tenant_administrator',
       'Tenant Administrator',
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
@@ -399,16 +459,18 @@ async function seedIdentityWith(
     'identity.service_account.write',
     'identity.organization_node.write',
   ]) {
-    await privileged(
-      admin,
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5, $6, $7)',
-      [tenantId, adminRoleId, permission, bootstrap, ...asPlatform, randomUUID()],
-    );
+    await privileged(admin, 'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
+      tenantId,
+      adminRoleId,
+      permission,
+      'identity_administration',
+      randomUUID(),
+    ]);
   }
 
   const adminMembership = await privileged(
     admin,
-    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)',
     [
       tenantId,
       adminUserId,
@@ -416,28 +478,28 @@ async function seedIdentityWith(
       // legal entity actually governs, and the closure makes everything below it in scope.
       legalEntityNodeId,
       legalEntityId,
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
   const adminMembershipId = adminMembership['membership_id'] as string;
-  await privileged(
-    admin,
-    'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-    [tenantId, adminMembershipId, adminRoleId, bootstrap, ...asPlatform, randomUUID()],
-  );
+  await privileged(admin, 'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)', [
+    tenantId,
+    adminMembershipId,
+    adminRoleId,
+    'identity_administration',
+    randomUUID(),
+  ]);
 
   const membership = await privileged(
     admin,
-    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6, $7, $8)',
+    'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)',
     [
       tenantId,
       direct.userId,
       terminalNodeId,
       legalEntityId,
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
@@ -445,19 +507,18 @@ async function seedIdentityWith(
 
   const membershipRole = await privileged(
     admin,
-    'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5, $6, $7)',
-    [tenantId, membershipId, roleId, bootstrap, ...asPlatform, randomUUID()],
+    'SELECT * FROM admin.assign_membership_role($1, $2, $3, $4, $5)',
+    [tenantId, membershipId, roleId, 'identity_administration', randomUUID()],
   );
 
   await privileged(
     admin,
-    'SELECT * FROM admin.grant_service_account_permission($1, $2, $3, $4, $5, $6, $7)',
+    'SELECT * FROM admin.grant_service_account_permission($1, $2, $3, $4, $5)',
     [
       tenantId,
       direct.serviceAccountId,
       'identity.user.read',
-      bootstrap,
-      ...asPlatform,
+      'identity_administration',
       randomUUID(),
     ],
   );
@@ -481,6 +542,145 @@ async function seedIdentityWith(
     serviceAccountId: direct.serviceAccountId,
     serviceAccountCredentialId: direct.serviceAccountCredentialId,
   };
+}
+
+/** A user whose entire authority is one membership, at one named node. */
+export interface NarrowMember {
+  readonly userId: string;
+  readonly membershipId: string;
+  readonly tenantId: string;
+  readonly organizationNodeId: string;
+  readonly legalEntityId: string;
+}
+
+/**
+ * Provision a user whose ONLY authority is a membership at exactly one node — SR-2, F-05.
+ *
+ * The scope tests need principals that genuinely cannot reach past a particular node, and the
+ * seeded tenant administrator is the wrong instrument for every one of them: it can already see the
+ * whole legal entity, so a test written against it passes whether or not the predicate under test
+ * works. A denial proved by an actor that has the reach anyway is not a denial.
+ *
+ * The privilege here is provisioning and nothing else — the same migrator path, the same platform
+ * bootstrap actor and the same governed `admin.grant_membership` boundary `seedIdentity` uses, for
+ * the same reason: a membership is what justifies a binding, so it cannot itself be created by one.
+ * No role is attached. These principals are deliberately as small as the schema allows, and the
+ * legal authority class and operating context they later act under are chosen at mint time by
+ * `verified-test-auth.ts`, which is where an authentication result belongs.
+ */
+export async function seedNarrowMember(
+  db: TestDatabase,
+  fixture: IdentityFixture,
+  spec: {
+    /** Where the membership sits. Everything at or below it is in scope; nothing above is. */
+    readonly organizationNodeId: string;
+    /** Defaults to the fixture's legal entity, which must govern the node above. */
+    readonly legalEntityId?: string;
+    /** Distinguishes this user's authentication subject from every other one in the tenant. */
+    readonly label: string;
+  },
+): Promise<NarrowMember> {
+  const provisioner = db.connectAsMigrator();
+  await provisioner.connect();
+  // Same provisioning identity as seedIdentity, resolved rather than asserted — SEC-01 / 0026.
+  const admin = db.connectAsOperator(
+    await db.provisionSystemLogin('prov', 'system:tenant-provisioning'),
+  );
+  await admin.connect();
+  const legalEntityId = spec.legalEntityId ?? fixture.legalEntityId;
+  try {
+    const userId = await withLegalContext(
+      provisioner,
+      systemContextAt(fixture.tenantId, fixture.enterpriseNodeId, legalEntityId),
+      async (c) => {
+        const r = await (c as Client).query<{ id: string }>(
+          `INSERT INTO users
+             (tenant_id, organization_node_id, legal_entity_id, authentication_provider,
+              authentication_subject, display_name, status, created_by)
+           VALUES ($1, $2, $3, 'oidc:example', $4, $5, 'active', 'test:seed')
+           RETURNING id`,
+          [
+            fixture.tenantId,
+            spec.organizationNodeId,
+            legalEntityId,
+            `${spec.label}-${fixture.tenantId}`,
+            spec.label,
+          ],
+        );
+        return r.rows[0]!.id;
+      },
+    );
+
+    const membership = await privileged(
+      admin,
+      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)',
+      [
+        fixture.tenantId,
+        userId,
+        spec.organizationNodeId,
+        legalEntityId,
+        'identity_administration',
+        randomUUID(),
+      ],
+    );
+
+    return {
+      userId,
+      membershipId: membership['membership_id'] as string,
+      tenantId: fixture.tenantId,
+      organizationNodeId: spec.organizationNodeId,
+      legalEntityId,
+    };
+  } finally {
+    await provisioner.end();
+    await admin.end();
+  }
+}
+
+/**
+ * Provision a second legal entity in a tenant, on its own branch under the enterprise root.
+ *
+ * Used where a test needs a legal entity the caller demonstrably does NOT hold while staying inside
+ * one tenant, so that cross-tenant isolation cannot be what produces the denial. Privileged for the
+ * same reason as everything else here: the new branch is a sibling of the caller's own, and no
+ * runtime principal holds a node above both.
+ */
+export async function seedSecondLegalEntity(
+  db: TestDatabase,
+  fixture: IdentityFixture,
+  name: string,
+): Promise<{ nodeId: string; entityId: string }> {
+  const provisioner = db.connectAsMigrator();
+  await provisioner.connect();
+  try {
+    // Node scope at the enterprise root, exactly as `seedIdentity` phase 2 needs: legal_entities
+    // asks for node scope on the node the entity will govern, and that node is created here.
+    return await withLegalContext(
+      provisioner,
+      systemContextAt(fixture.tenantId, fixture.enterpriseNodeId),
+      async (c) => {
+        const client = c as Client;
+        const nodeId = await insertNode(
+          client,
+          fixture.tenantId,
+          fixture.enterpriseNodeId,
+          'legal_entity',
+          name,
+        );
+        const entityId = randomUUID();
+        await client.query(
+          `INSERT INTO legal_entities
+             (id, tenant_id, organization_node_id, legal_entity_id, legal_name, jurisdiction,
+              created_by)
+           VALUES ($1, $2, $3, $1, $4, 'US-NV', 'test:seed')`,
+          [entityId, fixture.tenantId, nodeId, `${name} LLC`],
+        );
+        return { nodeId, entityId };
+      },
+    );
+  } finally {
+    await provisioner.end();
+  }
 }
 
 /** The twelve tenant-owned tables PR 2 adds, plus the three relationship tables. */
