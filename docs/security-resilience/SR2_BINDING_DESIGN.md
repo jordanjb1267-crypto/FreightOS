@@ -1,6 +1,6 @@
 # SR-2 · SEC-01 — verified actor binding: security design
 
-Required by the SR-2 design gate, before migration 0019 exists. Companion to
+Required by the SR-2 design gate, before migration 0020 exists. Companion to
 `SR2_TRUST_BOUNDARY_ANALYSIS.md`, which is the current-state trace this design answers.
 
 Branch `claude/sr-2-verified-actor-binding`, base `37f5b673cba1589b8a754fd36caef05472854052`.

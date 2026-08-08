@@ -25,7 +25,7 @@ import { TestDatabase } from './harness.ts';
 
 const db = new TestDatabase('freightos_test_sr2_structure');
 
-/** Every function migration 0019 owns, by exact signature. */
+/** Every function migration 0020 owns, by exact signature. */
 const SR2_FUNCTIONS = [
   'app.verified_binding_context()',
   'app.verified_binding_tenant_scope()',
@@ -643,11 +643,11 @@ describe('gate S — static recursion graph', () => {
 });
 
 // ---------------------------------------------------------------------------
-// GATE T — 18 -> 19 -> 18 restores the captured pre-0019 state.
+// GATE T — 18 -> 20 -> 18 restores the captured pre-0020 state.
 // ---------------------------------------------------------------------------
 
 describe('gate T — down migration restores 0018 exactly', () => {
-  /** The six accessors as `docs/security-resilience/sr2-baseline/pre-0019-accessors.sql` captured. */
+  /** The six accessors as `docs/security-resilience/sr2-baseline/pre-0020-accessors.sql` captured. */
   interface AccessorState {
     signature: string;
     owner: string;
@@ -957,7 +957,7 @@ describe('gate U — full round trip reproduces the same inventory', () => {
  * Gate X — the Layer B primitives 0020 added, and who may reach them.
  *
  * The adversarial rereview found `app.verified_binding_scope_node_ids()` shipping with the PUBLIC
- * EXECUTE a new function gets by default, while 0019 §9 had revoked PUBLIC from every one of its
+ * EXECUTE a new function gets by default, while 0020 §9 had revoked PUBLIC from every one of its
  * siblings. The accompanying grant to `freightos_app` was measured unnecessary: with EXECUTE revoked
  * from both, the scoped read still worked, because the function is only ever evaluated as
  * `freightos_binding_owner` inside `app.verified_principal()`'s definer context.
@@ -1026,7 +1026,7 @@ describe('gate X — the statement-scoped primitives are owner-only where they m
 // ---------------------------------------------------------------------------
 
 /**
- * The durable half of migration 0022.
+ * The durable half of migration 0023.
  *
  * §4 of that migration asserts the same property, but it asserts it ONCE, at the moment 0022 runs.
  * A definer added by migration 0023 would carry PostgreSQL's ordinary `pg_catalog, public` pin,
@@ -1034,7 +1034,7 @@ describe('gate X — the statement-scoped primitives are owner-only where they m
  * migrations. This is the check that does not expire.
  *
  * It is deliberately a WHOLE-SCHEMA sweep with no allowlist. An exemption list is the mechanism by
- * which this defect returns: the first draft of 0022's own remediation enumerated the functions by
+ * which this defect returns: the first draft of 0023's own remediation enumerated the functions by
  * hand and missed twenty-four of forty-eight, including the entire authorization-mutation boundary
  * in schema `admin`.
  */
@@ -1091,9 +1091,9 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
   }, 300_000);
 
   /**
-   * 24 -> 23 -> 24, at full fidelity over everything the SR-2 migrations touch.
+   * 25 -> 23 -> 25, at full fidelity over everything the SR-2 migrations touch.
    *
-   * Gate T already proves 22 -> 18 -> 22 for the six accessors. This is the narrower, stricter
+   * Gate T already proves 23 -> 18 -> 23 for the six accessors. This is the narrower, stricter
    * one: every SECURITY DEFINER in both schemas, compared on body, owner, security mode,
    * volatility, search_path and ACL together, plus the database-level TEMPORARY grant that §1
    * revokes. A down migration that "works" while leaving a function with no pinned path at all —
@@ -1101,7 +1101,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
    * exactly what this catches.
    */
   it('restores the pre-0024 database on the way down and the fixed one on the way back', async () => {
-    const rt = new TestDatabase('freightos_test_sr2_roundtrip_24');
+    const rt = new TestDatabase('freightos_test_sr2_roundtrip_25');
     await rt.reset();
     const client = rt.connectAsMigrator();
     await client.connect();
@@ -1131,7 +1131,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
           )
         ).rows;
 
-      /** The four invoker-rights scope functions 0022 §3 also rewrites. */
+      /** The four invoker-rights scope functions 0023 §3 also rewrites. */
       const scopeFns = async (): Promise<Definer[]> =>
         (
           await client.query<Definer>(
@@ -1153,21 +1153,22 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
           )
         ).rows[0]!.t;
 
-      const at22 = await definers();
-      const scope22 = await scopeFns();
-      expect(at22.length, 'no definers found, so the comparison is empty').toBeGreaterThan(40);
-      expect(scope22).toHaveLength(4);
+      const atTop = await definers();
+      const scopeTop = await scopeFns();
+      expect(atTop.length, 'no definers found, so the comparison is empty').toBeGreaterThan(40);
+      expect(scopeTop).toHaveLength(4);
       expect(await publicTemp(), '0019 did not revoke TEMPORARY from PUBLIC').toBe(false);
 
-      // Down one step. Reverting 0023 removes only what 0023 added — the schema-qualified bodies.
-      // It must NOT re-grant TEMPORARY or unpin pg_temp: those belong to migration 0019 on main and
-      // are still applied, so rolling SR-2 back cannot silently reopen the CRITICAL 0019 closed.
-      expect((await migrateDown(client, migrations, 23)).reverted).toEqual([24]);
-      const at21 = await definers();
-      expect(at21.length, 'the revert dropped definers it should only have altered').toBe(
-        at22.length,
+      // Down two steps. Reverting 0025 and 0024 removes only what they added — the schema-qualified
+      // bodies. Neither may re-grant TEMPORARY or unpin pg_temp: those belong to migration 0019 on
+      // main and are still applied, so rolling SR-2 back cannot silently reopen the CRITICAL 0019
+      // closed.
+      expect((await migrateDown(client, migrations, 23)).reverted).toEqual([25, 24]);
+      const at23 = await definers();
+      expect(at23.length, 'the revert dropped definers it should only have altered').toBe(
+        atTop.length,
       );
-      for (const fn of at21) {
+      for (const fn of at23) {
         expect(fn.proconfig, `${fn.signature} lost pg_temp on the way down`).toEqual([
           'search_path=pg_catalog, public, pg_temp',
         ]);
@@ -1175,22 +1176,27 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       expect(await publicTemp(), 'reverting SR-2 reopened the 0019 TEMPORARY hole').toBe(false);
       // The bodies really are the unqualified ones again.
       // At 23 the AUTHORIZATION CORE is still schema-qualified — 0023 §3 owns that and is still
-      // applied. What 0024's down reverts is the ADMIN bodies, so that is what is checked here.
-      const core23 = at21.find((f) => f.signature === 'app.verified_principal()')!;
-      expect(core23.body, 'reverting 0024 unqualified the authorization core').toContain(
+      // applied. What 0024 and 0025 revert are the admin bodies and the rest of `app`, so that is
+      // what is checked here.
+      const core23 = at23.find((f) => f.signature === 'app.verified_principal()')!;
+      expect(core23.body, 'reverting 0024/0025 unqualified the authorization core').toContain(
         'public.users',
       );
-      const adminBody = at21.find((f) =>
+      const adminBody = at23.find((f) =>
         f.signature.startsWith('admin.authorization_refusal_reason('),
       )!;
       expect(adminBody.body, '0024 down did not restore the unqualified admin body').toMatch(
         /\n\s*FROM users\b/,
       );
+      const appBody = at23.find((f) => f.signature === 'app.release_kill_switch(uuid)')!;
+      expect(appBody.body, '0025 down did not restore the unqualified app body').toMatch(
+        /\n\s*FROM kill_switches\b/,
+      );
 
-      // And back up. Everything 0022 touches matches where it started, field for field.
-      expect((await migrateUp(client, migrations)).applied).toEqual([24]);
-      expect(await definers()).toEqual(at22);
-      expect(await scopeFns()).toEqual(scope22);
+      // And back up. Everything matches where it started, field for field.
+      expect((await migrateUp(client, migrations)).applied).toEqual([24, 25]);
+      expect(await definers()).toEqual(atTop);
+      expect(await scopeFns()).toEqual(scopeTop);
       expect(await publicTemp()).toBe(false);
     } finally {
       await client.end();

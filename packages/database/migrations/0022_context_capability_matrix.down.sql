@@ -1,6 +1,6 @@
--- 0021 down — restore the exact post-0020 policy set.
+-- 0022 down — restore the exact post-0021 policy set.
 --
--- Source of truth: docs/security-resilience/sr2-baseline/post-0020-policies.txt, captured with
+-- Source of truth: docs/security-resilience/sr2-baseline/post-0021-policies.txt, captured with
 -- pg_get_expr() from a database migrated 1..20.
 
 DROP POLICY carrier_appointments_insert ON carrier_appointments;

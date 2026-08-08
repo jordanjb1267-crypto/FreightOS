@@ -918,7 +918,7 @@ describe('the closure cannot be written by what it authorizes — F-02', () => {
         WHERE c.relname = 'organization_node_closure' ORDER BY p.polname`,
     );
     expect(r.rows.map((x) => x.polname)).toEqual([
-      // SR-2 / 0019 §4. The role-disjoint bootstrap door, added so app.verified_principal() can
+      // SR-2 / 0020 §4. The role-disjoint bootstrap door, added so app.verified_principal() can
       // read the closure as freightos_binding_owner without re-entering the authoritative accessor
       // it is being called to resolve — CLOSURE_BOOTSTRAP=C. It is a READ policy, applicable to the
       // binding owner alone, and it is skipped by the write-policy loop below for that reason.

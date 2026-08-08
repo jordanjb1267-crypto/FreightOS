@@ -1,13 +1,13 @@
--- 0019 down — restore the exact pre-SR-2 state.
+-- 0020 down — restore the exact pre-SR-2 state.
 --
--- ROLLBACK FIDELITY IS NOT FORWARD SECURITY POSTURE. 0019's up hardens
+-- ROLLBACK FIDELITY IS NOT FORWARD SECURITY POSTURE. 0020's up hardens
 -- app.current_human_principal()'s ACL, which the baseline capture found carrying PUBLIC EXECUTE
 -- despite 0018's apparent intent. This down restores the CAPTURED TRUTH, PUBLIC EXECUTE included,
 -- because reverting to 0018 must reproduce the database 0018 actually built — not the one its text
 -- describes. The two requirements are deliberately separate.
 --
 -- Source of truth for every function body, owner, volatility, security mode, search_path and ACL
--- below: docs/security-resilience/sr2-baseline/pre-0019-accessors.sql, captured with
+-- below: docs/security-resilience/sr2-baseline/pre-0020-accessors.sql, captured with
 -- pg_get_functiondef() from a database migrated 1..18 as freightos_migrator. Not reconstructed
 -- from memory.
 --
@@ -16,7 +16,7 @@
 
 -- §6 reversed — the six accessors, exactly as 1..18 leaves them.
 --
--- 0019's up hands these five to freightos_binding_owner so the accessor itself can carry the
+-- 0020's up hands these five to freightos_binding_owner so the accessor itself can carry the
 -- EXECUTE privilege for app.verified_principal(). Reversing that needs a second temporary loan
 -- beside the schema CREATE one below, for a reason PostgreSQL makes exact:
 --
@@ -29,7 +29,7 @@
 --     of freightos_migrator.
 --
 -- So INHERIT is lent for the duration of the five replacements and returned immediately, by
--- re-granting the membership in its 0019 form. Re-granting from the same grantor updates that row
+-- re-granting the membership in its 0020 form. Re-granting from the same grantor updates that row
 -- in place rather than adding a second one, and the membership is NOT revoked outright: a plain
 -- REVOKE would also take the implicit ADMIN row the migrator holds from creating the role, and a
 -- later re-apply could then no longer grant it at all.
@@ -174,7 +174,7 @@ DROP TABLE IF EXISTS app.session_binding;
 --
 -- THE ROLE IS NOT DROPPED, AND THE MEMBERSHIP IS NOT REVOKED. Roles are cluster-wide, so
 -- `DROP ROLE freightos_binding_owner` fails whenever ANY OTHER database in the same cluster still
--- has 0019 applied — which is the normal state of both CI and any deployment with more than one
+-- has 0020 applied — which is the normal state of both CI and any deployment with more than one
 -- FreightOS database. Measured, with the count PostgreSQL reports:
 --
 --   ERROR:  role "freightos_binding_owner" cannot be dropped because some objects depend on it
@@ -187,7 +187,7 @@ DROP TABLE IF EXISTS app.session_binding;
 -- NOLOGIN owner role in this repository is handled the same way — 0007's freightos_hierarchy_owner,
 -- 0010's freightos_identity_guard, 0013's freightos_admin_owner and 0018's freightos_audit_writer
 -- are all created idempotently on the way up and left in place on the way down, for exactly this
--- reason. 0019 was the only migration attempting a DROP ROLE, and it was wrong to.
+-- reason. 0020 was the only migration attempting a DROP ROLE, and it was wrong to.
 --
 -- What the down DOES remove is every privilege the role holds in THIS database, which is the whole
 -- of its reach here: after this statement it owns nothing, can read nothing, and cannot log in.

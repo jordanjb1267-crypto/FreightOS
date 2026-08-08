@@ -18,7 +18,7 @@ import {
 /**
  * SR-2 — the adversarial half of the verified-actor-binding gate.
  *
- * The question is no longer whether migration 0019 installs. It is whether the model it installs can
+ * The question is no longer whether migration 0020 installs. It is whether the model it installs can
  * be forged, replayed, bypassed, made stale, or accidentally closed against legitimate callers.
  *
  * TWO DISCIPLINES RUN THROUGH EVERY CASE HERE.
@@ -1797,10 +1797,10 @@ describe('gate V — statement-scoped authorization resolution', () => {
 /**
  * Gate W — the context capability matrix cannot be moved by a claim. C-01.
  *
- * 0021 made ADR-0019's "Identity and organization" row executable: software_only/system writes,
+ * 0022 made ADR-0019's "Identity and organization" row executable: software_only/system writes,
  * software_only/{shipper_owned,facility_operator} and carrier_agent/carrier read, everything else
  * nothing. The cell is decided by app.current_legal_authority_class() and
- * app.current_operating_context(), which 0019 §6 made binding-derived — so the question this gate
+ * app.current_operating_context(), which 0020 §6 made binding-derived — so the question this gate
  * asks is whether a session can talk its way into a different cell.
  *
  * Every case here writes strictly IN SCOPE. Node scope, legal-entity scope and tenant isolation all

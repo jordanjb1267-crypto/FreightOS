@@ -1,7 +1,10 @@
--- Canonical pre-0019 definitions of every accessor migration 0019 replaces.
+-- Canonical pre-0020 definitions of every accessor migration 0020 replaces.
 -- Captured with pg_get_functiondef() from a database migrated 1..18 as freightos_migrator,
 -- at merged main 37f5b673cba1589b8a754fd36caef05472854052. This file is the ROLLBACK TRUTH
--- for 0019's down migration: it is not reconstructed from memory.
+-- for 0020's down migration: it is not reconstructed from memory.
+--
+-- Numbered 0019 when it was captured. SR-2 was renumbered 0019-0022 -> 0020-0023 when the
+-- pg_temp emergency hotfix took 0019 on main; the capture is unchanged, only its name is.
 
 -- ============================================================
 -- app.current_actor_id | owner=freightos_migrator | volatile=s | secdef=false | search_path=(none) | acl=DEFAULT

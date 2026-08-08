@@ -25,7 +25,7 @@ export { MIGRATIONS_DIR } from './paths.ts';
  *
  * `withVerifiedTransaction` is the supported way for production code to obtain runtime authority.
  * The legacy `applyLegalContext` / `withLegalContext` above remain exported because the bootstrap,
- * migration and control-plane paths still use them — but after migration 0019 the GUCs they write
+ * migration and control-plane paths still use them — but after migration 0020 the GUCs they write
  * are not authoritative for `freightos_app` sessions, and no verified session goes through them.
  */
 export {

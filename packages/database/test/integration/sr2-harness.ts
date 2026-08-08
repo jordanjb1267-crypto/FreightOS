@@ -14,7 +14,7 @@ import type { TestDatabase } from './harness.ts';
  * SR-2 design note; it is not something this fixture may paper over by loosening the database.
  *
  * So the identity graph is seeded over a `freightos_migrator` connection, which is the deployment
- * authority the runbooks already name, and which migration 0019 §4 keeps in the authoritative policy
+ * authority the runbooks already name, and which migration 0020 §4 keeps in the authoritative policy
  * role lists. That connection is still fully RLS-subject: every one of these tables carries FORCE
  * ROW LEVEL SECURITY, so the seed is refused by exactly the policies a real provisioning path would
  * meet. What it is NOT is a runtime path, and nothing in the gate treats it as one — every security

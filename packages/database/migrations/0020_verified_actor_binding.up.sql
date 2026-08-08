@@ -1,4 +1,4 @@
--- 0019 — SR-2 / SEC-01. Verified actor binding.
+-- 0020 — SR-2 / SEC-01. Verified actor binding.
 --
 -- WHAT THIS CLOSES. Before this migration the authoritative FreightOS actor and tenant were
 -- whatever a caller wrote into `app.actor_id` and `app.tenant_id`. `assertLegalContext` checked
@@ -752,8 +752,8 @@ ALTER FUNCTION app.begin_verified_session(uuid) OWNER TO freightos_binding_owner
 -- The baseline capture found app.current_human_principal() carrying PUBLIC EXECUTE despite 0018
 -- containing both a REVOKE and a GRANT for it — the materialised default, as though neither
 -- statement took effect. Rather than assume the same statements work this time, every ACL below is
--- asserted from pg_proc afterwards. Forward hardening here; 0019's down restores the captured
--- pre-0019 truth, PUBLIC EXECUTE included, because rollback fidelity is a separate requirement.
+-- asserted from pg_proc afterwards. Forward hardening here; this migration's down restores the
+-- captured pre-SR-2 truth, PUBLIC EXECUTE included, because rollback fidelity is a separate requirement.
 -- ---------------------------------------------------------------------------
 
 -- Grouped strictly by OWNER: REVOKE and GRANT on a function require ownership, so every statement
@@ -803,7 +803,7 @@ BEGIN
     FROM information_schema.role_table_grants
    WHERE table_name = 'session_binding' AND grantee = 'freightos_app';
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '0019 §2: freightos_app unexpectedly holds % on app.session_binding', v_bad;
+    RAISE EXCEPTION '0020 §2: freightos_app unexpectedly holds % on app.session_binding', v_bad;
   END IF;
 
   -- No PUBLIC EXECUTE survives on any SR-2 security function. This is the check 0018 lacked.
@@ -816,7 +816,7 @@ BEGIN
            ('admin','issue_session_binding'))
      AND has_function_privilege('public', p.oid, 'EXECUTE');
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '0019 §9: PUBLIC still holds EXECUTE on %', v_bad;
+    RAISE EXCEPTION '0020 §9: PUBLIC still holds EXECUTE on %', v_bad;
   END IF;
 
   -- Every new definer is owned by a NOLOGIN role with a pinned search_path.
@@ -879,7 +879,7 @@ BEGIN
      OR NOT has_function_privilege('freightos_hierarchy_owner',
                                    'app.current_human_principal()', 'EXECUTE') THEN
     RAISE EXCEPTION
-      '0019 §9: app.current_human_principal() is unreachable by freightos_app or by the kill-switch '
+      '0020 §9: app.current_human_principal() is unreachable by freightos_app or by the kill-switch '
       'definer owner — the human reservation would refuse everybody, as in R-01';
   END IF;
 
@@ -905,7 +905,7 @@ BEGIN
             || '|organization_node_scope_ok|legal_entity_scope_ok)');
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION
-      '0019 §4: policy %s is readable by freightos_binding_owner AND consumes an authoritative '
+      '0020 §4: policy %s is readable by freightos_binding_owner AND consumes an authoritative '
       'accessor — candidate C requires role-disjointness and this reintroduces the recursion',
       v_bad;
   END IF;
@@ -919,7 +919,7 @@ BEGIN
             WHERE c.relname = t AND p.polcmd IN ('r', '*')
               AND p.polroles = ARRAY['freightos_binding_owner'::regrole::oid]);
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '0019 §4: % has no binding-owner-only bootstrap read policy', v_bad;
+    RAISE EXCEPTION '0020 §4: % has no binding-owner-only bootstrap read policy', v_bad;
   END IF;
 
   -- And no bootstrap door may be open to the runtime role, which would give ordinary reads
@@ -930,13 +930,13 @@ BEGIN
      AND (p.polroles IS NULL OR 0 = ANY(p.polroles)
           OR 'freightos_app'::regrole = ANY(p.polroles));
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '0019 §4: bootstrap policy % is applicable to freightos_app', v_bad;
+    RAISE EXCEPTION '0020 §4: bootstrap policy % is applicable to freightos_app', v_bad;
   END IF;
 
   -- The binding owner must not be control plane, or the bootstrap policies would be satisfied by
   -- the control-plane disjunct of the surviving TO PUBLIC policies rather than by their own path.
   IF pg_has_role('freightos_binding_owner', 'freightos_control_plane', 'USAGE') THEN
-    RAISE EXCEPTION '0019 §1: freightos_binding_owner must not be a control-plane member';
+    RAISE EXCEPTION '0020 §1: freightos_binding_owner must not be a control-plane member';
   END IF;
 
   -- Nor a member of any role the authoritative policies name.
@@ -945,7 +945,7 @@ BEGIN
                       'freightos_identity_guard','freightos_migrator']) r
    WHERE pg_has_role('freightos_binding_owner', r, 'USAGE');
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '0019 §1: freightos_binding_owner is a member of %', v_bad;
+    RAISE EXCEPTION '0020 §1: freightos_binding_owner is a member of %', v_bad;
   END IF;
 END
 $$;

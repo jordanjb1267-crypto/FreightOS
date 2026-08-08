@@ -190,13 +190,13 @@ async function privileged(
  *
  * PROVISIONS OVER THE MIGRATOR CONNECTION, NOT `freightos_app` — SR-2.
  *
- * After migration 0019 the runtime role fails closed without a verified binding, and a binding can
+ * After migration 0020 the runtime role fails closed without a verified binding, and a binding can
  * only be minted for a principal that already exists with an active membership. The first user of a
  * tenant is precisely the row that would justify one, so a verified runtime session cannot create
  * it. The circularity is real and is recorded as an open production question; it is not something a
  * fixture may resolve by loosening the database.
  *
- * The migrator is the deployment authority the runbooks already name, and 0019 §4 keeps it in the
+ * The migrator is the deployment authority the runbooks already name, and 0020 §4 keeps it in the
  * authoritative policy role lists. The connection remains fully RLS-subject — every table here
  * carries FORCE ROW LEVEL SECURITY — so the seed is still refused by exactly the policies a real
  * provisioning path would meet. What changed is which role performs it, not whether the rules apply.

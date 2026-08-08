@@ -184,7 +184,7 @@ the other is a regression whatever its test results say.
 The markers are recorded in `docs/security-resilience/SR2_FOLLOW_ON_REQUIREMENTS.md`:
 `TENANT_WIDE_RUNTIME_ADMIN_AUTHORITY`, `TENANT_ROOT_POLICY_AUTHORITY` and
 `PROVISIONING_TRUST_BOUNDARY`. A fourth, `CONTEXT_CAPABILITY_MATRIX_RLS`, was found by measurement
-during SR-2 and then closed by migration 0021 — it never belonged with the other three, which are
+during SR-2 and then closed by migration 0022 — it never belonged with the other three, which are
 unresolved future design, because an accepted ADR the runtime does not enforce is a contradiction
 rather than a question.
 
@@ -205,7 +205,7 @@ no production module installs a principal cache; and that no migration from 0022
 That last one has a runtime counterpart, `gate Z` in `sr2-binding-structure.test.ts`, which sweeps
 every `SECURITY DEFINER` in `app` and `admin` against the live catalog. Both are wanted: the static
 check cannot see a function created by a `DO` block, and the catalog check cannot see a migration
-nobody has run. §4 of migration 0022 asserts the same property once, at the moment it runs, and that
+nobody has run. §4 of migration 0023 asserts the same property once, at the moment it runs, and that
 is the one that expires — a definer added by 0023 would carry the ordinary pin and pass everything
 except these two.
 
@@ -251,7 +251,7 @@ obligation: any new policy on those tables must keep the role sets disjoint, whi
 asserts.
 
 **ADR-0019's capability matrix is enforced for the resource groups that have tables.** Migration
-0021 added `app.identity_write_context_ok()` and `app.identity_read_context_ok()`, both reading the
+0022 added `app.identity_write_context_ok()` and `app.identity_read_context_ok()`, both reading the
 binding-derived accessors rather than the legacy GUCs, to thirty-nine identity policies. That
 obligation predated SR-2 by four migrations and was measured open: a real verified
 `facility_operator` principal could write identity in scope. §13 carries the full matrix audit.

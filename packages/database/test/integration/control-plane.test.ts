@@ -104,7 +104,7 @@ describe('the shape ADR-0020 requires', () => {
       // it inserts its own tenant's rows through the existing isolation policy and has no use for
       // an RLS bypass.
       'freightos_audit_writer',
-      // SR-2 / 0019 §1. The session-binding definer owner: NOLOGIN, owns app.session_binding and
+      // SR-2 / 0020 §1. The session-binding definer owner: NOLOGIN, owns app.session_binding and
       // the five authoritative accessors, and deliberately NOT a control-plane member — the
       // bootstrap policies must be satisfied by its own role-disjoint path rather than by the
       // control-plane disjunct of the policies that survive.
@@ -192,7 +192,7 @@ describe('the shape ADR-0020 requires', () => {
         // moving a node rewrites the closure and therefore changes who has authority over what.
         'claim_operation',
         'move_organization_node',
-        // SR-2 / 0019 §7: the trusted mint boundary. It records that something already holding
+        // SR-2 / 0020 §7: the trusted mint boundary. It records that something already holding
         // control-plane credentials asserted an authentication result, and independently verifies
         // that an active membership (human) or the account's own scope (service) justifies the
         // requested tenant and node. It authenticates nobody.
@@ -1017,7 +1017,7 @@ describe('the role graph, described accurately — R2-05', () => {
       'freightos_admin_owner',
       'freightos_app',
       'freightos_audit_writer',
-      // SR-2 / 0019 §1.
+      // SR-2 / 0020 §1.
       'freightos_binding_owner',
       'freightos_control_plane',
       'freightos_hierarchy_owner',
@@ -1036,7 +1036,7 @@ describe('the role graph, described accurately — R2-05', () => {
     expect(nologin).toEqual([
       'freightos_admin_owner',
       'freightos_audit_writer',
-      // SR-2 / 0019 §1.
+      // SR-2 / 0020 §1.
       'freightos_binding_owner',
       'freightos_hierarchy_owner',
       'freightos_identity_guard',
@@ -1083,7 +1083,7 @@ describe('the role graph, described accurately — R2-05', () => {
       // 0018 §1's audit writer, on the same terms as the other definer owners: administered by
       // the migrator, never inherited, SET only so `ALTER FUNCTION ... OWNER TO` can reach it.
       'freightos_migrator -> freightos_audit_writer admin=true inherit=false set=true',
-      // SR-2 / 0019 §1. SET so ownership of app.session_binding and the accessors can be
+      // SR-2 / 0020 §1. SET so ownership of app.session_binding and the accessors can be
       // transferred; INHERIT false so no ordinary migrator statement picks its rights up.
       'freightos_migrator -> freightos_binding_owner admin=true inherit=false set=true',
       'freightos_migrator -> freightos_control_plane admin=true inherit=false set=false',
@@ -1126,7 +1126,7 @@ describe('the role graph, described accurately — R2-05', () => {
       // 0018 §1. The migrator has to reach it to create and own app.record_audit_event; it is
       // NOLOGIN, so this is the only way in, and nothing else in the graph has a path to it.
       'freightos_audit_writer',
-      // SR-2 / 0019 §1. Same reason: the migrator has to become it to transfer ownership of
+      // SR-2 / 0020 §1. Same reason: the migrator has to become it to transfer ownership of
       // app.session_binding and the five accessors. The membership is SET TRUE, INHERIT FALSE, so
       // an ordinary migrator statement picks up none of its rights.
       'freightos_binding_owner',

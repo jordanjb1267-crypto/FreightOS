@@ -1,6 +1,8 @@
-# SR-2 — migration 0019 database security gate
+# SR-2 — database security gate (migrations 0020–0025)
 
-Evidence for `MIGRATION_0019_DATABASE_GATE`. Every measurement below was taken on
+Evidence for `MIGRATION_0020_DATABASE_GATE`. The gate was named `MIGRATION_0019_DATABASE_GATE`
+until the `pg_temp` emergency hotfix took 0019 on main and SR-2 was renumbered 0019–0022 →
+0020–0023; the number moved, the gate did not. Every measurement below was taken on
 PostgreSQL 16.13 (`PostgreSQL 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu`),
 driven as `freightos_migrator` or as one of the runtime roles. Nothing in this document was
 produced by a superuser session, and nothing was inferred from the migration text.
@@ -36,7 +38,7 @@ across eleven integration files.
 **Root cause.** The five accessors were invoker-rights SQL functions naming a definer the caller had
 no grant on.
 
-**Remediation.** `packages/database/migrations/0019_verified_actor_binding.up.sql` §6 — the five
+**Remediation.** `packages/database/migrations/0020_verified_actor_binding.up.sql` §6 — the five
 accessors are now `SECURITY DEFINER SET search_path = pg_catalog, public`, owned by
 `freightos_binding_owner`. The accessor carries the privilege; the caller needs none. This is the
 idiom `app.current_human_principal()` has used since 0018. `SECURITY DEFINER` changes `current_user`
@@ -988,7 +990,7 @@ function call.
 **Variant A**, hoisting inside the three predicates: **1,047 ms → 525 ms**, still linear in rows.
 Rejected on the acceptance standard's own terms.
 
-### 12.4 The remediation — migration 0020
+### 12.4 The remediation — migration 0021
 
 The sublink moves out of the row-argument predicate and into the policy, where the planner can see
 it is uncorrelated:
@@ -1001,7 +1003,7 @@ app.current_tenant_id()           → (SELECT app.current_tenant_id())
 ```
 
 Thirty-eight of fifty-eight policies change. Every one is a mechanical transformation of a
-`pg_get_expr()` capture from a database migrated 1..19 — `sr2-baseline/pre-0020-policies.txt` — and
+`pg_get_expr()` capture from a database migrated 1..20 — `sr2-baseline/pre-0021-policies.txt` — and
 the down migration restores that capture. Verified: up, down, re-capture, diff — **byte-identical,
 all fifty-eight**.
 
@@ -1013,7 +1015,7 @@ policy on every table they read still applies, and return only ids the caller ca
 ### 12.5 A second instance, found by the gate
 
 `app.verified_principal()` reads `users` and `memberships` as `freightos_binding_owner` under
-0019's role-disjoint bootstrap policies — and those called `app.verified_binding_node_scope_ok()`
+0020's role-disjoint bootstrap policies — and those called `app.verified_binding_node_scope_ok()`
 **once per row of the table being scanned**. Measured: one `app.current_tenant_id()` cost **3,166
 shared buffers** once `users` held 152 rows and the planner chose a sequential scan, because each of
 those rows re-entered `session_binding` and the closure.
@@ -1047,7 +1049,7 @@ against the 100 ms guard — from 3,556 ms median and 55,348 ms p95.
 
 ### 12.7 Revocation after the optimization
 
-Statement scope is the only granularity that is safe here, and it is the granularity 0019 §5 already
+Statement scope is the only granularity that is safe here, and it is the granularity 0020 §5 already
 documents. Gate V's fourth case keeps the proof beside the optimization: with Alice's session open
 and one statement already served, a control-plane connection revokes her membership and commits;
 the **next statement in the same transaction** returns zero rows and
@@ -1066,7 +1068,7 @@ Four new cases, database gate **100 → 104**:
 | does not grow the resolver work when the closure grows                     | 30 extra nodes must not multiply buffers                                                                                    |
 | still loses authority on the next statement when the membership is revoked | statement-local, not transaction-local                                                                                      |
 
-Migration 0020 §4 additionally asserts from `pg_policy`, not from its own text: no policy may call a
+Migration 0021 §4 additionally asserts from `pg_policy`, not from its own text: no policy may call a
 per-row scope predicate; none may resolve an accessor outside a subquery; the scope sets must be
 zero-argument invoker-rights STABLE set functions; the bootstrap policy set must still be four.
 
@@ -1113,7 +1115,7 @@ ADR-0019's matrix has twelve resource-group rows. Three have tables in this sche
 `outbox_events` is runtime-writable and is deliberately outside this audit: it is event
 infrastructure, not one of the matrix's resource groups.
 
-### 13.4 The missing control, and where it now lives — migration 0021
+### 13.4 The missing control, and where it now lives — migration 0022
 
 ```sql
 app.identity_write_context_ok()  -- software_only/system, or the control plane
@@ -1122,7 +1124,7 @@ app.identity_read_context_ok()   -- + shipper_owned, facility_operator, carrier_
 
 Both read `app.current_legal_authority_class()` and `app.current_operating_context()` — which 0019
 §6 made binding-derived, fully revalidated and fail-closed for `freightos_app`. **Not the legacy
-GUCs.** Both take no argument, so every policy calls them as `(SELECT ...)` and 0020's statement-
+GUCs.** Both take no argument, so every policy calls them as `(SELECT ...)` and 0021's statement-
 scoped property is preserved; §3(d) re-asserts it.
 
 Thirty-nine identity policies gain the matching term. The bootstrap policies deliberately do not:
@@ -1169,13 +1171,13 @@ create those tables.
 ## 14. Independent adversarial rereview
 
 Run after P-01 and C-01 were both green and after exact-head CI passed on `409f35c`. Conducted as an
-attack on the surface migrations 0020 and 0021 had just created, rather than as a re-reading of the
+attack on the surface migrations 0021 and 0022 had just created, rather than as a re-reading of the
 gates that already pass. **It found two defects, and both were in this PR's own new code.**
 
 ### 14.1 Finding R-01 — a Layer B primitive shipped with PUBLIC EXECUTE
 
 `app.verified_binding_scope_node_ids()` was created by 0020 and, like any new function, inherited the
-default `PUBLIC EXECUTE`. Migration 0019 §9 had explicitly revoked PUBLIC from every one of its three
+default `PUBLIC EXECUTE`. Migration 0020 §9 had explicitly revoked PUBLIC from every one of its three
 siblings. Measured, from `pg_proc.proacl`:
 
 ```
@@ -1215,7 +1217,7 @@ It works, because the function is only ever evaluated as `freightos_binding_owne
 grant bought nothing and widened the surface.
 
 **Both closed.** The function now carries the tightest ACL of the four — owner only, matching
-`verified_binding_context`. Migration 0020 §4(e) asserts from `aclexplode(proacl)` that no grantee
+`verified_binding_context`. Migration 0021 §4(e) asserts from `aclexplode(proacl)` that no grantee
 other than the owner exists, and that `proacl` is materialised at all, because a NULL `proacl` **is**
 PUBLIC EXECUTE rather than "no grants". Gate X asserts the same from the structural suite and gate Y
 asserts the runtime half: the runtime role is refused the enumeration with `permission denied`, live
@@ -1346,7 +1348,7 @@ gate K and gate V case 4 exist to prove it. F-02 makes node scope caller-determi
 [probe] rows for the node ABOVE the membership at 21: 1
 ```
 
-The identical attack succeeds against 1..19, so migration 0020 carried the pattern forward rather
+The identical attack succeeds against 1..20, so migration 0021 carried the pattern forward rather
 than introducing it.
 
 ### 15.3 The blast radius is wider than the two findings
@@ -1554,11 +1556,11 @@ forced the reconciliation rather than a silent double-0019.
 
 ### 16.1 Who owns each layer now
 
-| Layer                                                    | Owner                                                                                          | Scope                                         |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| 1 — no runtime/control-plane role holds `TEMPORARY`      | **main 0019**                                                                                  | database-wide, every role, present and future |
-| 2 — every `app`/`admin` definer lists `pg_temp` **last** | **main 0019** for the pre-existing set; **0020/0021** create their own definers already pinned | every definer                                 |
-| 3 — bodies name their schema                             | **0023 §3** for the authorization core; **0024** for the admin bodies                          | per-function                                  |
+| Layer                                                    | Owner                                                                                                 | Scope                                         |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| 1 — no runtime/control-plane role holds `TEMPORARY`      | **main 0019**                                                                                         | database-wide, every role, present and future |
+| 2 — every `app`/`admin` definer lists `pg_temp` **last** | **main 0019** for the pre-existing set; **0020/0021** create their own definers already pinned        | every definer                                 |
+| 3 — bodies name their schema                             | **0023 §3** for the authorization core; **0024** for the admin bodies; **0025** for the rest of `app` | per-function                                  |
 
 The duplicated remediation was removed rather than maintained twice: 0023 no longer revokes
 `TEMPORARY` or sweeps the pre-existing definers, because 0019 owns both.
@@ -1590,3 +1592,101 @@ hold — an actor who is no user of the tenant is refused, a real user without t
 refused, and a permissioned actor of one tenant cannot act on another — and it carries one case
 that asserts the residual is still open, so that closing it later **fails the suite** and forces
 this section and Section E to be updated rather than quietly outgrown.
+
+## 17. F-B — the three-layer claim, measured
+
+Found by the recovery-step-10 rereview of the head that carried 0024, on a freshly initialised
+PostgreSQL 16 cluster with zero pre-existing `freightos%` roles.
+
+### 17.1 The finding
+
+Migration 0023's header claimed the `pg_temp` class was closed "in three independent layers … any
+one of them stops the attack; all three are applied". A catalog sweep of that head disagreed: **44
+unqualified references to authority relations across 18 functions in schema `app`** — 9 `SECURITY
+DEFINER` and 9 invoker-rights. 0023 §3 had covered the authorization core and 0024 the `admin`
+boundary; nothing had covered the rest.
+
+The layer count for those 18 was therefore:
+
+| Group                            | Layer 1 | Layer 2                        | Layer 3 | Actual           |
+| -------------------------------- | ------- | ------------------------------ | ------- | ---------------- |
+| 9 `app` `SECURITY DEFINER`       | yes     | yes                            | **no**  | two of three     |
+| 9 `app` invoker-rights           | yes     | **not applicable — see below** | **no**  | **one of three** |
+| 23 `admin` definers, 4 scope fns | yes     | yes                            | yes     | three of three   |
+
+Layer 2 cannot reach an invoker-rights function: it runs under the **caller's** `search_path`, where
+`pg_temp` is implicitly searched **first** for relations, and P-01 forbids giving a SQL scope
+function a `proconfig` because that blocks inlining. So for the resolver half, one control stood
+alone — which is the arrangement 0023's own rationale rejects: _"this is an authority boundary and
+one control is not a boundary."_
+
+### 17.2 What was measured, and how
+
+Each layer was removed in turn and the rest measured. Removals were made over a superuser
+connection, modelling an operator re-granting `TEMPORARY` for a reporting role, or a future
+migration replacing a body and dropping the `SET` clause.
+
+| Removed        | `app.release_kill_switch` (definer)            | `app.resolve_kill_switch_mode` (invoker) | `admin.move_organization_node` (0024-qualified) |
+| -------------- | ---------------------------------------------- | ---------------------------------------- | ----------------------------------------------- |
+| nothing (head) | `permission denied to create temporary tables` | same                                     | same                                            |
+| layer 1        | `not releasable by this tenant`                | **`suspended` → `enabled`**              | n/a                                             |
+| layers 1 and 2 | **`RELEASED`**                                 | n/a — it has no layer 2                  | `is not a user of tenant`                       |
+
+Two results matter. Restoring `TEMPORARY` alone — PostgreSQL's own default for every database, and
+nothing else — made an **engaged kill switch invisible to the resolver that decides whether work is
+halted**: fail-open on the Art. V.1 human override. And with both removals, a `freightos_app`
+session **released another tenant's kill switch outright**. The 0024-qualified admin function under
+the identical treatment still refused, which isolates the qualification as the cause rather than
+anything incidental.
+
+The shadow was granted to `PUBLIC` in every case, deliberately: an earlier run of the definer probe
+returned `permission denied for table kill_switches`, which is a denial for the wrong reason — the
+definer role simply had no privilege on the attacker's temp table. Accepting that would have
+recorded a layer that does not exist.
+
+### 17.3 Not exploitable at that head, and why the finding still stands
+
+Layer 1 was intact and is out of reach, measured four ways and asserted in 0025 §2(f)–(g) and in the
+regression suite: only `freightos_migrator` holds `TEMPORARY`; neither runtime role holds it or is a
+member of any role that does; neither can become the database owner to re-grant it; and neither can
+`SET ROLE` to any definer owner, so no pin can be removed from a runtime connection. **No
+exploitable path existed and none was claimed.** What was wrong was the claim, and the fact that a
+single database-level `GRANT` — the kind of thing added for a reporting role without ceremony —
+stood between an engaged kill switch and a fail-open resolver.
+
+### 17.4 The remediation — migration 0025
+
+18 functions, 44 sites, bodies generated from `pg_get_functiondef()` at the pre-0025 head and
+qualified mechanically rather than retyped. Verified on a fresh cluster:
+
+- **No predicate changed.** Every body, with `public.` stripped, is byte-identical to its pre-0025
+  form. Owner, ACL, security mode, volatility, leakproofness, strictness and `search_path` are
+  unchanged on all 48 definers.
+- **Not vacuous.** 18 bodies did change; a run that rewrote nothing would fail.
+- **0 sites in comments or string literals**, and no `public.public.`.
+- **P-01 survives.** No invoker-rights function gained a `proconfig`. The one that carries one is
+  `app.user_has_permission`, pinned by main's 0019 §2b and left untouched. No function called by an
+  RLS policy carries one.
+- **Round trip 25 → 24 → 25 restores exactly**, compared on body, owner, security mode, volatility,
+  `search_path` and ACL together, against a **true** pre-0025 database rather than a down-migrated
+  approximation.
+
+`sr2-definer-body-qualification.test.ts` carries the per-layer measurement as a permanent
+regression, including a positive control — a deliberately unqualified, unpinned probe function that
+**must** fall to the same shadow the real ones resist. Without it, every case in that file could
+pass because `pg_temp` was never consulted at all.
+
+### 17.5 Numbering — the renumber was incomplete
+
+The same rereview found the 0019–0022 → 0020–0023 renumber had been applied to the filenames and to
+three assertion messages but not to the rest: every one of the eight renumbered files still carried
+its old number in its header line, ten `RAISE EXCEPTION` messages in 0020 still cited `0019 §…`
+sections that now belong to the hotfix, and this document cited
+`0019_verified_actor_binding.up.sql`, a path that does not exist. Because it was _partly_ applied,
+the same file said both, so a reader could not apply a mental correction either.
+
+No runtime behaviour depended on it. It is recorded because these are rollback and incident-response
+artifacts for security migrations, and a responder who follows `0020 §4` to migration 0019 finds the
+emergency hotfix instead. All references were corrected, and the three baseline captures were
+renamed to match the migrations that own them (`pre-0020-accessors.sql`, `pre-0021-policies.txt`,
+`post-0021-policies.txt`).

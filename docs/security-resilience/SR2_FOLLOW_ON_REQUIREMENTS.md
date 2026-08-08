@@ -233,7 +233,7 @@ _Identity and organization_: `R/W` for `software_only`/`system`, `R (own)` for
 `service_accounts` inside its own node scope succeeded. No identity policy carried a
 legal-authority-class or operating-context term.
 
-**Closed by migration 0021**, for every resource group that has tables. Audit, kill switches and the
+**Closed by migration 0022**, for every resource group that has tables. Audit, kill switches and the
 nine unbuilt groups are accounted for in `SR2_DATABASE_GATE_EVIDENCE.md` §13.3 — audit and kill
 switches are already compliant or stricter, and the nine stay with the migrations that will create
 their tables, which is where ADR-0019 already assigned them.

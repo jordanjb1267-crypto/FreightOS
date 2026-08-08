@@ -12,7 +12,7 @@ role or permission, and a verified binding.
 
 A "forbidden use" is a raw GUC write that establishes actor, tenant, node, legal or operating
 authority for a `freightos_app` session — that is, a write the database would read as identity.
-After migration 0019 there is no such write anywhere, and there cannot be: the seven authoritative
+After migration 0020 there is no such write anywhere, and there cannot be: the seven authoritative
 accessors take the verified branch for `session_user = 'freightos_app'` and never consult a GUC.
 `scripts/test/sr2-production-boundaries.test.ts` fences both halves of that — the production writer
 set, and the test files permitted to contain a raw write at all.
@@ -24,7 +24,7 @@ are excluded — the enumeration below is code. Three prose matches were checked
 `packages/database/test/integration/authorization-boundary.test.ts:22` and the F-05 block comment in
 `identity-rls.test.ts`, each quoting the escalation it describes.
 
-Line numbers were recomputed against the current head after migrations 0020 and 0021 moved the test
+Line numbers were recomputed against the current head after migrations 0021 and 0022 moved the test
 bodies; the fence in `sr2-production-boundaries.test.ts` fixes the FILE set, which is what cannot
 drift.
 

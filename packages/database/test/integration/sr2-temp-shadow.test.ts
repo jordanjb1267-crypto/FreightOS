@@ -17,7 +17,7 @@ import { seedIdentity, type IdentityFixture } from './identity-harness.ts';
  * PostgreSQL's default PUBLIC grant, so a runtime session could create a table that shadowed the
  * one the resolver reads.
  *
- * Measured before migration 0022, on a session holding a genuine verified binding:
+ * Measured before migration 0023, on a session holding a genuine verified binding:
  *
  *   F-01  shadow `users` and `memberships`, then let the control plane revoke the real membership
  *         and commit. app.current_tenant_id() still returned the tenant on the NEXT statement of
@@ -213,7 +213,7 @@ describe('F-01/F-02 — a caller cannot shadow the relations authorization reads
 
   it('holds even with TEMPORARY granted back — the layers are independent, not one control', async () => {
     // The two cases above pass because the database refuses the DDL, which means they exercise §1
-    // of migration 0022 and nothing else. A three-layer claim that only ever tests the outermost
+    // of migration 0023 and nothing else. A three-layer claim that only ever tests the outermost
     // layer is a one-layer fix with two paragraphs of comment, so this case removes §1 for the
     // duration and asserts the attack still fails on §2 and §3 alone.
     //

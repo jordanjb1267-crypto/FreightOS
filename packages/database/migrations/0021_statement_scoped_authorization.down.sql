@@ -1,8 +1,8 @@
--- 0020 down — restore the exact pre-0020 policy set and the three pre-0020 predicate bodies.
+-- 0021 down — restore the exact pre-0021 policy set and the three pre-0021 predicate bodies.
 --
--- Source of truth for every policy below: docs/security-resilience/sr2-baseline/pre-0020-policies.txt,
+-- Source of truth for every policy below: docs/security-resilience/sr2-baseline/pre-0021-policies.txt,
 -- captured with pg_get_expr() from a database migrated 1..19. Not reconstructed from the migration
--- sources, for the same reason 0019's down capture exists: reverting must reproduce the database
+-- sources, for the same reason 0020's down capture exists: reverting must reproduce the database
 -- 1..19 actually builds, not the one its text describes.
 --
 -- The two scope-set functions are dropped last, after every policy that references them is gone.

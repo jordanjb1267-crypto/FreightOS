@@ -1,9 +1,9 @@
--- 0020 — statement-scoped authorization resolution. P-01.
+-- 0021 — statement-scoped authorization resolution. P-01.
 --
 -- THIS MIGRATION CHANGES NO AUTHORIZATION SEMANTICS. It changes how often the database asks the
 -- same question, and nothing about the answer.
 --
--- THE DEFECT, MEASURED. 0019 made app.verified_principal() re-read the user, the membership and the
+-- THE DEFECT, MEASURED. 0020 made app.verified_principal() re-read the user, the membership and the
 -- service account on every call, deliberately: issuance is not a cache, and a principal revoked
 -- before the next statement must lose authority on that statement. That costs ~2.5 ms per call, and
 -- the policies called it once per ROW of every protected table — and, inside
@@ -41,7 +41,7 @@
 -- per statement, independent of returned rows and of closure cardinality.
 --
 -- WHY THIS IS SAFE, AND WHERE THE LINE IS. An InitPlan is evaluated once per STATEMENT EXECUTION.
--- The next statement is a new execution and resolves again. That is exactly the granularity 0019
+-- The next statement is a new execution and resolves again. That is exactly the granularity 0020
 -- §5 already documents — "a statement already executing completes under the snapshot it acquired at
 -- statement start" — so same-transaction revocation visibility is unchanged and is re-proven by the
 -- gate. What this migration must never become is transaction-scoped or session-scoped memoisation,
@@ -55,7 +55,7 @@
 -- caller can already enumerate through organization_node_closure and service_accounts. There is
 -- nothing a caller can pass them and nothing they reveal that the caller could not already read.
 --
--- SOURCE OF TRUTH FOR EVERY POLICY BELOW: docs/security-resilience/sr2-baseline/pre-0020-policies.txt,
+-- SOURCE OF TRUTH FOR EVERY POLICY BELOW: docs/security-resilience/sr2-baseline/pre-0021-policies.txt,
 -- captured with pg_get_expr() from a database migrated 1..19. The statements are a mechanical
 -- transformation of that capture, not a retyping of the migration sources, and §4 asserts the
 -- result from the catalog afterwards.
@@ -92,7 +92,7 @@ COMMENT ON FUNCTION app.verified_scope_service_account_ids IS
 
 -- The bootstrap graph had the same defect one level down, and the gate is what found it.
 -- app.verified_principal() reads users and memberships as freightos_binding_owner, under the
--- role-disjoint bootstrap policies 0019 §4 created — and those policies called
+-- role-disjoint bootstrap policies 0020 §4 created — and those policies called
 -- app.verified_binding_node_scope_ok() once per row of the table being scanned. Measured: a single
 -- app.current_tenant_id() cost 3,166 shared buffers once `users` held 152 rows and the planner
 -- chose a sequential scan, because each of those rows re-entered session_binding and the closure.
@@ -102,9 +102,9 @@ COMMENT ON FUNCTION app.verified_scope_service_account_ids IS
 -- recursing into the accessors that depend on it. It is bootstrap-only, it is owned by the binding
 -- owner, and scripts/test/sr2-production-boundaries.test.ts already forbids production code from
 -- naming anything matching verified_binding_*.
--- ALTER ... OWNER TO requires the NEW owner to hold CREATE on the schema, and 0019 §11 took that
+-- ALTER ... OWNER TO requires the NEW owner to hold CREATE on the schema, and 0020 §11 took that
 -- back once its own transfers were done. Lent for the one statement and returned immediately, the
--- same shape 0019 §1 uses. Both are inside this migration's single transaction.
+-- same shape 0020 §1 uses. Both are inside this migration's single transaction.
 GRANT CREATE ON SCHEMA app TO freightos_binding_owner;
 
 CREATE FUNCTION app.verified_binding_scope_node_ids() RETURNS SETOF uuid
@@ -127,7 +127,7 @@ REVOKE CREATE ON SCHEMA app FROM freightos_binding_owner;
 
 -- NOBODY BUT THE OWNER MAY EXECUTE THIS, and it is the tightest ACL of the four Layer B helpers on
 -- purpose. The adversarial rereview found this function shipping with the PUBLIC EXECUTE a new
--- function gets by default, while 0019 §9 revoked PUBLIC from every one of its siblings — and it
+-- function gets by default, while 0020 §9 revoked PUBLIC from every one of its siblings — and it
 -- found the accompanying grant to freightos_app unnecessary: with EXECUTE revoked from both PUBLIC
 -- and freightos_app the scoped read still works, because the function is only ever evaluated as
 -- freightos_binding_owner inside app.verified_principal()'s definer context, where the bootstrap
@@ -441,7 +441,7 @@ BEGIN
     RAISE EXCEPTION 'P-01: app.verified_binding_scope_node_ids is executable by more than its owner';
   END IF;
 
-  -- (f) The bootstrap graph is untouched: the four role-disjoint policies 0019 §4 created must
+  -- (f) The bootstrap graph is untouched: the four role-disjoint policies 0020 §4 created must
   -- still name freightos_binding_owner alone and must still use only the non-revalidating helpers.
   IF (SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
        WHERE p.polname LIKE '%\_bootstrap\_read') <> 4 THEN

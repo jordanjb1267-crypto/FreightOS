@@ -1,4 +1,4 @@
--- 0021 — ADR-0019's context capability matrix, enforced. C-01.
+-- 0022 — ADR-0019's context capability matrix, enforced. C-01.
 --
 -- THE CONTRADICTION, MEASURED. ADR-0019's matrix puts "Identity and organization" at R/W for
 -- software_only/system, at "R (own)" for software_only/shipper_owned and
@@ -31,15 +31,15 @@
 -- infrastructure, not one of the matrix's resource groups.
 --
 -- TRUSTED INPUT ONLY. Both predicates read app.current_legal_authority_class() and
--- app.current_operating_context(), which 0019 §6 made binding-derived, fully revalidated and
+-- app.current_operating_context(), which 0020 §6 made binding-derived, fully revalidated and
 -- fail-closed for freightos_app. They are NOT the legacy GUCs for the runtime role, and a session
 -- that forges either GUC moves neither predicate — asserted in gate W.
 --
--- STATEMENT-SCOPED, like everything 0020 established. Both predicates take no argument, so every
--- policy calls them as `(SELECT ...)` and the planner evaluates them once per statement. 0020 §4's
+-- STATEMENT-SCOPED, like everything 0021 established. Both predicates take no argument, so every
+-- policy calls them as `(SELECT ...)` and the planner evaluates them once per statement. 0021 §4's
 -- assertions still hold afterwards and are re-run below.
 --
--- SOURCE OF TRUTH: docs/security-resilience/sr2-baseline/post-0020-policies.txt, captured with
+-- SOURCE OF TRUTH: docs/security-resilience/sr2-baseline/post-0021-policies.txt, captured with
 -- pg_get_expr() from a database migrated 1..20. Mechanical transformation, asserted afterwards.
 
 -- ---------------------------------------------------------------------------
@@ -297,7 +297,7 @@ BEGIN
     RAISE EXCEPTION 'C-01: a capability predicate is not a zero-argument invoker-rights STABLE function';
   END IF;
 
-  -- (d) 0020's property survives: no policy resolves an accessor per row.
+  -- (d) 0021's property survives: no policy resolves an accessor per row.
   SELECT string_agg(c.relname || '.' || p.polname, ', ' ORDER BY c.relname, p.polname)
     INTO v_left
     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid

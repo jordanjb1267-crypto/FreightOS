@@ -281,8 +281,8 @@ describe('SR-2 production boundaries', () => {
  * after. Both are wanted — the catalog check cannot see a migration nobody has run, and this one
  * cannot see a function created by a `DO` block or an `ALTER` in a file it does not parse.
  *
- * Migrations 0001–0021 are excluded BY NUMBER and not by content. They are applied history: their
- * text is checksummed in `schema_migrations`, editing one is a detected corruption, and 0022 is
+ * Migrations 0001–0018 are excluded BY NUMBER and not by content. They are applied history: their
+ * text is checksummed in `schema_migrations`, editing one is a detected corruption, and 0019 is
  * what brings the database they build to the correct state. The floor is the enforcement point.
  */
 describe('SR-2 — migrations do not reintroduce pg_temp shadowing', () => {

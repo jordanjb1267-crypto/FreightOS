@@ -1,4 +1,4 @@
--- 0022 — close relation shadowing through pg_temp. F-01 (CRITICAL) and F-02 (HIGH).
+-- 0023 — close relation shadowing through pg_temp. F-01 (CRITICAL) and F-02 (HIGH).
 --
 -- THE DEFECT. Every authorization function in this schema referenced its tables by unqualified
 -- name. PostgreSQL searches the session's temporary schema FIRST for relations whenever `pg_temp`
@@ -18,7 +18,7 @@
 --   F-02  HIGH. Shadow `organization_node_closure`. app.verified_scope_node_ids() went from 1 node
 --         to 4, and a principal bound at the TERMINAL node read a user row on the legal-entity node
 --         above it. Node scope became caller-determined. Verified PRE-EXISTING: the identical
---         attack succeeds against migrations 1..19, so 0020 carried the pattern forward rather than
+--         attack succeeds against migrations 1..20, so 0021 carried the pattern forward rather than
 --         creating it.
 --
 -- SCOPE IS WIDER THAN THE TWO FINDINGS. A catalog sweep found 46 functions referencing protected
@@ -27,8 +27,16 @@
 -- fire in the caller's own session. Fixing only the two reported symptoms would have left the class
 -- open, so this closes the class.
 --
--- THE FIX, IN THREE INDEPENDENT LAYERS. Any one of them stops the attack; all three are applied
--- because this is an authority boundary and one control is not a boundary.
+-- THE FIX, IN THREE INDEPENDENT LAYERS. Any one of them stops the attack, and this is an authority
+-- boundary, so one control is not a boundary.
+--
+-- CORRECTED AFTER THE FACT — read this before relying on the sentence above. As shipped, this
+-- migration applied §3 to the authorization core only. Everything else in schema `app` had §1 and
+-- §2, and its nine invoker-rights functions had §1 alone, because §2 cannot reach a function that
+-- runs under the caller's search_path. Migration 0024 closed the admin boundary and 0025 closed the
+-- rest of `app`; finding F-B and the per-layer measurement are in
+-- packages/database/test/integration/sr2-definer-body-qualification.test.ts. The three-layer claim
+-- is true of this database at 0025, not at 0023.
 --
 --   §1  The runtime role loses TEMPORARY. It already holds CREATE on no schema — measured — so
 --       pg_temp was its only route to introducing a relation at all. This closes the class for
@@ -37,7 +45,8 @@
 --   §2  Every SR-2 SECURITY DEFINER lists `pg_temp` LAST in its search_path. Listing it explicitly
 --       is what demotes it; the position is the whole point.
 --   §3  The authorization core schema-qualifies its relation references, so it is correct under any
---       search_path a caller could arrange, including one this migration did not anticipate.
+--       search_path a caller could arrange, including one this migration did not anticipate. THE
+--       CORE ONLY — see the correction above. 0024 and 0025 extend §3 to the rest of the surface.
 --
 -- WHY NOT ONLY §3. Schema-qualification is per-function and 46 functions is a moving target; a new
 -- one added later would reopen the hole silently. §1 makes the vector unavailable, §4 asserts it,
@@ -51,7 +60,7 @@
 -- §3. The authorization core names its schema.
 --
 -- These are the functions that DECIDE authority in an untrusted session. Bodies are otherwise
--- unchanged — same predicates, same volatility, same security mode, same hoisting 0020 established,
+-- unchanged — same predicates, same volatility, same security mode, same hoisting 0021 established,
 -- so plan shapes and the P-01 property are untouched.
 -- ---------------------------------------------------------------------------
 
@@ -135,7 +144,7 @@ RESET ROLE;
 REVOKE CREATE ON SCHEMA app FROM freightos_binding_owner;
 
 -- The invoker-rights sets and predicates. No SET clause is added: a proconfig would block SQL
--- function inlining, and 0020's measured plan shapes depend on the planner's freedom here.
+-- function inlining, and 0021's measured plan shapes depend on the planner's freedom here.
 -- Schema-qualification costs nothing and is what makes them correct under any search_path.
 
 CREATE OR REPLACE FUNCTION app.verified_scope_node_ids() RETURNS SETOF uuid
@@ -181,7 +190,7 @@ AS $$
 $$;
 
 -- app.current_human_principal() belongs to the hierarchy owner, which needs the schema privilege
--- back for the duration exactly as 0018 and 0019's down do.
+-- back for the duration exactly as 0018 and 0020's down do.
 GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
 SET LOCAL ROLE freightos_hierarchy_owner;
 CREATE OR REPLACE FUNCTION app.current_human_principal() RETURNS uuid
@@ -252,7 +261,7 @@ BEGIN
     RAISE EXCEPTION 'F-02: authorization core still reads an unqualified relation: %', v_left;
   END IF;
 
-  -- (e) 0020's property survives: the invoker-rights sets gained no proconfig, which would have
+  -- (e) 0021's property survives: the invoker-rights sets gained no proconfig, which would have
   -- blocked inlining and changed the plan shapes P-01 depends on.
   IF EXISTS (
     SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

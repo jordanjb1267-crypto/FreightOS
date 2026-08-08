@@ -1,10 +1,10 @@
--- 0022 down — restore the pre-0022 database exactly, including the defect.
+-- 0023 down — restore the pre-0023 database exactly, including the defect.
 --
 -- A down migration reverts a change; it does not editorialise about whether the change was a good
--- one. Reverting past 0022 REOPENS F-01 and F-02, and that is the correct behaviour: 21 is a state
--- this repository shipped and the round-trip proof compares against what 0020 and 0021 actually
+-- one. Reverting past 0023 REOPENS F-01 and F-02, and that is the correct behaviour: 22 is a state
+-- this repository shipped and the round-trip proof compares against what 0021 and 0022 actually
 -- built, not against what is safe. The reproducers in
--- packages/database/test/integration/sr2-temp-shadow.test.ts fail against 21 by design.
+-- packages/database/test/integration/sr2-temp-shadow.test.ts fail against 22 by design.
 --
 -- Three things are restored, in reverse order of the up: the unqualified bodies, the search_paths
 -- without pg_temp, and PUBLIC's TEMPORARY grant on the database.
@@ -12,7 +12,7 @@
 -- ---------------------------------------------------------------------------
 -- §3'. The authorization core stops naming its schema.
 --
--- Bodies restored verbatim from 0019 §3/§6 and 0020 §1/§2 — including their in-body comments, which
+-- Bodies restored verbatim from 0020 §3/§6 and 0021 §1/§2 — including their in-body comments, which
 -- are part of prosrc and therefore part of the digest the migration proof compares.
 -- ---------------------------------------------------------------------------
 
@@ -141,7 +141,7 @@ AS $$
 $$;
 
 -- app.current_human_principal() is the hierarchy owner's, and CREATE OR REPLACE needs the schema
--- privilege 0019 §11 took back. Lent and returned, the same shape the up uses.
+-- privilege 0020 §11 took back. Lent and returned, the same shape the up uses.
 GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
 SET LOCAL ROLE freightos_hierarchy_owner;
 CREATE OR REPLACE FUNCTION app.current_human_principal() RETURNS uuid
