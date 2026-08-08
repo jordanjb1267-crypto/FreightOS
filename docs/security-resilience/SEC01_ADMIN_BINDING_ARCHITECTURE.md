@@ -216,7 +216,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE freightos_admin_owner IN SCHEMA admin
 
 That form cannot work, and its failure says nothing about the feature. PostgreSQL's
 EXECUTE-to-PUBLIC default for functions is a **global, built-in** default. `IN SCHEMA` creates a
-*schema-scoped* default entry, and a schema-scoped `REVOKE` can only subtract from a schema-scoped
+_schema-scoped_ default entry, and a schema-scoped `REVOKE` can only subtract from a schema-scoped
 default — of which there is none. `pg_default_acl` gains no row and the built-in global default
 still applies.
 
@@ -253,7 +253,7 @@ somebody else". That observation was correct but unexplained. Reproduced minimal
 schema, one grant), the mechanism is that the statement carries **two** authorization requirements
 and only surfaces one:
 
-- To **run at all**, the current user must hold the privileges *of* the target role. Otherwise:
+- To **run at all**, the current user must hold the privileges _of_ the target role. Otherwise:
   `ERROR: permission denied to drop objects`.
 - To **actually revoke** a grant the target role holds, the current user must be able to revoke that
   grant — be its grantor, or hold the grantor's privileges. When it cannot, PostgreSQL emits
@@ -261,7 +261,7 @@ and only surfaces one:
   success**.
 
 Run as the registry owner itself, the first requirement is trivially met and the second fails for
-every grant issued by another owner. Only a role holding both sets of privileges *with INHERIT* — or
+every grant issued by another owner. Only a role holding both sets of privileges _with INHERIT_ — or
 a superuser — satisfies both at once; the migrator holds every owner role `WITH INHERIT FALSE`, so
 `SET ROLE` gives it one at a time and never both. **Explicit `REVOKE`s issued by each grantor are the
 only correct construction**, which is what 0026's down migration does.

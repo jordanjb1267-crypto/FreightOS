@@ -490,10 +490,14 @@ describe('self-elevation is refused', () => {
   });
 
   it('refuses an administrator granting itself a membership', async () => {
-    const result = await boundary(
-      'SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)',
-      [TENANT_A, a.adminUserId, a.legalEntityNodeId, a.legalEntityId, PURPOSE, randomUUID()],
-    );
+    const result = await boundary('SELECT * FROM admin.grant_membership($1, $2, $3, $4, $5, $6)', [
+      TENANT_A,
+      a.adminUserId,
+      a.legalEntityNodeId,
+      a.legalEntityId,
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(result.outcome).toBe('failed');
     expect(result.message).toMatch(/may not grant itself a membership/);
   });
@@ -597,10 +601,13 @@ describe('self-elevation is refused', () => {
     //
     // Naming an actor that does not hold the permission would test the gate instead and lose this
     // guard's coverage entirely; that case is the separate `denied` test below.
-    const result = await boundary(
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
-      [TENANT_A, a.adminRoleId, 'identity.user.write', PURPOSE, randomUUID()],
-    );
+    const result = await boundary('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
+      TENANT_A,
+      a.adminRoleId,
+      'identity.user.write',
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(result.outcome).toBe('failed');
     expect(result.message).toMatch(/may not add a permission to a role it holds/);
   });
@@ -637,10 +644,13 @@ describe('self-elevation is refused', () => {
     );
     const roleId = role.rows[0]!.payload['role_id'] as string;
 
-    const result = await boundary(
-      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
-      [TENANT_A, roleId, 'identity.role.write', PURPOSE, randomUUID()],
-    );
+    const result = await boundary('SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)', [
+      TENANT_A,
+      roleId,
+      'identity.role.write',
+      PURPOSE,
+      randomUUID(),
+    ]);
     expect(result.outcome, result.message ?? '').toBe('succeeded');
   });
 });
@@ -1067,9 +1077,9 @@ describe('self-elevation cannot be stood down — F-01, R2-01', () => {
     // The service account itself is still not a user, asserted where that fact now lives: the
     // resolver refuses to bind a login to it at all, because `authn.provision_operator` requires a
     // row in `users` and a service account is not one.
-    await expect(
-      db.provisionOperator('svcacct', TENANT_A, a.serviceAccountId),
-    ).rejects.toThrow(/is not a user of tenant|not an active user/i);
+    await expect(db.provisionOperator('svcacct', TENANT_A, a.serviceAccountId)).rejects.toThrow(
+      /is not a user of tenant|not an active user/i,
+    );
   });
 
   it('still lets an administrator grant authority to somebody else', async () => {

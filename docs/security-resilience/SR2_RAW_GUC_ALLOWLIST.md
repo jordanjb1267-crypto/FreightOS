@@ -103,10 +103,10 @@ on itself and this write can only ever be the attack.
 
 ### 3d. Claims layered on live verified sessions, with in-scope positive peers
 
-| File                                                            | Lines                              | Disposition                                                             |
-| --------------------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------- |
-| `packages/database/test/integration/identity-rls.test.ts`       | 402, 540, 541, 995, 996, 997, 1000 | **PERMITTED — attack over a real binding, or privileged setup**         |
-| `packages/database/test/integration/identity-lifecycle.test.ts` | 474, 485, 1012              | **PERMITTED — attack over a real binding, over an unbound session, and over an authenticated administrator** |
+| File                                                            | Lines                              | Disposition                                                                                                  |
+| --------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `packages/database/test/integration/identity-rls.test.ts`       | 402, 540, 541, 995, 996, 997, 1000 | **PERMITTED — attack over a real binding, or privileged setup**                                              |
+| `packages/database/test/integration/identity-lifecycle.test.ts` | 474, 485, 1012                     | **PERMITTED — attack over a real binding, over an unbound session, and over an authenticated administrator** |
 
 - `identity-rls.test.ts:402` is an actor name on a **`postgres`** connection, so that the F-01
   self-elevation guard is satisfied and the foreign key is what has to hold. Not a runtime session.

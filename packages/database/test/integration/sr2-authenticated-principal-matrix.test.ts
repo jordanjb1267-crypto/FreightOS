@@ -219,7 +219,9 @@ describe('B — authority cannot spread under a borrowed identity', () => {
   it('refuses grant_role_permission from the shared connection, at the identity boundary', async () => {
     const { roleId, key } = await grantablePair();
     const correlationId = randomUUID();
-    const r = outcome(await call(shared, GRANT_PERM, [TENANT_A, roleId, key, PURPOSE, correlationId]));
+    const r = outcome(
+      await call(shared, GRANT_PERM, [TENANT_A, roleId, key, PURPOSE, correlationId]),
+    );
     expect(r.outcome).toBe('denied');
     // Not the catalog check, not self-elevation, not the uniqueness index — each of those was
     // observed masking this exact case, so each is excluded explicitly.
@@ -396,10 +398,11 @@ describe('F — authenticated A cannot become B', () => {
     // because "unreachable" is a claim that rots quietly when a grant is added later.
     const r = await call(opA, 'SELECT app.current_actor_id()', []);
     expect(raised(r).raised).toMatch(/permission denied for schema app/);
-    const usage = await su.query<{ ok: boolean }>(
-      'SELECT has_schema_privilege($1, $2, $3) AS ok',
-      [opARole, 'app', 'USAGE'],
-    );
+    const usage = await su.query<{ ok: boolean }>('SELECT has_schema_privilege($1, $2, $3) AS ok', [
+      opARole,
+      'app',
+      'USAGE',
+    ]);
     expect(usage.rows[0]!.ok).toBe(false);
   });
 

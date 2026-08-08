@@ -129,21 +129,25 @@ describe('layer 2 — default creation ACL', () => {
       [role],
     );
     expect(r.rowCount, `${role} has no default function privilege entry at all`).toBe(1);
-    expect(r.rows[0]!.ns, 'the entry is schema-scoped, which cannot remove the global default').toBe(
-      0,
-    );
+    expect(
+      r.rows[0]!.ns,
+      'the entry is schema-scoped, which cannot remove the global default',
+    ).toBe(0);
   });
 
-  it.each(DEFINER_OWNERS)('PUBLIC holds nothing in %s default function privileges', async (role) => {
-    const r = await su.query<{ priv: string }>(
-      `SELECT a.privilege_type AS priv
+  it.each(DEFINER_OWNERS)(
+    'PUBLIC holds nothing in %s default function privileges',
+    async (role) => {
+      const r = await su.query<{ priv: string }>(
+        `SELECT a.privilege_type AS priv
          FROM pg_default_acl d
          CROSS JOIN LATERAL aclexplode(d.defaclacl) a
         WHERE d.defaclrole = $1::regrole AND d.defaclobjtype = 'f' AND a.grantee = 0`,
-      [role],
-    );
-    expect(r.rows.map((x) => x.priv)).toEqual([]);
-  });
+        [role],
+      );
+      expect(r.rows.map((x) => x.priv)).toEqual([]);
+    },
+  );
 
   it('the default grants EXECUTE to nobody but the owner', async () => {
     // 0026 §6c deliberately does NOT pair the revoke with a default grant to freightos_admin: a
@@ -320,8 +324,12 @@ describe('the role and grant boundary — SEC-01', () => {
     // in that path could write it, the whole chain would be circular — which is precisely why the
     // registry is owned by a role that is not freightos_admin_owner.
     const reachers: string[] = [];
-    for (const role of ['freightos_admin', 'freightos_app', 'freightos_control_plane',
-                        'freightos_admin_owner']) {
+    for (const role of [
+      'freightos_admin',
+      'freightos_app',
+      'freightos_control_plane',
+      'freightos_admin_owner',
+    ]) {
       for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'REFERENCES', 'TRIGGER']) {
         const r = await su.query<{ ok: boolean }>(
           `SELECT has_table_privilege($1, 'authn.operator_binding', $2) AS ok`,

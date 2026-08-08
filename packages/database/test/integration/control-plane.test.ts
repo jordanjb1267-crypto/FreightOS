@@ -359,12 +359,11 @@ describe('the administrative connection reaches tables only through functions', 
   it('provisions a tenant through the approved function', async () => {
     const newTenant = randomUUID();
     const correlation = randomUUID();
-    const result = await call(operatorConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
-      newTenant,
-      'Provisioned Co',
-      'tenant_provisioning',
-      correlation,
-    ]);
+    const result = await call(
+      operatorConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`,
+      [newTenant, 'Provisioned Co', 'tenant_provisioning', correlation],
+    );
 
     expect(result.outcome).toBe('succeeded');
     expect(result.audit_event_id).toBeTruthy();
@@ -389,12 +388,11 @@ describe('the administrative connection reaches tables only through functions', 
   });
 
   it('records a failure without changing anything', async () => {
-    const result = await call(operatorConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
-      TENANT_A,
-      'Duplicate',
-      'tenant_provisioning',
-      randomUUID(),
-    ]);
+    const result = await call(
+      operatorConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`,
+      [TENANT_A, 'Duplicate', 'tenant_provisioning', randomUUID()],
+    );
     expect(result.outcome).toBe('failed');
 
     const row = await auditRow(result.audit_event_id!);
@@ -583,12 +581,11 @@ describe('a privileged call fails closed', () => {
   });
 
   it('refuses a status outside the tenant lifecycle vocabulary', async () => {
-    const result = await call(operatorConn, `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4)`, [
-      TENANT_A,
-      'deleted',
-      'tenant_lifecycle',
-      randomUUID(),
-    ]);
+    const result = await call(
+      operatorConn,
+      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4)`,
+      [TENANT_A, 'deleted', 'tenant_lifecycle', randomUUID()],
+    );
     expect(result.outcome).toBe('denied');
     expect(result.message).toContain('not a tenant lifecycle state');
   });
@@ -640,9 +637,7 @@ describe('the four actor refusals, at the layer they now live', () => {
 
   it('an authenticated login bound to no principal cannot act, and leaves no human behind', async () => {
     const correlationId = randomUUID();
-    const before = await admin.query<{ n: string }>(
-      'SELECT count(*)::text AS n FROM tenants',
-    );
+    const before = await admin.query<{ n: string }>('SELECT count(*)::text AS n FROM tenants');
     await expect(
       unbound.query(`SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
         randomUUID(),
@@ -977,12 +972,11 @@ describe('privileged audit records carry non-forgeable provenance — F-06', () 
 
   it('stamps the authenticated connection, and it agrees with the recorded actor', async () => {
     const correlationId = randomUUID();
-    const result = await call(operatorConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
-      randomUUID(),
-      'F-06 Tenant',
-      'tenant_provisioning',
-      correlationId,
-    ]);
+    const result = await call(
+      operatorConn,
+      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`,
+      [randomUUID(), 'F-06 Tenant', 'tenant_provisioning', correlationId],
+    );
     expect(result.outcome, result.message ?? '').toBe('succeeded');
 
     const row = await recordFor(correlationId);
@@ -1030,12 +1024,11 @@ describe('privileged audit records carry non-forgeable provenance — F-06', () 
     // refusal rather than a rejected actor type, because a rejected actor type is no longer
     // reachable from here — see "the four actor refusals, at the layer they now live".
     const correlationId = randomUUID();
-    const result = await call(operatorConn, `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4)`, [
-      TENANT_A,
-      'suspended',
-      'audit_export',
-      correlationId,
-    ]);
+    const result = await call(
+      operatorConn,
+      `SELECT * FROM admin.set_tenant_status($1, $2, $3, $4)`,
+      [TENANT_A, 'suspended', 'audit_export', correlationId],
+    );
     expect(result.outcome).toBe('denied');
 
     const row = await recordFor(correlationId);
@@ -1100,11 +1093,12 @@ describe('denial audit is transaction-bound — F-07', () => {
   it('keeps the denial when the caller commits', async () => {
     const correlationId = randomUUID();
     await adminConn.query('BEGIN');
-    const result = await call(
-      adminConn,
-      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`,
-      [randomUUID(), 'F-07 Committed', 'audit_export', correlationId],
-    );
+    const result = await call(adminConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
+      randomUUID(),
+      'F-07 Committed',
+      'audit_export',
+      correlationId,
+    ]);
     // Wrong purpose for this operation, so it is refused.
     expect(result.outcome).toBe('denied');
     await adminConn.query('COMMIT');
@@ -1115,11 +1109,12 @@ describe('denial audit is transaction-bound — F-07', () => {
   it('loses the denial when the caller rolls back — the stated limit', async () => {
     const correlationId = randomUUID();
     await adminConn.query('BEGIN');
-    const result = await call(
-      adminConn,
-      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`,
-      [randomUUID(), 'F-07 Rolled back', 'audit_export', correlationId],
-    );
+    const result = await call(adminConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
+      randomUUID(),
+      'F-07 Rolled back',
+      'audit_export',
+      correlationId,
+    ]);
     expect(result.outcome).toBe('denied');
     await adminConn.query('ROLLBACK');
 
@@ -1133,11 +1128,12 @@ describe('denial audit is transaction-bound — F-07', () => {
     // call changed nothing. Losing the evidence never means losing the refusal.
     const tenantId = randomUUID();
     await adminConn.query('BEGIN');
-    const result = await call(
-      adminConn,
-      `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`,
-      [tenantId, 'F-07 Never created', 'audit_export', randomUUID()],
-    );
+    const result = await call(adminConn, `SELECT * FROM admin.provision_tenant($1, $2, $3, $4)`, [
+      tenantId,
+      'F-07 Never created',
+      'audit_export',
+      randomUUID(),
+    ]);
     expect(result.outcome).toBe('denied');
     await adminConn.query('COMMIT');
 

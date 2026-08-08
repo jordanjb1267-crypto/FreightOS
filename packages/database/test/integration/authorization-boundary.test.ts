@@ -432,9 +432,7 @@ describe('the administrative boundary gates every mutation — R2-01', () => {
         return r.rows[0]!.id;
       },
     );
-    const doomed = db.connectAsOperator(
-      await db.provisionOperator('doomed', TENANT_A, doomedUser),
-    );
+    const doomed = db.connectAsOperator(await db.provisionOperator('doomed', TENANT_A, doomedUser));
     await doomed.connect();
     try {
       await withLegalContext(

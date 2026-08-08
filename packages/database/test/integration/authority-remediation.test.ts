@@ -406,11 +406,7 @@ describe('§3 naming another principal does not confer their authority — RC-C'
       /does not hold/,
     ],
     ['a target in another tenant', () => bAdminConn, /is not a user of tenant/],
-    [
-      'an unlisted platform actor',
-      () => unlistedConn,
-      /is not an approved provisioning identity/,
-    ],
+    ['an unlisted platform actor', () => unlistedConn, /is not an approved provisioning identity/],
   ];
 
   for (const [name, client, message] of authenticated) {

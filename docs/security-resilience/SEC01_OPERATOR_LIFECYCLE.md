@@ -13,14 +13,14 @@ true this document says so rather than describing something that does not exist.
 
 ## 1. The chain, and where each link is enforced
 
-| Link | Enforced by | Fails how |
-| --- | --- | --- |
-| The operator authenticates to PostgreSQL as their own role | the server, before any SQL runs | connection refused |
-| `session_user` is immutable for the life of the connection | PostgreSQL — no statement can change it | n/a |
-| The role maps to exactly one FreightOS principal | `authn.operator_binding`, on `role_oid` **and** `role_name` | resolves to nothing → the call raises |
-| The mapped user is active | `authn.authenticated_principal()` re-reads `public.users` on every call | resolves to nothing → the call raises |
-| The principal holds the required permission | `admin.authorization_refusal_reason` | `denied`, with an audit row |
-| Provenance | derived from the same resolved principal | there is no other source |
+| Link                                                       | Enforced by                                                             | Fails how                             |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------- |
+| The operator authenticates to PostgreSQL as their own role | the server, before any SQL runs                                         | connection refused                    |
+| `session_user` is immutable for the life of the connection | PostgreSQL — no statement can change it                                 | n/a                                   |
+| The role maps to exactly one FreightOS principal           | `authn.operator_binding`, on `role_oid` **and** `role_name`             | resolves to nothing → the call raises |
+| The mapped user is active                                  | `authn.authenticated_principal()` re-reads `public.users` on every call | resolves to nothing → the call raises |
+| The principal holds the required permission                | `admin.authorization_refusal_reason`                                    | `denied`, with an audit row           |
+| Provenance                                                 | derived from the same resolved principal                                | there is no other source              |
 
 `SET ROLE` moves `current_user` and leaves `session_user` alone. That is why `session_user` is the
 anchor: inside a `SECURITY DEFINER`, `current_user` is already the function owner, so a definer that
@@ -52,7 +52,7 @@ SELECT authn.provision_operator('ops_jane', :tenant_id, :user_id, 'ticket REQ-12
 ```
 
 Step 2 is the shape that makes `freightos_admin` a **capability rather than an identity**. Holding
-it grants EXECUTE on the sixteen entry points and nothing more; who the caller *is* comes from
+it grants EXECUTE on the sixteen entry points and nothing more; who the caller _is_ comes from
 step 3. `SET FALSE` is the load-bearing half — with `SET TRUE`, an operator could become
 `freightos_admin` and `session_user` would still be `ops_jane`, but nothing else in the chain would
 change, so the property survives either way. It is set to FALSE because there is no reason for an
@@ -82,13 +82,13 @@ confers no identity-administration authority.
 
 ## 3. Changing — what requires a re-bind
 
-| Change | Action |
-| --- | --- |
-| The person's name, contact details, display name | nothing — the binding is on `user_id` |
-| The person's memberships, roles, permissions | nothing — authorization is resolved per call |
-| The person's tenant | revoke and re-provision; a binding names exactly one tenant |
-| The login role is dropped and recreated under the same name | **revoke and re-provision** — see below |
-| The person leaves | revoke (§4) |
+| Change                                                      | Action                                                      |
+| ----------------------------------------------------------- | ----------------------------------------------------------- |
+| The person's name, contact details, display name            | nothing — the binding is on `user_id`                       |
+| The person's memberships, roles, permissions                | nothing — authorization is resolved per call                |
+| The person's tenant                                         | revoke and re-provision; a binding names exactly one tenant |
+| The login role is dropped and recreated under the same name | **revoke and re-provision** — see below                     |
+| The person leaves                                           | revoke (§4)                                                 |
 
 ### Why drop-and-recreate needs a re-bind
 
@@ -155,7 +155,7 @@ Three arrangements are sound:
 2. **No pool.** Open a connection per administrative operation and close it. Administrative
    operations are rare and not latency-critical; this is a legitimate choice and is what the
    integration suite does.
-3. **Session-level pooling with a reset.** A pooler in *session* mode may reuse a connection for the
+3. **Session-level pooling with a reset.** A pooler in _session_ mode may reuse a connection for the
    same login role. It must not multiplex different logins onto one backend, and it must issue
    `DISCARD ALL` between leases so no `SET`/`SET LOCAL` state crosses a boundary.
 

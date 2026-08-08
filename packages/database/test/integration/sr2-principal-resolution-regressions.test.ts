@@ -216,9 +216,10 @@ describe('defect 2 — GRANT SELECT is not read access under FORCE RLS', () => {
     const forced = await su.query<{ relforcerowsecurity: boolean }>(
       `SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.users'::regclass`,
     );
-    expect(forced.rows[0]!.relforcerowsecurity, 'FORCE RLS is off, so this test proves nothing').toBe(
-      true,
-    );
+    expect(
+      forced.rows[0]!.relforcerowsecurity,
+      'FORCE RLS is off, so this test proves nothing',
+    ).toBe(true);
 
     const policy = await su.query<{ policyname: string; cmd: string; roles: string }>(
       `SELECT policyname, cmd, roles::text AS roles FROM pg_policies

@@ -389,7 +389,9 @@ describe('SEC-01 — no production caller supplies a human identity', () => {
     // Nothing in the application tier has any business reading or writing it — provisioning is a
     // deployment act performed by the migrator, and resolution happens inside the definers. A
     // production file that names the table is a widening even if it only reads.
-    expect(filesContaining(/operator_binding|authn\.provision_|authn\.revoke_operator/)).toEqual([]);
+    expect(filesContaining(/operator_binding|authn\.provision_|authn\.revoke_operator/)).toEqual(
+      [],
+    );
   });
 
   it('keeps the shared administrative role name out of every authority decision', () => {
