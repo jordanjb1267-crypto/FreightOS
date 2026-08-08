@@ -241,3 +241,56 @@ their tables, which is where ADR-0019 already assigned them.
 **This addendum is retained rather than deleted** because the way the gap survived is the reusable
 lesson: the test that claimed the cell passed for four migrations, on a row written outside the node
 its context named. A denial is only evidence when it is the right denial.
+
+---
+
+## Section E — CONTROL-PLANE ACTOR AUTHENTICITY (finding F-A)
+
+```
+CONTROL_PLANE_ACTOR_AUTHENTICITY=UNRESOLVED
+```
+
+### What was measured
+
+Two paths were probed for whether a holder of a legitimate connection role can name somebody else
+as the authoritative actor. Measured on a fresh cluster at migration 23:
+
+| Path                                                                                   | Result                                                                                                                                                              |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `freightos_app` + `set_config('app.actor_id', 'user:<real admin>')`                    | **CLOSED by SR-2.** Every accessor returns NULL — `human`, `tenant`, `actor` — and the session reads zero rows. A raw GUC establishes nothing for the runtime role. |
+| `freightos_admin` + `p_actor => 'user:<real admin>'` on `admin.move_organization_node` | **OPEN.** Returns `succeeded`, mutates the real `organization_node_closure`, and writes an audit row attributing the change to the borrowed human.                  |
+
+Bounded by measurement, so the severity is not overstated: the permission check genuinely bites — a
+real user who does **not** hold the required permission is refused — and no cross-tenant read was
+achieved. The exposure is impersonation of an **already-privileged** human within a tenant, and the
+forging of that human's provenance on a consequential command.
+
+### Why this is not closable inside SR-2
+
+It is the documented trust anchor, not an oversight. Migration 0020 §7 says of the mint:
+
+> This does NOT authenticate anybody. It records that something already holding control-plane
+> credentials asserted an authentication result — **the same trust anchor `admin.*` already rests
+> on**, and the only one available until a production adapter exists.
+
+ADR-0027 §7 records the matching decision: no authentication provider ships, and SR-2 deliberately
+does not fabricate one. So the chain bottoms out at _whoever holds the control-plane credential_.
+Making `admin.*` verify `p_actor` against a binding does not help, because minting a binding
+requires exactly that credential — the caller would simply mint one naming the principal it wants.
+Any "fix" inside SR-2 would be inventing the identity provider ADR-0027 forbids inventing.
+
+### Positive acceptance criteria for a future change
+
+A change closes this when the actor of a privileged `admin.*` call is derived from something the
+calling connection cannot choose. The two candidates, neither of which is SR-2 scope:
+
+1. **Per-operator login roles.** Each human control-plane operator authenticates as their own
+   database role; `admin.*` requires `p_actor` to match `session_user`'s mapped principal, so
+   naming another human is refused by the database rather than trusted. Changes the deployment
+   model ADR-0020 describes, and needs a role-provisioning story.
+2. **A real authentication provider** behind `packages/context/src/authentication-boundary.ts`,
+   with `admin.*` consuming its assertion rather than a text parameter.
+
+Until then the honest statement is the one this section makes: a control-plane credential _is_ the
+authority, and the audit ledger records the actor that credential claimed. Do not describe the
+admin boundary as proving who the human was.
