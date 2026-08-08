@@ -194,3 +194,44 @@ could authenticate one.
 - **No authentication provider.** The database authenticates the login; who is behind that login is
   the cluster administrator's provisioning decision, recorded in `authn.operator_binding` with the
   reason string the deployment supplied.
+
+---
+
+## 7. Migration-owned vs harness-owned security state
+
+Design A makes a **PostgreSQL login role** the trust anchor, which means the test suite has to
+create real login roles to exercise it. PostgreSQL roles are **cluster-global**, so those identities
+are not confined to the database that created them, and neither is `pg_auth_members`. That produces
+a distinction worth naming, because a reviewer meeting it for the first time in a test exclusion
+could reasonably mistake it for hidden role drift.
+
+**Migration-owned security state.** Objects, roles and grants whose existence and shape are produced
+by the FreightOS migration sequence: the `freightos_*` roles and their memberships, and every table,
+policy, function, ACL, constraint and index in `public`, `app` and `admin`. A down→up cycle must
+reproduce all of it identically. `sr2-binding-structure.test.ts` gate U asserts exactly that.
+
+**Harness-owned security state.** Per-test operator login identities, named
+`op_<database digest>_<label>` by `TestDatabase.operatorRoleName`. These exist to exercise
+PostgreSQL authentication semantics. No migration creates one, no migration drops one, and a down→up
+cycle neither should nor could reproduce them.
+
+Harness identities are therefore **excluded from migration equality and asserted against their own
+contract instead** — which is strictly more than the inventory comparison ever checked:
+
+| Property                                                          | Requirement                                                                       |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| membership in `freightos_admin`                                   | exactly one row, `INHERIT = TRUE`, `SET = FALSE`, `ADMIN OPTION = FALSE`          |
+| any other outbound membership                                     | none — asserted as an exact set, not "contains"                                   |
+| membership **in** the operator                                    | none — an operator identity is a leaf, never a capability another principal holds |
+| `LOGIN`                                                           | true                                                                              |
+| `SUPERUSER`, `CREATEROLE`, `CREATEDB`, `REPLICATION`, `BYPASSRLS` | all false                                                                         |
+
+`SET = FALSE` is the security-critical one. An operator that could `SET ROLE freightos_admin` would
+replace its identity-bearing execution context with the shared capability role — the substitution
+SEC-01 exists to prevent. `ADMIN OPTION = FALSE` stops an operator delegating the capability
+onwards. Attributes SR-2 does not govern — connection limit, password validity — are deliberately
+not asserted; they are deployment policy rather than part of this provisioning contract.
+
+The gate provisions **its own** operator as the subject rather than relying on one existing.
+"At least one operator exists" is exactly as scheduling-dependent as the comparison it replaced, and
+a universal assertion over a possibly-empty set passes vacuously.

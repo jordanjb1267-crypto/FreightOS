@@ -837,6 +837,31 @@ describe('gate U — full round trip reproduces the same inventory', () => {
       (await client.query<{ line: string }>(sql)).rows.map((r) => r.line);
 
     return {
+      // ── TWO KINDS OF SECURITY STATE, AND WHY ONLY ONE ROUND-TRIPS ───────────────────────────
+      //
+      // MIGRATION-OWNED. Objects, roles and grants whose existence and shape are produced by the
+      // FreightOS migration sequence. `freightos_*` roles, their memberships, every table, policy,
+      // function, ACL, constraint and index in public/app/admin. A down→up cycle must reproduce all
+      // of it identically, and that equality is the whole assertion of this gate.
+      //
+      // HARNESS-OWNED. Per-test operator LOGIN identities (`op_<digest>_<label>`) provisioned to
+      // exercise PostgreSQL authentication semantics — the thing Design A makes the trust anchor.
+      // These are CLUSTER artifacts created by tests, not migration outputs. No migration creates
+      // one, no migration drops one, and a down→up cycle neither should nor could reproduce them.
+      //
+      // THE EXCLUSION BELOW IS NOT DRIFT-HIDING. Harness identities are excluded from migration
+      // EQUALITY and then asserted against a strict independent contract further down: exact
+      // outbound membership, no reverse edge, and every privilege-bearing role attribute. A role
+      // that drifted would fail there. What is removed is a comparison that could only ever fail
+      // for a reason no migration controls; what replaces it is stronger than what it replaced,
+      // because the old inventory only recorded that the memberships existed and never checked
+      // that SET was FALSE.
+      //
+      // The rule for anything added here later: if an assertion concerns migration-owned state,
+      // constrain the query to migration-owned objects. If it concerns a harness identity,
+      // provision a test-owned subject and assert its shape directly. Do not serialize the suite to
+      // make a cluster-global query look deterministic — that hides the race rather than removing
+      // it, and it would come back the moment the suite is run any other way.
       roles: await one(
         `SELECT format('%s super=%s login=%s bypassrls=%s createdb=%s createrole=%s inherit=%s',
                        rolname, rolsuper, rolcanlogin, rolbypassrls, rolcreatedb, rolcreaterole,
@@ -967,20 +992,96 @@ describe('gate U — full round trip reproduces the same inventory', () => {
       expect(a.functions.length).toBeGreaterThan(30);
       expect(a.tables.length).toBeGreaterThan(20);
 
-      // The operator logins the inventory excludes, checked by shape rather than by set — see the
-      // note on `memberships` above. A harness login may hold the administrative CAPABILITY and
-      // nothing else: INHERIT so its own statements carry the EXECUTE grants, and crucially SET
-      // FALSE, so it can never become `freightos_admin` and shed the identity that is the entire
-      // point of SEC-01. Any other grant to any operator login fails here.
+      // ── The harness-owned half of the security contract ─────────────────────────────────────
       //
-      // One is provisioned HERE so the check always has a subject. Operator roles are cluster-wide
-      // and created by other files, so "there is at least one" is exactly as racy as the set
-      // comparison this replaced — and a shape assertion over an empty set passes vacuously, which
-      // is the failure mode this whole fix exists to avoid. A service login needs no seeded tenant
-      // or user, so it works on a database that was just migrated up from zero.
-      await round.provisionSystemLogin('roundtrip', 'system:tenant-provisioning');
+      // Excluded from the inventory above, and therefore asserted here in full, against a subject
+      // this test provisions ITSELF. Its own operator is the authoritative fixture: operator roles
+      // are cluster-global and other files create and drop them throughout this test's lifetime, so
+      // "at least one exists" is exactly as scheduling-dependent as the set comparison this
+      // replaced, and a universal assertion over a possibly-empty set passes vacuously. A service
+      // login needs no seeded tenant or user, so it can be provisioned on a database that was just
+      // migrated up from zero.
+      const subject = await round.provisionSystemLogin('roundtrip', 'system:tenant-provisioning');
 
-      const operatorGrants = await client.query<{ line: string }>(
+      // 1. OUTBOUND MEMBERSHIP — an EXACT SET, not "contains freightos_admin".
+      //
+      //    The operator may hold the administrative CAPABILITY and nothing else. Membership in
+      //    freightos_admin_owner, freightos_operator_registry_owner, a provisioning role, another
+      //    operator, or any other privileged role would each be a different escalation, and only an
+      //    exact-set assertion rules all of them out at once.
+      //
+      //    SET = FALSE is the security-critical option. An operator that could
+      //    `SET ROLE freightos_admin` would replace its identity-bearing execution context with the
+      //    shared capability role, which is the substitution SEC-01 exists to prevent.
+      //    ADMIN OPTION = FALSE is asserted explicitly rather than left to the default: an operator
+      //    must not be able to hand membership in freightos_admin to anything else.
+      //    INHERIT = TRUE is what makes the capability usable without assuming the role at all.
+      const outbound = await client.query<{ line: string }>(
+        `SELECT format('%s admin=%s inherit=%s set=%s',
+                       role.rolname, am.admin_option, am.inherit_option, am.set_option) AS line
+           FROM pg_auth_members am
+           JOIN pg_roles role ON role.oid = am.roleid
+           JOIN pg_roles member ON member.oid = am.member
+          WHERE member.rolname = $1
+          ORDER BY 1`,
+        [subject],
+      );
+      expect(outbound.rows.map((r) => r.line)).toEqual(['freightos_admin admin=f inherit=t set=f']);
+
+      // 2. REVERSE EDGE — nothing is a member OF the operator.
+      //
+      //    An individual operator identity is a leaf: it is something a person authenticates AS,
+      //    never a capability another principal holds. A member here would mean somebody else could
+      //    act with this person's identity, which is the finding SEC-01 closed wearing a different
+      //    hat. The architecture permits no such edge, so the expected count is zero — including
+      //    the automatic grant PostgreSQL 16 writes when a CREATEROLE role runs CREATE ROLE, which
+      //    does not arise because the harness creates operator logins as the superuser.
+      const inbound = await client.query<{ line: string }>(
+        `SELECT format('%s admin=%s inherit=%s set=%s',
+                       member.rolname, am.admin_option, am.inherit_option, am.set_option) AS line
+           FROM pg_auth_members am
+           JOIN pg_roles role ON role.oid = am.roleid
+           JOIN pg_roles member ON member.oid = am.member
+          WHERE role.rolname = $1
+          ORDER BY 1`,
+        [subject],
+      );
+      expect(inbound.rows.map((r) => r.line)).toEqual([]);
+
+      // 3. ROLE ATTRIBUTES — every privilege-bearing attribute, stated.
+      //
+      //    LOGIN is the whole point: the operator authenticates as itself. The other five would
+      //    each defeat some part of the model — BYPASSRLS makes every isolation proof vacuous,
+      //    CREATEROLE lets the operator mint its own identities, and so on. Attributes SR-2 does
+      //    not govern (connection limit, password expiry) are deliberately not asserted: they are
+      //    deployment policy, not part of the provisioning contract this migration defines.
+      const attrs = await client.query<{
+        rolcanlogin: boolean;
+        rolsuper: boolean;
+        rolcreaterole: boolean;
+        rolcreatedb: boolean;
+        rolreplication: boolean;
+        rolbypassrls: boolean;
+      }>(
+        `SELECT rolcanlogin, rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls
+           FROM pg_roles WHERE rolname = $1`,
+        [subject],
+      );
+      expect(attrs.rowCount, 'the self-provisioned operator does not exist').toBe(1);
+      expect(attrs.rows[0]).toEqual({
+        rolcanlogin: true,
+        rolsuper: false,
+        rolcreaterole: false,
+        rolcreatedb: false,
+        rolreplication: false,
+        rolbypassrls: false,
+      });
+
+      // 4. And the same shape across every operator login in the cluster. Race-safe because it
+      //    compares the SET OF DISTINCT SHAPES rather than the set of rows — a concurrently created
+      //    operator adds a row but not a shape. Non-vacuous because the subject above is one of
+      //    them. This is what would catch another file provisioning an operator differently.
+      const everyOperator = await client.query<{ line: string }>(
         `SELECT format('%s admin=%s inherit=%s set=%s',
                        role.rolname, am.admin_option, am.inherit_option, am.set_option) AS line
            FROM pg_auth_members am
@@ -989,7 +1090,7 @@ describe('gate U — full round trip reproduces the same inventory', () => {
           WHERE member.rolname LIKE 'op\\_%'
           ORDER BY 1`,
       );
-      expect([...new Set(operatorGrants.rows.map((r) => r.line))]).toEqual([
+      expect([...new Set(everyOperator.rows.map((r) => r.line))]).toEqual([
         'freightos_admin admin=f inherit=t set=f',
       ]);
     } finally {
