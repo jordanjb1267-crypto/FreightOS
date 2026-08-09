@@ -101,8 +101,24 @@ GRANT freightos_binding_owner TO freightos_migrator WITH SET TRUE, INHERIT FALSE
 -- required and both are returned immediately afterwards.
 GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
 SET LOCAL ROLE freightos_hierarchy_owner;
+-- C-1, CORRECTED. This restored the pre-0020 body with `SET search_path = pg_catalog, public` --
+-- the value 0018 originally created it with. But migration 0019 (PR #10's CRITICAL pg_temp
+-- hotfix) then swept EVERY app/admin SECURITY DEFINER to `pg_catalog, public, pg_temp`, and 0019
+-- is STILL APPLIED at the version this down migration lands on. So restoring 0018's literal value
+-- silently reverted 0019's hardening on this one function, leaving a definer that reads `users`
+-- unqualified with pg_temp back in front of it -- and made 0019's own §2(c) assertion false at
+-- version 19.
+--
+-- A down migration owns the fields ITS up migration changed. 0020 changed this function's BODY, so
+-- its down restores the body; the `search_path` field belongs to 0019 and is left in the state 0019
+-- put it in. 0023's down already states this discipline in prose and honours it; this is the one
+-- place it was not applied.
+--
+-- Safe at version 18 too: 0019's own down (line 31) is a catalog-driven loop that resets every
+-- app/admin definer to `pg_catalog, public`, so reverting past 19 still produces the 0018 value
+-- gate T asserts.
 CREATE OR REPLACE FUNCTION app.current_human_principal() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT u.id
     FROM users u

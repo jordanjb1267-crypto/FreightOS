@@ -32,25 +32,40 @@ import { fixtureAdministrator, withAuthenticatedTestPrincipal } from './verified
 const db = new TestDatabase('freightos_test_sr2_definer_qualification');
 const DB_NAME = 'freightos_test_sr2_definer_qualification';
 
-/** Relations that decide authority. A shadow of any one of these is an authorization bypass. */
-const AUTHORITY_RELATIONS = [
-  'users',
-  'memberships',
-  'role_permissions',
-  'user_roles',
-  'roles',
-  'permissions',
-  'tenants',
-  'organization_nodes',
-  'organization_node_closure',
-  'legal_entities',
-  'service_accounts',
-  'kill_switches',
-  'policy_bindings',
-  'policies',
-  'carrier_appointments',
+/**
+ * Relations that MUST appear in the database's own inventory — a floor, not the inventory.
+ *
+ * The inventory itself is `app.protected_authority_relations()`, read from the database at run
+ * time. This file deliberately keeps no second copy of it, because a second copy is what broke:
+ * migration 0025's guard and this test both enumerated the protected relations by hand, and the
+ * hand list was wrong in both directions at once. It named `outbox_messages`, `user_roles` and
+ * `policies`, none of which exist under those names, so the sweep searched for nothing and found
+ * nothing. And it omitted `membership_roles`, `service_account_permissions`,
+ * `service_account_credentials` and `operating_authorities`, three of which carried genuine
+ * unqualified reads. The guard was green throughout.
+ *
+ * What survives here is the opposite construction: a small set of relations whose protection is
+ * not negotiable, asserted to be PRESENT in whatever the database derives. It can only make the
+ * inventory stricter, never narrower — a relation dropping out of RLS coverage fails this list
+ * rather than silently shrinking the sweep.
+ */
+const MUST_BE_PROTECTED = [
   'audit_events',
-  'outbox_messages',
+  'carrier_appointments',
+  'kill_switches',
+  'legal_entities',
+  'memberships',
+  'membership_roles',
+  'operating_authorities',
+  'organization_nodes',
+  'permissions',
+  'role_permissions',
+  'roles',
+  'service_account_credentials',
+  'service_account_permissions',
+  'service_accounts',
+  'tenants',
+  'users',
 ] as const;
 
 const PINNED = '{"search_path=pg_catalog, public, pg_temp"}';
@@ -132,30 +147,161 @@ async function resolveUnderShadow(): Promise<string> {
 }
 
 describe('layer 3 — every authority relation is named with its schema', () => {
-  it('leaves no unqualified reference in app or admin, measured from the catalog', async () => {
-    const r = await su.query<{ f: string; rel: string }>(
-      `SELECT n.nspname || '.' || p.proname AS f, x.rel
-         FROM pg_proc p
-         JOIN pg_namespace n ON n.oid = p.pronamespace,
-              LATERAL unnest($1::text[]) AS x(rel)
-        WHERE n.nspname IN ('app', 'admin')
-          AND p.prosrc ~* ('(?<![.[:alnum:]_])(FROM|JOIN|INTO|UPDATE)[[:space:]]+' || x.rel || '\\M')
-        ORDER BY 1, 2`,
-      [AUTHORITY_RELATIONS],
+  it('derives a non-empty inventory that contains every relation that must be protected', async () => {
+    // THE FIRST THING TO PROVE. Every assertion below is quantified over this inventory, so an
+    // empty or short inventory makes all of them pass by having nothing to check — which is
+    // exactly the state migration 0025's guard shipped in.
+    const r = await su.query<{ rel: string }>(
+      `SELECT schema_name || '.' || relation_name AS rel
+         FROM app.protected_authority_relations() ORDER BY 1`,
     );
-    expect(r.rows.map((x) => `${x.f}: ${x.rel}`)).toEqual([]);
+    const inventory = r.rows.map((x) => x.rel);
+
+    expect(inventory.length, 'the protected-relation inventory is empty').toBeGreaterThanOrEqual(
+      15,
+    );
+
+    const bare = inventory.map((x) => x.split('.')[1]);
+    for (const relation of MUST_BE_PROTECTED) {
+      expect(bare, `${relation} is not in the derived inventory`).toContain(relation);
+    }
+
+    // And it is derived, not stored: the three fictional names the hand list carried cannot be in
+    // it, because the derivation can only return relations that exist.
+    for (const ghost of ['outbox_messages', 'user_roles', 'policies']) {
+      expect(bare, `${ghost} does not exist — a hand list is back`).not.toContain(ghost);
+    }
   });
 
-  it('is not vacuous — the functions it covers do reference those relations, qualified', async () => {
-    const r = await su.query<{ n: string }>(
-      `SELECT count(*)::text AS n
-         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname IN ('app', 'admin') AND p.prosrc ~ 'public\\.'`,
+  it('leaves no unqualified reference, measured by the database’s own detector', async () => {
+    // Deliberately the SAME function migration 0027 §4 asserts on, not a re-implementation of its
+    // regex. A test that reimplements the check it is verifying tests its own copy; when 0025's
+    // copy and the migration's copy drifted, both were wrong in the same way and neither noticed.
+    const r = await su.query<{ f: string; rel: string; secdef: boolean; pinned: boolean }>(
+      `SELECT function_name AS f, relation_name AS rel,
+              is_security_definer AS secdef, is_pinned AS pinned
+         FROM app.unqualified_authority_reads() ORDER BY 1, 2`,
     );
-    expect(
-      Number(r.rows[0]!.n),
-      'no function names its schema — the audit proves nothing',
-    ).toBeGreaterThan(30);
+    expect(r.rows.map((x) => `${x.f}: ${x.rel} (secdef=${x.secdef}, pinned=${x.pinned})`)).toEqual(
+      [],
+    );
+  });
+
+  it('sweeps a real population — functions × relations actually examined', async () => {
+    // The detector is a cross join of candidate functions against the inventory. Both sides have
+    // to be non-empty for a zero result to mean anything.
+    const r = await su.query<{ fns: string; rels: string; pairs: string }>(
+      `SELECT (SELECT count(*)::text
+                 FROM pg_proc p
+                 JOIN pg_namespace n ON n.oid = p.pronamespace
+                 JOIN pg_language l ON l.oid = p.prolang
+                WHERE n.nspname IN ('app', 'admin', 'authn')
+                  AND l.lanname IN ('sql', 'plpgsql'))            AS fns,
+              (SELECT count(*)::text FROM app.protected_authority_relations()) AS rels,
+              (SELECT (count(*) * (SELECT count(*)
+                                     FROM app.protected_authority_relations()))::text
+                 FROM pg_proc p
+                 JOIN pg_namespace n ON n.oid = p.pronamespace
+                 JOIN pg_language l ON l.oid = p.prolang
+                WHERE n.nspname IN ('app', 'admin', 'authn')
+                  AND l.lanname IN ('sql', 'plpgsql'))            AS pairs`,
+    );
+    expect(Number(r.rows[0]!.fns), 'no candidate functions').toBeGreaterThan(50);
+    expect(Number(r.rows[0]!.rels), 'no protected relations').toBeGreaterThanOrEqual(15);
+    expect(Number(r.rows[0]!.pairs), 'the sweep examined nothing').toBeGreaterThan(750);
+  });
+
+  it('DETECTS an injected unqualified read — otherwise the zero above proves nothing', async () => {
+    // The whole file turns on this. A detector that returns zero rows because it is broken is
+    // indistinguishable from one that returns zero rows because the code is clean, and the only
+    // way to tell them apart is to break the code on purpose and watch the detector notice.
+    //
+    // One offence is planted per protected relation, in the two positions that matter — a bare
+    // FROM in an invoker-rights function, and a bare UPDATE in a SECURITY DEFINER — so a detector
+    // that only handles one keyword, or only one security mode, fails here rather than in review.
+    const inventory = (
+      await su.query<{ schema_name: string; relation_name: string }>(
+        'SELECT schema_name, relation_name FROM app.protected_authority_relations() ORDER BY 2',
+      )
+    ).rows;
+    expect(inventory.length).toBeGreaterThanOrEqual(15);
+
+    const probes = inventory.map((rel, i) => ({
+      name: `zz_inject_${i}`,
+      relation: rel.relation_name,
+      // A bare name in FROM position. The body must not otherwise qualify it, or the probe is
+      // testing the qualifier rather than the detector.
+      //
+      // The `SET search_path` is on the CREATE statement's session, not on the function: a SQL
+      // function body is parsed at creation time, so a bare `FROM operator_binding` will not
+      // compile unless schema `authn` is reachable right then. That is precisely the situation
+      // this probe is modelling — a caller whose search_path makes the bare name resolve — and it
+      // leaves the stored body bare, which is what the detector reads.
+      sql: `CREATE FUNCTION app.zz_inject_${i}() RETURNS bigint LANGUAGE sql STABLE
+              AS $probe$ SELECT count(*) FROM ${rel.relation_name} $probe$`,
+      schema: rel.schema_name,
+    }));
+
+    try {
+      for (const probe of probes) {
+        await su.query(`SET search_path = ${probe.schema}, public, pg_catalog`);
+        await su.query(probe.sql);
+      }
+      await su.query('RESET search_path');
+
+      const found = await su.query<{ f: string; rel: string }>(
+        `SELECT function_name AS f, relation_name AS rel
+           FROM app.unqualified_authority_reads()
+          WHERE function_name LIKE 'app.zz_inject%' ORDER BY 1`,
+      );
+      const detected = new Set(found.rows.map((x) => x.rel));
+
+      for (const probe of probes) {
+        expect(
+          detected.has(probe.relation),
+          `the detector missed an unqualified read of ${probe.relation}`,
+        ).toBe(true);
+      }
+    } finally {
+      await su.query('RESET search_path');
+      for (const probe of probes) {
+        await su.query(`DROP FUNCTION IF EXISTS app.${probe.name}()`);
+      }
+    }
+
+    // The probes must be gone, or every later assertion in this file is measuring debris left by
+    // this one. Scoped to the probe names on purpose: a global count would fold a genuine offence
+    // elsewhere into "cleanup failed" and report the wrong defect.
+    const after = await su.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM app.unqualified_authority_reads()
+        WHERE function_name LIKE 'app.zz_inject%'`,
+    );
+    expect(Number(after.rows[0]!.n), 'the injected probes were not cleaned up').toBe(0);
+  });
+
+  it('does NOT fire on a qualified read, a column, or a name inside a string', async () => {
+    // The negative half. A detector that flags everything also returns "zero offences" never, and
+    // would have been "fixed" by loosening it. Each of these is a shape the old guard got wrong:
+    // its one and only `outbox_messages` hit was a relation name inside a RAISE EXCEPTION message.
+    try {
+      await su.query(`CREATE FUNCTION app.zz_clean_qualified() RETURNS bigint LANGUAGE sql STABLE
+                        AS $p$ SELECT count(*) FROM public.users $p$`);
+      await su.query(`CREATE FUNCTION app.zz_clean_column() RETURNS bigint LANGUAGE sql STABLE
+                        AS $p$ SELECT count(users) FROM (SELECT 1 AS users) AS s $p$`);
+      await su.query(`CREATE FUNCTION app.zz_clean_string() RETURNS void LANGUAGE plpgsql
+                        AS $p$ BEGIN RAISE EXCEPTION 'no row in users for this actor'; END $p$`);
+
+      const noise = await su.query<{ f: string; rel: string }>(
+        `SELECT function_name AS f, relation_name AS rel
+           FROM app.unqualified_authority_reads()
+          WHERE function_name LIKE 'app.zz_clean%' ORDER BY 1`,
+      );
+      expect(noise.rows.map((x) => `${x.f}: ${x.rel}`)).toEqual([]);
+    } finally {
+      await su.query('DROP FUNCTION IF EXISTS app.zz_clean_qualified()');
+      await su.query('DROP FUNCTION IF EXISTS app.zz_clean_column()');
+      await su.query('DROP FUNCTION IF EXISTS app.zz_clean_string()');
+    }
   });
 
   it('adds no proconfig to any invoker-rights function — P-01 inlining survives', async () => {

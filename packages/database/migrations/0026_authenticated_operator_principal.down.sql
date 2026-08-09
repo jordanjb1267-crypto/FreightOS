@@ -1083,6 +1083,137 @@ RESET ROLE;
 -- order, and only what 0026 created.
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- RESTORE THE SIXTEEN EXECUTE GRANTS. Retrospective finding, SR-2 HIGH.
+--
+-- §6 of the up migration DROPs the sixteen entry points and CREATEs new ones; §6b then grants
+-- EXECUTE to freightos_admin on the new signatures. This down migration drops the new signatures
+-- and re-creates the pre-0026 ones from pg_get_functiondef() -- which emits no GRANT, because a
+-- function definition does not carry its ACL. So the restored functions came back with no grant at
+-- all, and §6c's global default privilege (owner only, no PUBLIC) was still in force at that
+-- moment, so they did not even fall back to PUBLIC EXECUTE.
+--
+-- MEASURED, by parity rather than by reading: the same logical version 25 reached two ways.
+--   reached FORWARD (0026 never applied):  {owner=X/owner, freightos_admin=X/owner}
+--   reached by REVERTING 0026:             {owner=X/owner}
+-- freightos_admin could reach 16 administrative functions on one path and 0 on the other. The
+-- database was left administratively inert by its own rollback.
+--
+-- This is the same DROP+CREATE-discards-the-ACL trap this repository already found in 0018's down
+-- migration. It fails CLOSED, so it was never a security exposure -- but a rollback that leaves the
+-- administrative surface unreachable is not a rollback, and the repository's contract is that every
+-- migration has a tested down path.
+--
+-- Issued as the schema owner: a GRANT must come from the owner, and the migrator holds no privilege
+-- on schema admin.
+-- ---------------------------------------------------------------------------
+
+SET LOCAL ROLE freightos_admin_owner;
+
+GRANT EXECUTE ON FUNCTION admin.assign_membership_role(uuid,uuid,uuid,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.create_role(uuid,uuid,uuid,text,text,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.export_tenant_audit(uuid,timestamp with time zone,timestamp with time zone,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.grant_membership(uuid,uuid,uuid,uuid,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.grant_role_permission(uuid,uuid,text,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.grant_service_account_permission(uuid,uuid,text,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.issue_session_binding(text,uuid,uuid,uuid,uuid,text,text,integer,text,integer) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.move_organization_node(uuid,uuid,uuid,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.provision_tenant(uuid,text,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.revoke_membership(uuid,uuid,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.revoke_membership_role(uuid,uuid,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.revoke_role_permission(uuid,uuid,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.revoke_service_account_permission(uuid,uuid,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.set_membership_status(uuid,uuid,text,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.set_tenant_status(uuid,text,text,text,text,uuid) TO freightos_admin;
+GRANT EXECUTE ON FUNCTION admin.tenant_identity_summary(uuid,text,text,text,uuid) TO freightos_admin;
+
+RESET ROLE;
+
+-- ---------------------------------------------------------------------------
+-- RESTORE THE THREE APP ACCESSORS §8 REWROTE. Same finding, second half.
+--
+-- §8 rewrites app.is_verified_platform_actor(), app.current_actor_id() and
+-- app.current_human_principal() to resolve through authn.authenticated_principal(). This down
+-- migration never mentioned those three names -- and then dropped schema authn below. The result
+-- was three functions whose bodies referenced a schema that no longer existed:
+--
+--   app.current_actor_id()            -> ERROR: schema "authn" does not exist
+--   app.current_human_principal()     -> ERROR: schema "authn" does not exist
+--   app.is_verified_platform_actor()  -> ERROR: schema "authn" does not exist
+--
+-- Every RLS policy that resolves an actor goes through these, so a reverted database was not
+-- merely missing its administrative grants -- it could not evaluate its own row-level security.
+--
+-- Restored VERBATIM from a database migrated forward to 25 and no further, so body, owner, security
+-- mode, volatility, search_path and ACL all return to what 0025 actually built. They are restored
+-- BEFORE schema authn is dropped, so no intermediate statement in this transaction sees a function
+-- pointing at a schema that is on its way out.
+--
+-- Each owner holds USAGE on schema app but not CREATE, so each takes the same CREATE loan 0025 §2
+-- established and hands it straight back.
+-- ---------------------------------------------------------------------------
+
+GRANT CREATE ON SCHEMA app TO freightos_binding_owner;
+SET LOCAL ROLE freightos_binding_owner;
+
+CREATE OR REPLACE FUNCTION app.current_actor_id()
+ RETURNS text
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+AS $function$
+  SELECT CASE WHEN session_user = 'freightos_app'
+              THEN (app.verified_principal()).actor_id
+              ELSE nullif(current_setting('app.actor_id', true), '')
+         END
+$function$;
+
+RESET ROLE;
+REVOKE CREATE ON SCHEMA app FROM freightos_binding_owner;
+
+GRANT CREATE ON SCHEMA app TO freightos_hierarchy_owner;
+SET LOCAL ROLE freightos_hierarchy_owner;
+
+CREATE OR REPLACE FUNCTION app.current_human_principal()
+ RETURNS uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+AS $function$
+  SELECT CASE WHEN session_user = 'freightos_app'
+              THEN app.current_user_id()
+              ELSE (SELECT u.id
+                      FROM public.users u
+                     WHERE u.tenant_id = app.current_tenant_id()
+                       AND u.id = nullif(substring(coalesce(nullif(current_setting('app.actor_id', true), ''), '') from
+                             '^user:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$'),
+                             '')::uuid
+                       AND u.status = 'active'
+                       AND u.revoked_at IS NULL
+                       AND u.effective_from <= now()
+                       AND (u.effective_to IS NULL OR u.effective_to > now()))
+         END
+$function$;
+
+RESET ROLE;
+REVOKE CREATE ON SCHEMA app FROM freightos_hierarchy_owner;
+
+GRANT CREATE ON SCHEMA app TO freightos_admin_owner;
+SET LOCAL ROLE freightos_admin_owner;
+
+CREATE OR REPLACE FUNCTION app.is_verified_platform_actor()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+AS $function$
+  SELECT session_user = 'freightos_admin'
+     AND EXISTS (SELECT 1 FROM admin.platform_actor p WHERE p.actor_id = app.current_actor_id())
+$function$;
+
+RESET ROLE;
+REVOKE CREATE ON SCHEMA app FROM freightos_admin_owner;
+
 -- The §2b read door goes first: it names the registry owner, so the role cannot be dropped while
 -- it exists. Dropping the policy also removes the only widening 0026 made to public.users.
 DROP POLICY IF EXISTS users_operator_registry_read ON public.users;
@@ -1166,6 +1297,7 @@ RESET ROLE;
 DO $assert$
 DECLARE
   v_bad text;
+  v_n integer;
 BEGIN
   -- Reverting must not weaken anything 0026 did not own. The pg_temp pin belongs to main's 0019
   -- and to 0024/0025; the TEMPORARY revocation belongs to 0019.
@@ -1186,6 +1318,121 @@ BEGIN
               WHERE schemaname = 'public' AND tablename = 'users'
                 AND policyname = 'users_operator_registry_read') THEN
     RAISE EXCEPTION '0026 down: the registry read door survived the revert';
+  END IF;
+
+  -- -------------------------------------------------------------------------
+  -- THE RESTORED v25 CONTRACT — positive AND negative.
+  --
+  -- The previous version of this block asserted only "PUBLIC holds EXECUTE on nothing in admin".
+  -- That passed in a database where freightos_admin ALSO held EXECUTE on nothing, which is exactly
+  -- the broken state this revert used to produce. A negative assertion over a set nobody proved
+  -- non-empty is not a control; it is a sentence that happens to be true.
+  --
+  -- So every count below is stated in both directions: the population is what it should be, the
+  -- forbidden reach is zero, AND the intended reach is the full population.
+  -- -------------------------------------------------------------------------
+
+  -- 1. The sixteen entry points exist, are owned by the definer owner, and are reachable by
+  --    freightos_admin -- the positive half the old assertion never made.
+  --    The sixteen are named explicitly rather than matched by "takes a p_actor argument": the seven
+  --    INTERNAL helpers take one too, so that predicate finds 23 and the difference between an
+  --    entry point and a helper is exactly what this assertion is about.
+  SELECT count(*) INTO v_n
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'admin'
+     AND p.proname IN ('assign_membership_role', 'create_role', 'export_tenant_audit', 'grant_membership',
+                       'grant_role_permission', 'grant_service_account_permission',
+                       'issue_session_binding', 'move_organization_node', 'provision_tenant',
+                       'revoke_membership', 'revoke_membership_role', 'revoke_role_permission',
+                       'revoke_service_account_permission', 'set_membership_status',
+                       'set_tenant_status', 'tenant_identity_summary');
+  IF v_n <> 16 THEN
+    RAISE EXCEPTION
+      '0026 down: expected the 16 pre-0026 entry points restored, found %', v_n;
+  END IF;
+
+  SELECT count(*) INTO v_n
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'admin'
+     AND p.proname IN ('assign_membership_role', 'create_role', 'export_tenant_audit', 'grant_membership',
+                       'grant_role_permission', 'grant_service_account_permission',
+                       'issue_session_binding', 'move_organization_node', 'provision_tenant',
+                       'revoke_membership', 'revoke_membership_role', 'revoke_role_permission',
+                       'revoke_service_account_permission', 'set_membership_status',
+                       'set_tenant_status', 'tenant_identity_summary')
+     AND has_function_privilege('freightos_admin', p.oid, 'EXECUTE');
+  IF v_n <> 16 THEN
+    RAISE EXCEPTION
+      '0026 down: only % of the 16 restored entry points are reachable by freightos_admin -- the '
+      'revert left the administrative surface inert', v_n;
+  END IF;
+
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'admin'
+     AND p.proname IN ('assign_membership_role', 'create_role', 'export_tenant_audit', 'grant_membership',
+                       'grant_role_permission', 'grant_service_account_permission',
+                       'issue_session_binding', 'move_organization_node', 'provision_tenant',
+                       'revoke_membership', 'revoke_membership_role', 'revoke_role_permission',
+                       'revoke_service_account_permission', 'set_membership_status',
+                       'set_tenant_status', 'tenant_identity_summary')
+     AND pg_get_userbyid(p.proowner) <> 'freightos_admin_owner';
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 down: restored entry point % has the wrong owner', v_bad;
+  END IF;
+
+  -- 1b. And the seven INTERNAL helpers stay unreachable by freightos_admin. Restoring the entry
+  --     points must not restore a path to the audit writer or the refusal oracles.
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'admin'
+     AND p.proname IN ('record', 'deny', 'prior_success', 'claim_operation', 'publish_actor',
+                       'refusal_reason', 'authorization_refusal_reason')
+     AND has_function_privilege('freightos_admin', p.oid, 'EXECUTE');
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 down: internal helper % became reachable by freightos_admin', v_bad;
+  END IF;
+
+  -- 2. And the negative half still holds: nothing world-executable, nothing reachable by the
+  --    runtime role.
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'admin' AND has_function_privilege('public', p.oid, 'EXECUTE');
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 down: PUBLIC holds EXECUTE on %', v_bad;
+  END IF;
+
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'admin' AND has_function_privilege('freightos_app', p.oid, 'EXECUTE');
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '0026 down: the runtime role can reach %', v_bad;
+  END IF;
+
+  -- 3. The three §8 accessors are restored and no longer name schema authn -- which this migration
+  --    drops. A body still pointing at authn raises on every call, and every RLS policy that
+  --    resolves an actor goes through these.
+  SELECT string_agg(p.proname, ', ') INTO v_bad
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'app'
+     AND p.proname IN ('is_verified_platform_actor', 'current_actor_id', 'current_human_principal')
+     -- 'authn\.', not 'authn\\.'. standard_conforming_strings is on, so a doubled backslash
+     -- reaches the regex engine as an ESCAPED backslash: the pattern then means "a literal
+     -- backslash followed by any character", which no function body contains. Written that way
+     -- this assertion matched nothing and passed against the very defect it exists to catch --
+     -- proven by removing the app.current_actor_id() restoration below and watching it stay green.
+     AND p.prosrc ~ 'authn\.';
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION
+      '0026 down: accessor % still references schema authn, which this migration drops', v_bad;
+  END IF;
+
+  SELECT count(*) INTO v_n
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'app'
+     AND p.proname IN ('is_verified_platform_actor', 'current_actor_id', 'current_human_principal');
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION '0026 down: expected 3 restored app accessors, found %', v_n;
   END IF;
 
   -- -------------------------------------------------------------------------

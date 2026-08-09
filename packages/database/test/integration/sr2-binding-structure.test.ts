@@ -719,7 +719,20 @@ describe('gate T — down migration restores 0018 exactly', () => {
         if (fn.signature === 'current_human_principal()') {
           expect(fn.owner).toBe('freightos_hierarchy_owner');
           expect(fn.prosecdef).toBe(true);
-          expect(fn.proconfig).toEqual(['search_path=pg_catalog, public']);
+          // `pg_temp` LAST, not the bare `pg_catalog, public` the pre-0020 capture recorded — PR #9
+          // finding C-1.
+          //
+          // The revert above stops AT 19, so migration 0019 is still applied here, and 0019's whole
+          // purpose is that no SECURITY DEFINER in this database resolves a relation through an
+          // implicit `pg_temp`. 0020's down migration used to restore this function with the
+          // search_path 0018 gave it, which silently undid 0019 for the one definer it touched and
+          // left the database in a state 0019's own assertion says cannot exist. This gate asserted
+          // that, so the defect had a passing test.
+          //
+          // A down migration owns the fields ITS up migration changed. 0020 did not create this
+          // pin, so 0020's down must not remove it. 0019's own down is a catalog-driven loop that
+          // resets every definer it finds, so reverting past 19 still lands on the v18 shape.
+          expect(fn.proconfig).toEqual(['search_path=pg_catalog, public, pg_temp']);
           // The captured truth, PUBLIC EXECUTE included. Rollback fidelity is not forward posture.
           expect(fn.proacl).toContain('=X/freightos_hierarchy_owner');
         } else {
@@ -1305,15 +1318,15 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       expect(scopeTop).toHaveLength(4);
       expect(await publicTemp(), '0019 did not revoke TEMPORARY from PUBLIC').toBe(false);
 
-      // Down THREE steps now — SEC-01 / 0026 joined the stack. Reverting 0026, 0025 and 0024
-      // removes only what they added: 0026's authenticated-principal boundary and 0025/0024's
-      // schema-qualified bodies. None of them may re-grant TEMPORARY or unpin pg_temp — those
-      // belong to migration 0019 on main and are still applied, so rolling SR-2 back cannot
-      // silently reopen the CRITICAL 0019 closed.
+      // Down FOUR steps now — 0027 joined the stack alongside SEC-01 / 0026. Reverting 0027, 0026,
+      // 0025 and 0024 removes only what they added: 0027's catalog-derived qualification guard,
+      // 0026's authenticated-principal boundary, and 0025/0024's schema-qualified bodies. None of
+      // them may re-grant TEMPORARY or unpin pg_temp — those belong to migration 0019 on main and
+      // are still applied, so rolling SR-2 back cannot silently reopen the CRITICAL 0019 closed.
       //
       // The list is enumerated rather than counted so that a migration joining or leaving this
-      // stack has to be acknowledged here; that is what caught 0026's arrival.
-      expect((await migrateDown(client, migrations, 23)).reverted).toEqual([26, 25, 24]);
+      // stack has to be acknowledged here; that is what caught 0026's arrival, and 0027's.
+      expect((await migrateDown(client, migrations, 23)).reverted).toEqual([27, 26, 25, 24]);
       const at23 = await definers();
       expect(at23.length, 'the revert dropped definers it should only have altered').toBe(
         atTop.length,
@@ -1344,7 +1357,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       );
 
       // And back up. Everything matches where it started, field for field.
-      expect((await migrateUp(client, migrations)).applied).toEqual([24, 25, 26]);
+      expect((await migrateUp(client, migrations)).applied).toEqual([24, 25, 26, 27]);
       expect(await definers()).toEqual(atTop);
       expect(await scopeFns()).toEqual(scopeTop);
       expect(await publicTemp()).toBe(false);

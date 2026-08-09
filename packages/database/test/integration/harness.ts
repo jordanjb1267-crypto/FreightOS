@@ -388,8 +388,8 @@ export class TestDatabase {
     return this.connectAs(role);
   }
 
-  /** Drop and recreate the database, migrate it, and make the test roles connectable. */
-  async reset(): Promise<void> {
+  /** Drop and recreate the database. Leaves it empty — no migration has run. */
+  private async recreateDatabase(): Promise<void> {
     const maintenance = this.maintenanceClient();
     await maintenance.connect();
     try {
@@ -404,6 +404,11 @@ export class TestDatabase {
     } finally {
       await maintenance.end();
     }
+  }
+
+  /** Drop and recreate the database, migrate it, and make the test roles connectable. */
+  async reset(): Promise<void> {
+    await this.recreateDatabase();
 
     await this.withRoleLock(async (m) => {
       await this.bootstrapMigrator(m);
@@ -417,6 +422,23 @@ export class TestDatabase {
       }
       await this.grantRoles(m);
     });
+  }
+
+  /**
+   * Drop and recreate the database and provision the migration authority, applying NO migration.
+   *
+   * `reset()` always lands on the tip, which is the wrong starting point for anything that has to
+   * drive the migration sequence itself. The path-parity gate needs to reach one logical version
+   * two different ways — straight forward from empty, and by overshooting and rolling back — and
+   * neither is expressible once the tip has already been applied.
+   *
+   * `grantRoles` is deliberately not called: `freightos_app` and friends are created by migration
+   * 0001, so there is nothing to grant CONNECT to yet. A caller that migrates far enough to want
+   * those logins calls `grantTestRoleLogin()` afterwards.
+   */
+  async resetToEmpty(): Promise<void> {
+    await this.recreateDatabase();
+    await this.withRoleLock((m) => this.bootstrapMigrator(m));
   }
 
   /**
