@@ -223,8 +223,131 @@ unexplained diff.
 
 ---
 
+# Search-path hardening follow-ups
+
+Registered when `PRIVILEGED_SCHEMA_SEARCH_PATH_HARDENING` was accepted at
+`d0ecf041b990bfd0a82a07f1486c5fa6174a029e`. That change made the privileged-schema search-path
+invariant executable — a security-owner schema, derived as a non-system schema owned by a NOLOGIN
+non-system role, may not appear on any function's `search_path`, and no role/database setting or
+role name may put one there. These two items are what it deliberately did **not** cover. Neither is
+implemented, and neither blocks anything.
+
+## SEARCH_PATH_EXECUTOR_CREATE_COMPOSITION
+
+```
+SEARCH_PATH_EXECUTOR_CREATE_COMPOSITION=OPEN_NON_BLOCKING
+```
+
+| Field        | Value                        |
+| ------------ | ---------------------------- |
+| **Type**     | Security hardening           |
+| **Status**   | OPEN — non-blocking          |
+| **Severity** | Hardening; no current defect |
+
+### Invariant
+
+> For a protected function F, no role capable of executing F should also be capable of creating
+> objects in a schema that participates in F's effective `search_path`, unless that combination has
+> been explicitly security-reviewed and justified.
+
+### Why it is separate
+
+This is the property that actually explains why `public` is safe on every pinned path today, and it
+is a **different wall** from the ones already standing. It composes four facts — function EXECUTE,
+schema CREATE, role membership, and the function's search_path — where the accepted invariant
+composes only schema ownership and schema name. Folding it into the RLS-derived protected-relation
+classifier, or into the privileged-schema classifier, would produce one oversized detector whose
+failure takes every wall down with it. That is the shape that produced PR #9 finding B-1.
+
+### Motivating example
+
+```sql
+GRANT CREATE ON SCHEMA public TO freightos_app;
+```
+
+`public` intentionally participates in protected function resolution — it is the second entry of
+the pinned path of all fifty-two definers, because those definers exist to read the relations in
+it. A CREATE grant there would let a caller introduce a name that a protected function resolves,
+undermining otherwise-correct pinning. **No current gate detects this.** Layer 1 covers `pg_temp`
+only; the privileged-schema invariant covers schema _names_; the ACL gates assert USAGE, not CREATE,
+and only for the schemas they enumerate.
+
+### What a future gate must derive
+
+Independently, and from the catalog rather than a list:
+
+| Column              | Meaning                                     |
+| ------------------- | ------------------------------------------- |
+| FUNCTION            | the protected function                      |
+| EXECUTOR ROLE       | every role that can execute it              |
+| SEARCH_PATH SCHEMA  | every schema on its effective path          |
+| CREATE PRIVILEGE    | whether that role can create in that schema |
+| ALLOWED / FORBIDDEN | the verdict                                 |
+
+It must resolve **effective** privileges — `pg_has_role` and `has_schema_privilege`, which follow
+role membership — not direct `GRANT` rows. A direct-grant check would miss reach acquired through
+membership, which is exactly how this repository grants most things.
+
+Implementation must include mutation testing proving an unauthorised CREATE grant is detected.
+
+## PRODUCTION_SEARCH_PATH_CONFIGURATION_ATTESTATION
+
+```
+PRODUCTION_SEARCH_PATH_CONFIGURATION_ATTESTATION=OPEN_NON_BLOCKING
+```
+
+| Field        | Value                          |
+| ------------ | ------------------------------ |
+| **Type**     | Operational security hardening |
+| **Status**   | OPEN — non-blocking            |
+| **Severity** | Hardening; no current defect   |
+
+### Invariant
+
+> At deployment and runtime startup, FreightOS database identities must not inherit or receive a
+> `search_path` containing a privileged/security-owner schema such as `admin` or `authn`, unless
+> explicitly security-reviewed.
+
+### The distinction that matters
+
+**Function-local `search_path`** — a function-level `SET search_path` controls resolution for the
+duration of that call and overrides the session path. This is already covered by repository
+structural gates: migration 0026 §7(g) at apply time, the exact-equality sweep over every
+non-system schema, and the privileged-schema invariant.
+
+**Session / role / database `search_path`** — not covered, and not coverable from inside this
+repository. Sources include:
+
+- `ALTER ROLE … SET search_path`
+- `ALTER DATABASE … SET search_path`
+- `ALTER ROLE … IN DATABASE … SET search_path`
+- connection startup options
+- `PGOPTIONS`
+- driver `options=-c search_path=…`
+- runtime `SET search_path` on a pooled session
+- server configuration / `ALTER SYSTEM`, where applicable
+
+This surface matters **particularly to invoker-rights functions carrying no function-local pin**.
+Thirty-four such functions exist in schema `app`, and P-01 forbids pinning them: a `proconfig`
+blocks SQL inlining, which the RLS predicates depend on. Their search_path _is_ the session path.
+
+### Scope limit — state this plainly, do not overstate the existing gate
+
+`sr2-privileged-schema-search-path.test.ts` certifies **repository-controlled catalog state in the
+tested cluster**: `pg_proc.proconfig`, `pg_db_role_setting` at all three levels, role names, and the
+cluster default as that cluster reports it. It must **not** be represented as attestation of
+arbitrary production PostgreSQL configuration outside repository control. A green run is a statement
+about the CI cluster, not about a deployed one.
+
+A future operational gate must inspect the **actual deployed cluster and session state** — the path
+a real connection resolves, on the real cluster, as the real role.
+
+---
+
 ## Dependency posture — NOT clean
 
-Unchanged by any of the above and by the remediation branch: **1 critical, 1 high, 3 moderate**, all
-inherited through Vite / Vitest / esbuild, deferred to SR-10 / SR-11. The withdrawn SR-2 acceptance
-token did not accept, fix or waive them, and nothing here does either.
+Unchanged by any of the above, by the remediation branch, and by the search-path hardening: **1
+critical, 1 high, 3 moderate** locally, all inherited through Vite / Vitest / esbuild; GitHub reports
+**2 critical**, and the identity of the additional critical remains unresolved. Deferred to
+SR-10 / SR-11. The withdrawn SR-2 acceptance token did not accept, fix or waive them; neither does
+`PRIVILEGED_SCHEMA_SEARCH_PATH_HARDENING`, and neither do the two follow-ups above.
