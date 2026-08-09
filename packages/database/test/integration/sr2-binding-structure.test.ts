@@ -271,6 +271,47 @@ describe('gate A — structure', () => {
     expect(who.rows[0]).toEqual({ rolname: 'freightos_migrator', rolsuper: false });
   });
 
+  it('keeps every definer-owner role SET-able by the migrator — the edges migrations must create', async () => {
+    // THE OTHER HALF of the superuser exclusion's price, and the half the first draft missed.
+    //
+    // Gate U is DIFFERENTIAL, so it cannot see a membership that is absent from both snapshots:
+    // suppressing 0018's `GRANT freightos_audit_writer TO current_user` removes the row from the
+    // before AND the after, and the comparison still matches. Measured, not assumed — that exact
+    // mutation left gate U green. An exclusion is only safe if the contract it drops out of the
+    // differential check is asserted somewhere ABSOLUTE, so it is asserted here.
+    //
+    // DERIVED, NOT LISTED. The rule is the reason the grants exist: `ALTER ... OWNER TO` requires
+    // the assigning role to be able to BECOME the target, so every role that owns an object the
+    // migrations create must be SET-able by the migrator. Enumerating the roles by hand is the
+    // construction that produced PR #9 finding B-1; this reads the owners out of the catalog, so a
+    // future definer owner is covered the moment it owns something.
+    const owners = await migrator.query<{ owner: string; can_set: boolean }>(
+      `SELECT DISTINCT o.rolname AS owner,
+              pg_has_role('freightos_migrator', o.oid, 'SET') AS can_set
+         FROM (
+           SELECT p.proowner AS oid FROM pg_proc p
+             JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname IN ('app', 'admin', 'authn')
+           UNION
+           SELECT c.relowner FROM pg_class c
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname IN ('app', 'admin', 'authn') AND c.relkind = 'r'
+           UNION
+           SELECT n.nspowner FROM pg_namespace n WHERE n.nspname IN ('app', 'admin', 'authn')
+         ) owned
+         JOIN pg_roles o ON o.oid = owned.oid
+        WHERE o.rolname LIKE 'freightos%'
+        ORDER BY 1`,
+    );
+
+    // Non-vacuity: there really are several distinct definer owners to check.
+    expect(owners.rows.length, 'no FreightOS object owners found').toBeGreaterThanOrEqual(5);
+    expect(
+      owners.rows.filter((x) => !x.can_set).map((x) => x.owner),
+      'a role owns migration-created objects but the migrator cannot SET ROLE to it',
+    ).toEqual([]);
+  });
+
   it('creates no role with SUPERUSER, BYPASSRLS, CREATEDB or CREATEROLE', async () => {
     const r = await migrator.query<{
       rolname: string;
