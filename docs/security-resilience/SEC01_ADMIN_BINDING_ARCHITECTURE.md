@@ -273,6 +273,46 @@ requires a re-bind, revocation taking effect on already-open connections, and th
 arrangements that are and are not sound in front of a per-operator login — are in
 [`SEC01_OPERATOR_LIFECYCLE.md`](SEC01_OPERATOR_LIFECYCLE.md).
 
+## 5d. The privileged schema search-path invariant
+
+> A **security-owner schema** must not appear on the `search_path` of any application or
+> `SECURITY DEFINER` function, and nothing outside a function may put one there either.
+
+A security-owner schema is **derived, not listed**: a non-system schema owned by a NOLOGIN,
+non-system role. Today that is exactly `{admin, authn}`. `app` is owned by `freightos_migrator`
+(LOGIN) and `public` by `pg_database_owner` (a system role), so neither qualifies — and the
+`rolname NOT LIKE 'pg\_%'` half of that rule is load-bearing rather than decoration, because
+`pg_database_owner` is itself NOLOGIN.
+
+**Why the invariant is scoped to ownership and not to content.** `public` holds nineteen of the
+twenty-one relations `app.protected_authority_relations()` derives as protected, and it is the
+second entry of the pinned path of all fifty-two definers — it has to be, since those definers
+exist to read exactly those relations. `app` holds `app.session_binding`. So "contains privileged
+objects" describes every schema in the database and carries no information; scoping the rule that
+way makes it unsatisfiable rather than strict. The privileged **objects** in `app` and `public` are
+defended by ACL and by layer-3 qualification. The privileged **schemas** are defended by keeping
+their names unresolvable.
+
+**What it buys.** Migration 0027 derives its protected-relation inventory from RLS, and
+`admin.platform_actor` and `admin.privileged_operation` are outside that inventory on both of its
+criteria — RLS is off on both, and `admin` is not in its schema list. An unqualified read of either
+would not be caught by the layer-3 sweep. It also cannot resolve, because `admin` is on no
+search_path and no runtime role holds USAGE on it. That was a reviewed structural fact until
+`sr2-privileged-schema-search-path.test.ts` made it executable.
+
+**The routes it closes**, each asserted rather than argued: a function-level `SET search_path`
+naming a security-owner schema (in any of the four spellings PostgreSQL folds to the same schema);
+`$user` on a function path, which cannot be audited statically because it resolves against the
+session role; any `pg_db_role_setting` row at role, database or role-in-database level; a login role
+**named** after a security-owner schema, which puts that schema first under the built-in default
+`"$user", public` with no `SET` clause anywhere; and the cluster default path itself.
+
+**It is not the primary control for the fifty-two definers.** Over those,
+`sr2-definer-body-qualification.test.ts` asserts the whole `proconfig` equals
+`{"search_path=pg_catalog, public, pg_temp"}`, which is strictly stronger. This invariant covers
+what exact equality cannot: the thirty-four invoker-rights functions that P-01 forbids pinning at
+all, and everything outside `pg_proc`.
+
 ## 6. Status
 
 `SEC01_ADMIN_BINDING_ARCHITECTURE_BLOCKED`. F-A path 1 remains an **open CRITICAL**. SR-2 is not

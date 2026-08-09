@@ -315,6 +315,14 @@ describe('layer 3 — every authority relation is named with its schema', () => 
     expect(r.rows.map((x) => x.signature)).toEqual([
       'app.user_has_permission(uuid,uuid,text,timestamp with time zone)',
     ]);
+
+    // And its VALUE, which this case selected and then never checked.
+    //
+    // The exact-equality sweep above covers `p.prosecdef` only, and the pg_temp suffix check in
+    // hotfix-pg-temp-shadowing constrains only the tail — so the one invoker-rights function in the
+    // database permitted to carry a proconfig was the one function whose path nothing pinned.
+    // `search_path=admin, pg_temp` would have satisfied every assertion in the suite.
+    expect(r.rows.map((x) => x.config)).toEqual([PINNED]);
   });
 
   it('leaves no function called by an RLS policy carrying a proconfig', async () => {
@@ -484,15 +492,27 @@ describe('the removals above cannot be performed from a runtime connection', () 
     );
     expect([t.rows[0]!.pub, t.rows[0]!.app, t.rows[0]!.adm]).toEqual([false, false, false]);
 
-    const unpinned = await su.query<{ signature: string; config: string | null }>(
+    // EVERY non-system schema, not `IN ('app','admin')`.
+    //
+    // That schema pair was itself an allowlist one level up, and 0026 outgrew it the moment it
+    // created schema `authn`: its four definers were outside this sweep, outside gate Z, and
+    // outside every other search_path assertion in the suite. Migration 0026 §7(g) does check them
+    // — which is why a bad pin cannot SHIP — but §7(g) only runs when 0026 is applied, so an
+    // `ALTER FUNCTION` afterwards had nothing watching it. The derived form has no such edge.
+    const definers = await su.query<{ signature: string; config: string | null }>(
       `SELECT p.oid::regprocedure::text AS signature, p.proconfig::text AS config
          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE p.prosecdef AND n.nspname IN ('app', 'admin')
-          AND p.proconfig::text IS DISTINCT FROM $1
+        WHERE p.prosecdef
+          AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
         ORDER BY 1`,
-      [PINNED],
+      [],
     );
-    expect(unpinned.rows.map((x) => `${x.signature} => ${x.config}`)).toEqual([]);
+    // Non-vacuity before the negative assertion: the sweep has to have found the whole definer
+    // population, or "nothing is unpinned" is a statement about an empty set.
+    expect(definers.rows.length, 'the definer sweep found nothing').toBeGreaterThanOrEqual(52);
+
+    const unpinned = definers.rows.filter((x) => x.config !== PINNED);
+    expect(unpinned.map((x) => `${x.signature} => ${x.config}`)).toEqual([]);
 
     const probe = await su.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

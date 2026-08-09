@@ -300,8 +300,21 @@ describe('SR-2 — migrations do not reintroduce pg_temp shadowing', () => {
 
   const MIGRATIONS = join(ROOT, 'packages/database/migrations');
 
-  it('ends every pinned search_path in a new migration with pg_temp', () => {
-    const offenders: string[] = [];
+  /**
+   * Every pinned `search_path` clause written by an enforced migration, and its final element.
+   *
+   * BOTH SPELLINGS. PostgreSQL accepts `SET search_path = a, b` and `SET search_path TO a, b`, and
+   * this repository writes both — `=` in 0019/0020/0021/0023/0026, and `TO` with the schema names
+   * single-quoted (the form `pg_get_functiondef` emits) in 0024/0025/0026/0027. The pattern used
+   * to match only `=`, so 51 of the 79 clauses in the enforced range were never examined,
+   * including every clause in the three qualification migrations this rule most needs to cover.
+   *
+   * Returned rather than accumulated into a shared counter so both cases below can call it
+   * independently — a count threaded from one `it` to the next would make the non-vacuity check
+   * depend on execution order.
+   */
+  function pinnedClauses(): Array<{ entry: string; path: string; last: string }> {
+    const found: Array<{ entry: string; path: string; last: string }> = [];
 
     for (const entry of readdirSync(MIGRATIONS).sort()) {
       const version = Number(entry.slice(0, 4));
@@ -323,11 +336,37 @@ describe('SR-2 — migrations do not reintroduce pg_temp shadowing', () => {
       // that mention the name without pinning anything: the format() template that writes the
       // clause, and the catalog assertion that reads it back out of proconfig. A looser pattern
       // matched both and reported the migration as its own violation.
-      for (const m of code.matchAll(/\bSET\s+search_path\s*=\s*([a-z0-9_, "$]+)/gi)) {
+      //
+      // The value is parsed as an explicit comma-separated list of identifiers, each optionally
+      // single-quoted, rather than as a character class. A class containing the quote character
+      // reintroduces precisely the false positive the paragraph above describes: in
+      // `format('ALTER FUNCTION %s SET search_path = pg_catalog, public, pg_temp', r.signature)`
+      // it runs past the closing quote and captures `pg_temp', r`, whose last element is `r`.
+      // Because each element must be a whole identifier, the match simply stops at the quote.
+      const ELEMENT = String.raw`(?:'[a-z0-9_$]+'|[a-z0-9_$]+)`;
+      const CLAUSE = new RegExp(
+        String.raw`\bSET\s+search_path\s*(?:=|\bTO\b)\s*(${ELEMENT}(?:\s*,\s*${ELEMENT})*)`,
+        'gi',
+      );
+      for (const m of code.matchAll(CLAUSE)) {
         const path = m[1]!.trim();
-        if (!/pg_temp$/.test(path)) offenders.push(`${entry}: SET search_path = ${path}`);
+        // The LAST element, unquoted — so the `TO 'a', 'b'` spelling is judged on the schema name
+        // rather than on the closing quote.
+        const last = path
+          .split(',')
+          .pop()!
+          .trim()
+          .replace(/^['"]|['"]$/g, '');
+        found.push({ entry, path, last });
       }
     }
+    return found;
+  }
+
+  it('ends every pinned search_path in a new migration with pg_temp', () => {
+    const offenders = pinnedClauses()
+      .filter((c) => c.last !== 'pg_temp')
+      .map((c) => `${c.entry}: SET search_path ${c.path}`);
 
     expect(
       offenders,
@@ -335,7 +374,11 @@ describe('SR-2 — migrations do not reintroduce pg_temp shadowing', () => {
     ).toEqual([]);
   });
 
-  it('actually examined a migration, so the rule cannot pass by matching nothing', () => {
+  it('actually examined the clauses, so the rule cannot pass by matching nothing', () => {
+    // Counting FILES in scope was the wrong measure. It stayed green while the pattern matched
+    // barely a third of the real clauses, which is how the `TO` spelling went unexamined from
+    // 0024 onward — a control that could not fail, on the population it existed to protect.
+    // What has to be non-zero is the number of clauses actually MATCHED.
     const enforced = readdirSync(MIGRATIONS).filter(
       (e) => Number(e.slice(0, 4)) >= FIRST_ENFORCED && e.endsWith('.up.sql'),
     );
@@ -343,6 +386,14 @@ describe('SR-2 — migrations do not reintroduce pg_temp shadowing', () => {
       enforced.length,
       'no migration is in scope, so the check above proves nothing',
     ).toBeGreaterThan(0);
+
+    // 79 clauses exist in the enforced range today: 28 written with `=`, 51 with `TO`. The floor
+    // sits above the `=`-only count so a regression to the old pattern fails here, and below the
+    // true total so adding a migration never does.
+    expect(
+      pinnedClauses().length,
+      'the search_path rule matched almost no clauses — it is passing by seeing nothing',
+    ).toBeGreaterThan(40);
   });
 });
 
