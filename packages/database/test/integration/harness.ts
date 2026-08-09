@@ -67,6 +67,122 @@ interface Membership {
   grantor: string;
 }
 
+function maintenanceConnection(): Client {
+  return new Client({
+    host: SOCKET_DIR,
+    port: PORT,
+    user: 'postgres',
+    database: 'postgres',
+    ...(NEEDS_PASSWORD ? { password: SUPERUSER_PASSWORD } : {}),
+  });
+}
+
+/** How deep the current PROCESS is inside the cluster role lock. Re-entrancy depends on it. */
+let roleLockDepth = 0;
+let roleLockConnection: Client | null = null;
+
+/**
+ * Run `work` holding the cluster-wide role lock — the only thing that makes a migration lifecycle
+ * safe to run while other test files exist.
+ *
+ * WHY THIS IS NOT A SCHEDULER CONCERN. PostgreSQL roles and `pg_auth_members` are CLUSTER-wide, not
+ * per-database, so per-file database isolation does not isolate them at all. `fileParallelism:
+ * false` reduces overlap but does not remove it: measured against `pg_stat_activity` during a full
+ * run, two migrator backends were ACTIVE in different databases in 27 of 131 samples, always at a
+ * file boundary — one file's teardown still running while the next file's `beforeAll` had already
+ * begun migrating. Overlaps were short, 100-500ms, which is ample. Migration 0026's down revokes
+ * `freightos_operator_registry_owner` from the migrator as its last act, and another file needing
+ * `SET ROLE` to that owner in the same window fails with "permission denied to set role". That is
+ * a shared-resource race, so it is fixed at the shared resource rather than by asking the runner
+ * to schedule differently.
+ *
+ * RE-ENTRANT PER PROCESS. `reset()` takes this lock, and a test that already holds it may call
+ * `reset()`; a second `pg_advisory_lock` on a different connection would deadlock against the
+ * caller's own. Each Vitest file runs in its own worker process, so a module-level depth counter
+ * is exactly the right scope: the first entry acquires, nested entries are free, and the outermost
+ * exit releases.
+ *
+ * SESSION-SCOPED, so an abnormally terminated test cannot strand it — PostgreSQL drops the lock
+ * when the backend disconnects.
+ */
+export async function withClusterRoleLock<T>(
+  work: (maintenance: Client) => Promise<T>,
+): Promise<T> {
+  if (roleLockDepth > 0 && roleLockConnection) {
+    roleLockDepth += 1;
+    try {
+      return await work(roleLockConnection);
+    } finally {
+      roleLockDepth -= 1;
+    }
+  }
+
+  const maintenance = maintenanceConnection();
+  await maintenance.connect();
+  try {
+    await maintenance.query('SELECT pg_advisory_lock($1)', [ROLE_SETUP_LOCK]);
+    roleLockDepth = 1;
+    roleLockConnection = maintenance;
+    try {
+      return await work(maintenance);
+    } finally {
+      roleLockDepth = 0;
+      roleLockConnection = null;
+      await maintenance.query('SELECT pg_advisory_unlock($1)', [ROLE_SETUP_LOCK]);
+    }
+  } finally {
+    await maintenance.end();
+  }
+}
+
+/** True while this process holds the cluster role lock — lets a test assert its own exclusion. */
+export function holdsClusterRoleLock(): boolean {
+  return roleLockDepth > 0;
+}
+
+/**
+ * Hook-shaped form of the same lock, for a FILE that drives migrations directly.
+ *
+ * `withClusterRoleLock` wraps one callback, which is wrong for a file whose exclusion has to span
+ * many separate `it` blocks — a cluster-global role revoked between two of them is the same race.
+ * Paired with `releaseClusterRoleLock` in `afterAll`, this holds the lock for the file, and the
+ * re-entrancy counter means every nested `reset()` inside it is free rather than deadlocked.
+ *
+ * Only files that drive `migrateUp`/`migrateDown` themselves should take it. Files that merely use
+ * `reset()` are already covered, and making them queue behind this would serialise the suite for
+ * no benefit.
+ */
+export async function acquireClusterRoleLock(): Promise<void> {
+  if (roleLockDepth > 0) {
+    roleLockDepth += 1;
+    return;
+  }
+  const maintenance = maintenanceConnection();
+  await maintenance.connect();
+  try {
+    await maintenance.query('SELECT pg_advisory_lock($1)', [ROLE_SETUP_LOCK]);
+  } catch (error) {
+    await maintenance.end().catch(() => undefined);
+    throw error;
+  }
+  roleLockDepth = 1;
+  roleLockConnection = maintenance;
+}
+
+export async function releaseClusterRoleLock(): Promise<void> {
+  if (roleLockDepth === 0) return;
+  roleLockDepth -= 1;
+  if (roleLockDepth > 0) return;
+  const maintenance = roleLockConnection;
+  roleLockConnection = null;
+  if (!maintenance) return;
+  // Session-scoped, so ending the connection releases it even if the unlock itself fails.
+  await maintenance
+    .query('SELECT pg_advisory_unlock($1)', [ROLE_SETUP_LOCK])
+    .catch(() => undefined);
+  await maintenance.end().catch(() => undefined);
+}
+
 export const TENANT_A = '11111111-1111-4111-8111-111111111111';
 export const TENANT_B = '22222222-2222-4222-8222-222222222222';
 export const LEGAL_ENTITY = '33333333-3333-4333-8333-333333333333';
@@ -107,18 +223,7 @@ export class TestDatabase {
    * transaction-scoped because it has to span work on other connections.
    */
   private async withRoleLock<T>(work: (maintenance: Client) => Promise<T>): Promise<T> {
-    const maintenance = this.maintenanceClient();
-    await maintenance.connect();
-    try {
-      await maintenance.query('SELECT pg_advisory_lock($1)', [ROLE_SETUP_LOCK]);
-      try {
-        return await work(maintenance);
-      } finally {
-        await maintenance.query('SELECT pg_advisory_unlock($1)', [ROLE_SETUP_LOCK]);
-      }
-    } finally {
-      await maintenance.end();
-    }
+    return withClusterRoleLock(work);
   }
 
   /**

@@ -1,8 +1,22 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Client } from 'pg';
 import { loadMigrations, migrateDown, migrateUp } from '../../src/migrator.ts';
 import { MIGRATIONS_DIR } from '../../src/paths.ts';
-import { TestDatabase } from './harness.ts';
+import { acquireClusterRoleLock, releaseClusterRoleLock, TestDatabase } from './harness.ts';
+
+// CLUSTER-GLOBAL EXCLUSION. This file drives migrateUp/migrateDown itself, and migrations mutate
+// PostgreSQL ROLES, which are cluster-wide rather than per-database — so the per-file database
+// gives this file no isolation at all for the state it changes. Measured against pg_stat_activity,
+// two migrator backends were ACTIVE in different databases in 27 of 131 samples during a full run,
+// always at a file boundary. The lock is held for the whole file because a role revoked between
+// two `it` blocks is the same race as one revoked inside one.
+beforeAll(async () => {
+  await acquireClusterRoleLock();
+}, 300_000);
+
+afterAll(async () => {
+  await releaseClusterRoleLock();
+});
 
 /**
  * SR-2 — the structural half of the verified-actor-binding gate.
@@ -211,6 +225,50 @@ describe('gate A — structure', () => {
     expect(await hasExecute('freightos_hierarchy_owner', 'app.current_human_principal()')).toBe(
       true,
     );
+  });
+
+  it('lets no identity outside the FreightOS role set hold a FreightOS role', async () => {
+    // The independent invariant that pays for gate U's superuser exclusion.
+    //
+    // Gate U compares a membership inventory before and after a migration round trip, so it must
+    // ignore rows the migrations do not own. One such row is `freightos_audit_writer -> postgres`,
+    // left on any cluster where a migration was once run as superuser — 0013 §92 and 0018 §113
+    // both do `GRANT ... TO current_user`, and both the grantor and the member on that row are
+    // `postgres`, not the migrator. Reverting 0001 drops the role and the row with it, and
+    // re-applying 0018 re-grants only to the migrator, so the round trip legitimately ends one row
+    // short. That is what produced the observed `19 vs 18`.
+    //
+    // WHY EXCLUDING SUPERUSERS COSTS NOTHING. A PostgreSQL superuser already holds every privilege
+    // implicitly and bypasses row-level security outright, so a role membership grants it nothing
+    // it did not already have. The exclusion removes no reachable authority — which is what makes
+    // it the correct scoping rather than merely a convenient one.
+    //
+    // What does matter is asserted here absolutely rather than differentially: no identity outside
+    // the FreightOS role set holds a FreightOS role. `op_` logins are the harness's own operator
+    // roles, deliberately granted `freightos_admin` and asserted by shape elsewhere.
+    const foreign = await migrator.query<{ line: string }>(
+      `SELECT format('%s->%s', role.rolname, member.rolname) AS line
+         FROM pg_auth_members am
+         JOIN pg_roles role ON role.oid = am.roleid
+         JOIN pg_roles member ON member.oid = am.member
+        WHERE role.rolname LIKE 'freightos%'
+          AND NOT member.rolsuper
+          AND member.rolname NOT LIKE 'freightos%'
+          AND member.rolname NOT LIKE 'op\\_%'
+        ORDER BY 1`,
+    );
+    expect(
+      foreign.rows.map((x) => x.line),
+      'an identity outside the FreightOS role set holds a FreightOS role',
+    ).toEqual([]);
+
+    // And the reason the superuser exclusion is safe in this deployment shape: the identity the
+    // migrations actually run as is not a superuser, so 0013's and 0018's `GRANT ... TO
+    // current_user` land on a non-superuser wherever they are run correctly.
+    const who = await migrator.query<{ rolname: string; rolsuper: boolean }>(
+      `SELECT rolname, rolsuper FROM pg_roles WHERE rolname = current_user`,
+    );
+    expect(who.rows[0]).toEqual({ rolname: 'freightos_migrator', rolsuper: false });
   });
 
   it('creates no role with SUPERUSER, BYPASSRLS, CREATEDB or CREATEROLE', async () => {
@@ -892,6 +950,27 @@ describe('gate U — full round trip reproduces the same inventory', () => {
       // a set comparison of concurrently created roles cannot be made stable, but "every operator
       // login holds exactly one grant, and it is the administrative capability with no SET" can,
       // and it is the property that actually matters. `op_` is `TestDatabase.operatorRoleName`.
+      //
+      // SUPERUSER MEMBERS ARE EXCLUDED FOR THE SAME REASON, and it is a second, distinct kind of
+      // contamination. Migrations 0013 §92 and 0018 §113 grant an owner role to `current_user`:
+      //
+      //   EXECUTE format('GRANT freightos_audit_writer TO %I WITH SET TRUE, INHERIT FALSE',
+      //                  current_user);
+      //
+      // In production and under this harness `current_user` is `freightos_migrator`. But roles are
+      // cluster-wide, so a migration ever run as `postgres` on this cluster — by hand, or by an
+      // older harness — leaves a permanent `freightos_audit_writer -> postgres` row that no later
+      // migration owns. This round trip then legitimately destroys it: reverting 0001 drops the
+      // role and every membership with it, and re-applying 0018 re-grants only to the migrator. The
+      // "after" inventory is one row short of the "before", and the failure reads `19 vs 18` —
+      // observed, and traced to exactly that row.
+      //
+      // That is the test comparing migration-owned state against historical cluster state, not a
+      // migration defect. The inventory is therefore scoped to what the migrations own, and the
+      // security question the exclusion raises — may a migration grant a FreightOS role to a
+      // superuser? — is asked separately and absolutely by `grants no FreightOS role to a
+      // superuser` below, which is NOT a before/after comparison and so cannot be satisfied by
+      // drift.
       memberships: await one(
         `SELECT format('%s->%s admin=%s inherit=%s set=%s',
                        role.rolname, member.rolname, am.admin_option, am.inherit_option,
@@ -900,7 +979,8 @@ describe('gate U — full round trip reproduces the same inventory', () => {
            JOIN pg_roles role ON role.oid = am.roleid
            JOIN pg_roles member ON member.oid = am.member
           WHERE role.rolname LIKE 'freightos%'
-            AND member.rolname NOT LIKE 'op\\_%' ORDER BY 1`,
+            AND member.rolname NOT LIKE 'op\\_%'
+            AND NOT member.rolsuper ORDER BY 1`,
       ),
       tables: await one(
         `SELECT format('%s.%s owner=%s rls=%s force=%s',

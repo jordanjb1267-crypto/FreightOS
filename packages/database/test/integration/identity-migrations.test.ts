@@ -9,8 +9,27 @@ import {
   verifyChecksums,
 } from '../../src/migrator.ts';
 import { MIGRATIONS_DIR } from '../../src/paths.ts';
-import { TENANT_A, TestDatabase } from './harness.ts';
+import {
+  acquireClusterRoleLock,
+  releaseClusterRoleLock,
+  TENANT_A,
+  TestDatabase,
+} from './harness.ts';
 import { PR2_TABLES, seedIdentity } from './identity-harness.ts';
+
+// CLUSTER-GLOBAL EXCLUSION. This file drives migrateUp/migrateDown itself, and migrations mutate
+// PostgreSQL ROLES, which are cluster-wide rather than per-database — so the per-file database
+// gives this file no isolation at all for the state it changes. Measured against pg_stat_activity,
+// two migrator backends were ACTIVE in different databases in 27 of 131 samples during a full run,
+// always at a file boundary. The lock is held for the whole file because a role revoked between
+// two `it` blocks is the same race as one revoked inside one.
+beforeAll(async () => {
+  await acquireClusterRoleLock();
+}, 300_000);
+
+afterAll(async () => {
+  await releaseClusterRoleLock();
+});
 
 /**
  * ACCEPTANCE_THRESHOLDS §4 — every migration pull request must prove: apply from empty, apply from
