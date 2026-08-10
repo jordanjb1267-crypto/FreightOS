@@ -1,0 +1,33 @@
+{
+  "$comment": "Hand-maintained. Declares the LAYERED governance packages that control this repository and how their integrity is verified. Verified in CI by scripts/check-network-governance.mjs. This file exists separately from handoff-provenance.json on purpose: that file is regenerated wholesale by scripts/sync-handoff.mjs, which rebuilds its object from HANDOFF_VERSION/HANDOFF_SOURCE and preserves only `overrides`, so any layer declaration added there would be silently dropped on the next `pnpm sync:handoff`. Overloading its single handoffVersion string to mean three packages would also make the base-layer provenance check ambiguous.",
+  "subordination": "Network architecture is ADDITIVE and SUBORDINATE to the production handoff and to the security, privacy, tenant-isolation, authority, resilience and non-regression requirements that precede it. Where a network requirement and a security requirement conflict, the stricter restriction wins and the network requirement yields. No layer below may be weakened to simplify a layer above.",
+  "layers": [
+    {
+      "id": "production-handoff",
+      "version": "v1.2",
+      "root": "docs/production-handoff/v1.2",
+      "role": "base",
+      "integrityFile": "SHA256SUMS.txt",
+      "generatedCopies": "handoff-provenance.json",
+      "note": "The base handoff. Its integrity is verified in CI by `sha256sum -c SHA256SUMS.txt`, and its generated operational copies at the repository root are verified by scripts/check-handoff-provenance.mjs. handoff-provenance.json describes THIS layer only."
+    },
+    {
+      "id": "security-privacy-resilience",
+      "version": "v1.3.0",
+      "root": "docs/production-handoff/v1.3.0-security-resilience",
+      "role": "controlling",
+      "integrityFile": "MANIFEST.sha256",
+      "generatedCopies": null,
+      "note": "Controlling security layer. Generates no root copies. Its manifest was unverified by CI before N0 — the same gap the audit found in v1.4.0, and it is closed by the same validator."
+    },
+    {
+      "id": "network-architecture",
+      "version": "v1.4.0",
+      "root": "docs/production-handoff/v1.4.0-network-architecture",
+      "role": "additive-subordinate",
+      "integrityFile": "MANIFEST.sha256",
+      "generatedCopies": null,
+      "note": "Network architecture. Additive and subordinate. Installing it authorizes no runtime behavior: no participants, integrations, agents, dispatch, marketplace or settlement activate because a document describes them."
+    }
+  ]
+}

@@ -90,6 +90,13 @@ jobs:
       - name: Handoff provenance and drift
         run: node scripts/check-handoff-provenance.mjs
 
+      # The v1.4.0 network package ships 63 manifest-listed artifacts and v1.3.0 ships 42, and
+      # nothing verified either before N0 — a binding schema or acceptance gate could have been
+      # edited in place and every downstream PR would have gone on citing it. This also catches an
+      # UNLISTED file added beside a package, which `sha256sum -c` is silent about.
+      - name: Layered governance integrity (v1.3.0, v1.4.0)
+        run: node scripts/check-network-governance.mjs
+
       - name: Anti-overbuilding and autonomy ceiling
         run: node scripts/validate-scope.mjs
 
