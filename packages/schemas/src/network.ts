@@ -111,24 +111,39 @@ export interface SchemaKey {
   readonly version: number;
 }
 
+/**
+ * NO TYPESCRIPT PARAMETER PROPERTIES ANYWHERE IN THIS MODULE.
+ *
+ * `constructor(readonly key: SchemaKey)` is valid TypeScript and unloadable under
+ * `node --experimental-strip-types`, which refuses any syntax that would need code generation
+ * rather than erasure. That is not hypothetical here: `pnpm db:up`, `db:down` and `db:status` all
+ * run source through exactly that mode, so a parameter property in a package they could import
+ * makes the module unloadable in a real execution path. Fields are declared and assigned instead.
+ */
 export class UnknownSchemaError extends Error {
-  constructor(readonly key: SchemaKey) {
+  readonly key: SchemaKey;
+
+  constructor(key: SchemaKey) {
     super(`no governed schema registered for id="${key.id}" version=${key.version}`);
     this.name = 'UnknownSchemaError';
+    this.key = key;
   }
 }
 
 export class SchemaIntegrityError extends Error {
-  constructor(
-    readonly id: string,
-    readonly expected: string,
-    readonly actual: string,
-  ) {
+  readonly id: string;
+  readonly expected: string;
+  readonly actual: string;
+
+  constructor(id: string, expected: string, actual: string) {
     super(
       `governed schema ${id} content hash mismatch: expected ${expected}, found ${actual} — ` +
         'a registered schema id/version may not change meaning in place',
     );
     this.name = 'SchemaIntegrityError';
+    this.id = id;
+    this.expected = expected;
+    this.actual = actual;
   }
 }
 

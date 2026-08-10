@@ -225,6 +225,19 @@ describe('registered schema integrity — content immutability', () => {
     }
   });
 
+  it('refuses a governed schema that carries no pinned hash', () => {
+    // Integrity must not be opt-in. If a contract could be registered without a hash, the lock
+    // would erode by omission: add a schema, forget the pin, and it compiles unprotected. Asserted
+    // on the source because the condition is unreachable at runtime by design — which is the point.
+    const source = readFileSync('packages/schemas/src/network.ts', 'utf8');
+    expect(source).toContain("throw new SchemaIntegrityError(entry.id, '(no pinned hash)', actual)");
+    // Every registered v1.4 contract is actually pinned, so the guard is not standing over nothing.
+    const pinned = /CONTENT_HASHES[\s\S]*?\n\}\);/.exec(source)?.[0] ?? '';
+    for (const entry of listRegisteredSchemas().filter((s) => s.layer === 'v1.4')) {
+      expect(pinned, `${entry.id} has no pinned hash`).toContain(entry.id);
+    }
+  });
+
   it('derives identity from the schema $id, never from the filesystem path', () => {
     for (const entry of listRegisteredSchemas().filter((s) => s.layer === 'v1.4')) {
       const declared = (JSON.parse(readFileSync(entry.path, 'utf8')) as { $id: string }).$id;
