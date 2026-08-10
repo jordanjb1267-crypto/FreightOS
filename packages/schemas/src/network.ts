@@ -1,0 +1,408 @@
+/**
+ * N2 — the versioned network schema registry.
+ *
+ * ADR-N0010 element 6: "Makes 3–5 enforceable rather than advisory." This module is what turns the
+ * v1.4.0 network contracts from documents into validators, and it answers the six questions the N2
+ * ruling asks of a registry: what schema is this artifact using, which version, is that schema
+ * governed, is it active, what artifact class does it govern, and can a payload be validated
+ * against it.
+ *
+ * IT IS NOT AN EVENT JOURNAL, AN OBJECT STORE, A PERMISSION SYSTEM OR A BROKER. It resolves
+ * contracts and validates payloads. Nothing here reads or writes tenant data, and nothing here
+ * participates in an authorization decision.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * WHY THERE IS NO OPERATIONAL COPY OF THE v1.4 SCHEMAS
+ *
+ * The v1.2 schemas live at the repository root as generated operational copies because three of
+ * them are DELIBERATE OVERRIDES of the handoff (ADR-0015, ADR-0019) — the copy exists to hold a
+ * divergence, and `check-handoff-provenance.mjs` polices it.
+ *
+ * The v1.4 network schemas have no overrides and need none. So rather than materialise a second
+ * copy and then build a parity gate to prove the copy has not drifted, this module reads the
+ * PROTECTED ARTIFACTS DIRECTLY. Drift is not detected, it is impossible: there is one file. The
+ * source is already covered by `MANIFEST.sha256` and by `scripts/check-network-governance.mjs`,
+ * which fails on modification, deletion and unlisted addition.
+ *
+ * The content hashes below are the second, independent lock — see `CONTENT_HASHES`.
+ * ---------------------------------------------------------------------------------------------
+ */
+
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import _Ajv2020 from 'ajv/dist/2020.js';
+import _addFormats from 'ajv-formats';
+import type { AnySchema, ErrorObject, ValidateFunction } from 'ajv';
+
+const Ajv2020 = _Ajv2020 as unknown as typeof _Ajv2020.default;
+const addFormats = _addFormats as unknown as typeof _addFormats.default;
+
+/** Duplicated from index.ts for the reason recorded there — ADR-0024 L0 has no lower layer. */
+function repositoryRoot(from: string = fileURLToPath(import.meta.url)): string {
+  let dir = dirname(from);
+  for (;;) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error('repository root not found: no pnpm-workspace.yaml above');
+    dir = parent;
+  }
+}
+
+/** The protected v1.4.0 package. Source governance, not a copy of it. */
+const NETWORK_SCHEMA_DIR = 'docs/production-handoff/v1.4.0-network-architecture/schemas';
+
+/**
+ * What a governed schema is FOR. This is the "artifact class" the N2 ruling asks the registry to
+ * answer, and it is derived from the v1.4.0 documents rather than invented: each value names a
+ * contract family those documents already define.
+ */
+export type ArtifactClass =
+  | 'event-envelope'
+  | 'command-envelope'
+  | 'object-reference'
+  | 'participant-identity'
+  | 'capability-advertisement'
+  | 'consent-grant'
+  | 'evidence-envelope'
+  | 'workflow-state';
+
+/**
+ * Lifecycle status.
+ *
+ * DELIBERATELY MINIMAL — two states, not a workflow. `20_NETWORK_GOVERNANCE…` §6 requires that a
+ * deprecation state replacement, affected partners, final support date, migration tests and
+ * rollback; none of that is a schema-registry field, and inventing a `retired` state would imply a
+ * removal path the same section forbids without governance sign-off.
+ *
+ * DEPRECATED DOES NOT MEAN INVALID HISTORICAL DATA. A deprecated schema stays fully resolvable and
+ * fully enforceable, because historical artifacts were written against it and replay, audit and
+ * compatibility analysis all have to keep working. Nothing in this module can make a registered
+ * schema unresolvable.
+ */
+export type SchemaStatus = 'active' | 'deprecated';
+
+export interface RegisteredSchema {
+  /** Canonical, immutable identity — the schema's own `$id`. Not a filesystem path. */
+  readonly id: string;
+  /** Major contract version, parsed from the canonical id rather than asserted beside it. */
+  readonly version: number;
+  readonly artifactClass: ArtifactClass;
+  readonly status: SchemaStatus;
+  /** Governance layer the contract belongs to. Two layers coexist by design — ADR-N0007. */
+  readonly layer: 'v1.2' | 'v1.4';
+  /** Repository-relative path to the authoritative file. Provenance, never identity. */
+  readonly path: string;
+  /** SHA-256 over the file's canonical bytes. See CONTENT_HASHES. */
+  readonly contentHash: string;
+}
+
+/**
+ * A registry key: canonical id plus major version.
+ *
+ * NO DEFAULT-VERSION MAGIC. There is deliberately no `resolve('network.event')` that means
+ * "whatever is newest". A caller that upgrades this package must never silently start validating
+ * against a different contract than it did yesterday, because durable artifacts written under the
+ * old contract would then be graded by the new one.
+ */
+export interface SchemaKey {
+  readonly id: string;
+  readonly version: number;
+}
+
+export class UnknownSchemaError extends Error {
+  constructor(readonly key: SchemaKey) {
+    super(`no governed schema registered for id="${key.id}" version=${key.version}`);
+    this.name = 'UnknownSchemaError';
+  }
+}
+
+export class SchemaIntegrityError extends Error {
+  constructor(
+    readonly id: string,
+    readonly expected: string,
+    readonly actual: string,
+  ) {
+    super(
+      `governed schema ${id} content hash mismatch: expected ${expected}, found ${actual} — ` +
+        'a registered schema id/version may not change meaning in place',
+    );
+    this.name = 'SchemaIntegrityError';
+  }
+}
+
+/**
+ * THE CONTENT LOCK.
+ *
+ * SHA-256 of each authoritative file's exact bytes, pinned here in source. `$id` and version alone
+ * cannot express "and the meaning has not changed" — a schema file can be edited while keeping both.
+ * The registry therefore refuses to compile a schema whose bytes differ from the hash recorded
+ * against its canonical identity, which is the machine-checkable form of the N2 immutability rule:
+ * same id + same version + different content is an error, not an upgrade.
+ *
+ * Hashing the raw file bytes rather than a re-serialised object is deliberate. `JSON.parse` followed
+ * by `JSON.stringify` is not canonical — key order, number formatting and whitespace are all
+ * implementation-defined — so a hash over re-serialised output would be a hash over Node's
+ * serialiser, not over the contract.
+ *
+ * Changing a governed contract therefore requires: a new `$id`/version, its own hash, and review of
+ * both. Updating a hash in place to absorb an edit is the exact move the mutation test forbids.
+ */
+const CONTENT_HASHES: Readonly<Record<string, string>> = Object.freeze({
+  'https://schemas.freightos.example/network/event-envelope.v1.json':
+    'bd704380c2357e3d5a4df01a694384331fef7517c8fe4a6eb4a0b980904c537a',
+  'https://schemas.freightos.example/network/command-envelope.v1.json':
+    'a9f3d16cf149b35a7190c116e44d3f56fc67432a6db80c7616bc7ae5e7876b96',
+  'https://schemas.freightos.example/network/logistics-object-reference.v1.json':
+    'eb5cb021cfdf93ff6402ce6959c0de832e2ae5333fba33ed911ec7f69e0cdff9',
+  'https://schemas.freightos.example/network/participant-identity.v1.json':
+    'c403cf99be06a2e3f74c171e16c8081c7338038dfc1b129f9778ca5d368e5531',
+  'https://schemas.freightos.example/network/capability-advertisement.v1.json':
+    '76b89dac0e733e221f8ddd651427d536546fef56b29873c86a1914574f42a3b6',
+  'https://schemas.freightos.example/network/consent-grant.v1.json':
+    'bfe04dd1e0222d9d73cc43252140641fcec9a890532938aa596d81e2da9b7377',
+  'https://schemas.freightos.example/network/evidence-envelope.v1.json':
+    'a78903548e297c35986e86a8001622aceb893e0746aa6ff23a2f13fa0c95bd88',
+  'https://schemas.freightos.example/network/workflow-state.v1.json':
+    'b3baae8a704b7e30ab924fe19c2a5f49bb7d3230fc8b258171a2687e54d5491a',
+});
+
+/** File name per canonical id. The path is provenance; the id is identity. */
+const NETWORK_FILES: Readonly<Record<string, string>> = Object.freeze({
+  'https://schemas.freightos.example/network/event-envelope.v1.json':
+    'network-event-envelope.schema.json',
+  'https://schemas.freightos.example/network/command-envelope.v1.json':
+    'network-command-envelope.schema.json',
+  'https://schemas.freightos.example/network/logistics-object-reference.v1.json':
+    'logistics-object-reference.schema.json',
+  'https://schemas.freightos.example/network/participant-identity.v1.json':
+    'participant-identity.schema.json',
+  'https://schemas.freightos.example/network/capability-advertisement.v1.json':
+    'capability-advertisement.schema.json',
+  'https://schemas.freightos.example/network/consent-grant.v1.json':
+    'consent-grant.schema.json',
+  'https://schemas.freightos.example/network/evidence-envelope.v1.json':
+    'evidence-envelope.schema.json',
+  'https://schemas.freightos.example/network/workflow-state.v1.json':
+    'workflow-state.schema.json',
+});
+
+const ARTIFACT_CLASSES: Readonly<Record<string, ArtifactClass>> = Object.freeze({
+  'https://schemas.freightos.example/network/event-envelope.v1.json': 'event-envelope',
+  'https://schemas.freightos.example/network/command-envelope.v1.json': 'command-envelope',
+  'https://schemas.freightos.example/network/logistics-object-reference.v1.json':
+    'object-reference',
+  'https://schemas.freightos.example/network/participant-identity.v1.json': 'participant-identity',
+  'https://schemas.freightos.example/network/capability-advertisement.v1.json':
+    'capability-advertisement',
+  'https://schemas.freightos.example/network/consent-grant.v1.json': 'consent-grant',
+  'https://schemas.freightos.example/network/evidence-envelope.v1.json': 'evidence-envelope',
+  'https://schemas.freightos.example/network/workflow-state.v1.json': 'workflow-state',
+});
+
+/** The v1.2 envelope, registered so the two contracts are comparable rather than merely adjacent. */
+export const V1_2_EVENT_ENVELOPE_ID = 'https://rigfreightos.local/schemas/event-envelope.schema.json';
+export const V1_4_NETWORK_EVENT_ENVELOPE_ID =
+  'https://schemas.freightos.example/network/event-envelope.v1.json';
+export const V1_4_LOGISTICS_OBJECT_REFERENCE_ID =
+  'https://schemas.freightos.example/network/logistics-object-reference.v1.json';
+
+/** Major version parsed from a canonical id ending `.v<N>.json`, or 1 for the unversioned v1.2 id. */
+function versionFromId(id: string): number {
+  const m = /\.v(\d+)\.json$/.exec(id);
+  return m ? Number(m[1]) : 1;
+}
+
+function sha256OfFile(absolute: string): string {
+  return createHash('sha256').update(readFileSync(absolute)).digest('hex');
+}
+
+function buildRegistry(): readonly RegisteredSchema[] {
+  const root = repositoryRoot();
+  const entries: RegisteredSchema[] = [];
+
+  for (const [id, file] of Object.entries(NETWORK_FILES)) {
+    const path = `${NETWORK_SCHEMA_DIR}/${file}`;
+    entries.push({
+      id,
+      version: versionFromId(id),
+      artifactClass: ARTIFACT_CLASSES[id]!,
+      status: 'active',
+      layer: 'v1.4',
+      path,
+      contentHash: sha256OfFile(join(root, path)),
+    });
+  }
+
+  // The v1.2 envelope is registered as a peer contract, NOT as a superseded one. ADR-N0007 Option
+  // B: both remain valid under separate schema identities, and deprecation is not scheduled.
+  entries.push({
+    id: V1_2_EVENT_ENVELOPE_ID,
+    version: 1,
+    artifactClass: 'event-envelope',
+    status: 'active',
+    layer: 'v1.2',
+    path: 'schemas/event-envelope.schema.json',
+    contentHash: sha256OfFile(join(root, 'schemas/event-envelope.schema.json')),
+  });
+
+  return Object.freeze(entries);
+}
+
+let registryCache: readonly RegisteredSchema[] | undefined;
+
+/** Every governed schema, both layers. Sorted by id so the listing is deterministic. */
+export function listRegisteredSchemas(): readonly RegisteredSchema[] {
+  registryCache ??= Object.freeze([...buildRegistry()].sort((a, b) => a.id.localeCompare(b.id)));
+  return registryCache;
+}
+
+/** Resolve one exact contract. Fails closed on an unknown id or an unsupported version. */
+export function resolveSchema(key: SchemaKey): RegisteredSchema {
+  const found = listRegisteredSchemas().find(
+    (s) => s.id === key.id && s.version === key.version,
+  );
+  if (!found) throw new UnknownSchemaError(key);
+  return found;
+}
+
+export function isRegistered(key: SchemaKey): boolean {
+  return listRegisteredSchemas().some((s) => s.id === key.id && s.version === key.version);
+}
+
+/**
+ * One Ajv instance holding every v1.4 schema, because four of them `$ref`
+ * `logistics-object-reference.v1.json` and a `$ref` cannot resolve against a schema the instance
+ * has never been shown. Registering all eight is what makes the event envelope's `subject` array
+ * actually enforce the object-reference contract rather than silently accept anything.
+ */
+let ajvCache: InstanceType<typeof Ajv2020> | undefined;
+
+function networkAjv(): InstanceType<typeof Ajv2020> {
+  if (ajvCache) return ajvCache;
+
+  const root = repositoryRoot();
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  addFormats(ajv);
+
+  for (const entry of listRegisteredSchemas().filter((s) => s.layer === 'v1.4')) {
+    const absolute = join(root, entry.path);
+    const actual = sha256OfFile(absolute);
+    const expected = CONTENT_HASHES[entry.id];
+    // INTEGRITY BEFORE COMPILATION. A schema whose bytes no longer match its registered identity is
+    // refused rather than compiled, so a silent semantic edit cannot become an enforced contract.
+    // A registered schema with NO pinned hash is refused too. Silently compiling an unpinned
+    // contract is how the lock would erode: add a schema, forget the hash, and integrity becomes
+    // opt-in. Every governed v1.4 contract must be pinned to be usable.
+    if (expected === undefined) {
+      throw new SchemaIntegrityError(entry.id, '(no pinned hash)', actual);
+    }
+    if (expected !== actual) {
+      throw new SchemaIntegrityError(entry.id, expected, actual);
+    }
+    ajv.addSchema(JSON.parse(readFileSync(absolute, 'utf8')) as AnySchema, entry.id);
+  }
+
+  ajvCache = ajv;
+  return ajv;
+}
+
+export interface ValidationFailure {
+  readonly path: string;
+  readonly message: string;
+}
+
+export interface ValidationOutcome {
+  readonly valid: boolean;
+  readonly errors: readonly ValidationFailure[];
+}
+
+function toOutcome(validator: ValidateFunction, value: unknown): ValidationOutcome {
+  const valid = validator(value) as boolean;
+  if (valid) return { valid: true, errors: [] };
+  return {
+    valid: false,
+    errors: (validator.errors ?? []).map((e: ErrorObject) => ({
+      path: e.instancePath || '(root)',
+      message: e.message ?? 'invalid',
+    })),
+  };
+}
+
+/**
+ * Validate against ONE EXPLICITLY NAMED governed contract.
+ *
+ * The key is required. There is no overload that guesses, and no "latest" alias, because a caller
+ * that does not state which contract it means cannot be given a deterministic answer — and because
+ * an artifact durable enough to be replayed must be graded by the contract it was written under.
+ */
+export function validateAgainst(key: SchemaKey, value: unknown): ValidationOutcome {
+  const entry = resolveSchema(key);
+
+  if (entry.layer === 'v1.2') {
+    // The v1.2 contract is compiled in its own Ajv instance. Mixing the two layers in one instance
+    // would let a `$ref` cross a governance boundary that ADR-N0007 keeps closed.
+    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    addFormats(ajv);
+    const schema = JSON.parse(
+      readFileSync(join(repositoryRoot(), entry.path), 'utf8'),
+    ) as AnySchema;
+    return toOutcome(ajv.compile(schema), value);
+  }
+
+  const validator = networkAjv().getSchema(entry.id);
+  if (!validator) throw new UnknownSchemaError(key);
+  return toOutcome(validator, value);
+}
+
+/**
+ * VERSION-QUALIFIED PUBLIC API.
+ *
+ * Named for the contract each one enforces rather than for the concept. There is deliberately no
+ * `validateEventEnvelope`: two governed event-envelope contracts exist under different identities,
+ * and a name that does not say which one would change meaning under a package upgrade.
+ */
+export const validateV12EventEnvelope = (value: unknown): ValidationOutcome =>
+  validateAgainst({ id: V1_2_EVENT_ENVELOPE_ID, version: 1 }, value);
+
+export const validateV14NetworkEventEnvelope = (value: unknown): ValidationOutcome =>
+  validateAgainst({ id: V1_4_NETWORK_EVENT_ENVELOPE_ID, version: 1 }, value);
+
+export const validateV14LogisticsObjectReference = (value: unknown): ValidationOutcome =>
+  validateAgainst({ id: V1_4_LOGISTICS_OBJECT_REFERENCE_ID, version: 1 }, value);
+
+/**
+ * THE LOGISTICS OBJECT REFERENCE — ADR-N0010 element 3, as a validated contract.
+ *
+ * The governed shape is exactly what `logistics-object-reference.schema.json` says and nothing
+ * more: `network_id` and `object_type` required, `version` and `external_aliases` optional,
+ * `additionalProperties: false`.
+ *
+ * MODE-NEUTRAL BY CONSTRUCTION. The contract names an object by KIND and CANONICAL ID. There is no
+ * `truck_id`, `load_id`, `trailer_id` or `driver_id` anywhere in it, so road, rail, ocean and air
+ * all use the same primitive and no mode gets a privileged position in a network-wide contract.
+ *
+ * NOT A PARTICIPANT. ADR-N0005 participants and ADR-N0010 element 3 object references are separate
+ * kernel concepts and this module never converts one into the other: a participant is who acts, an
+ * object reference is what is acted upon. There is deliberately no helper that turns a
+ * `network_participant_id` into an object reference.
+ *
+ * AND IT CONFERS NOTHING. This is a shape check. It performs no lookup, reaches no database, and
+ * returns no object — so constructing a reference to anything, in any tenant, yields exactly one
+ * capability: a boolean saying the value is well-formed.
+ */
+export interface LogisticsObjectReference {
+  readonly network_id: string;
+  readonly object_type: string;
+  readonly version?: number | string;
+  readonly external_aliases?: readonly {
+    readonly issuer: string;
+    readonly value: string;
+    readonly verified?: boolean;
+  }[];
+}
+
+export function isLogisticsObjectReference(value: unknown): value is LogisticsObjectReference {
+  return validateV14LogisticsObjectReference(value).valid;
+}

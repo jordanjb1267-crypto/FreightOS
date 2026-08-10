@@ -121,3 +121,16 @@ export function assertValid(name: SchemaName, value: unknown): void {
 export function listSchemas(): readonly SchemaName[] {
   return Object.keys(SCHEMA_FILES) as SchemaName[];
 }
+
+/**
+ * N2 — the versioned network schema registry.
+ *
+ * Re-exported so `@freightos/schemas` remains the single door to contract validation. Every v1.2
+ * export above is untouched: `SCHEMA_FILES`, `validate`, `assertValid` and `listSchemas` keep their
+ * exact meanings, so existing consumers resolve exactly the validators they resolved before.
+ *
+ * The network API is version-qualified on purpose — `validateV12EventEnvelope` and
+ * `validateV14NetworkEventEnvelope`, never a bare `validateEvent` that could change contract under
+ * a package upgrade.
+ */
+export * from './network.ts';
