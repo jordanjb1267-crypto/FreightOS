@@ -93,6 +93,7 @@ interface PrivilegeSnapshot {
 async function readPrivileges(
   client: Queryable,
   fixture: IdentityFixture,
+  namedRoles: readonly string[],
 ): Promise<PrivilegeSnapshot> {
   const rows = async (sql: string, params: readonly unknown[] = []): Promise<string[]> =>
     (await client.query<{ line: string }>(sql, [...params])).rows.map((r) => r.line);
@@ -127,12 +128,42 @@ async function readPrivileges(
      ) AS t(line) ORDER BY 1`,
   );
 
+  // POSTGRESQL ROLES ARE CLUSTER-GLOBAL, AND THIS DIMENSION MUST NOT DEPEND ON THE ROSTER.
+  //
+  // The first version of this read enumerated `pg_roles` outright. That made the snapshot depend on
+  // every role in the CLUSTER, and roles are not per-database: other integration files provision
+  // their own `op_<hash>_<label>` operator logins as they run, so a role minted by an unrelated file
+  // between the `before` and `after` snapshots showed up as a difference. All five mutation cases
+  // failed in CI on exactly that — every added line read `usage=false member=false set=false`, a new
+  // role conferring nothing on anybody. It passed locally only because the cluster had accumulated
+  // those roles during earlier runs, so none was new by the time this file ran. That is luck, not a
+  // property, and it is the same cluster-global isolation class the migration-authority work closed.
+  //
+  // The fix keeps the security question and drops the roster. What matters is what the acting
+  // principal HOLDS, so the row set is:
+  //
+  //   * every `freightos_%` role — the fixed, cluster-stable authority set, included whether held or
+  //     not, so LOSING one is a difference too;
+  //   * every role this file itself provisioned, named explicitly, so the administrator login that
+  //     mutation A impersonates is still graded rather than filtered away;
+  //   * every role the principal holds by ANY mode, whatever its name.
+  //
+  // That last clause is what keeps this STRICTER than the version it replaces, not weaker: a brand
+  // new role the principal has been made a member of appears immediately, while a brand new role it
+  // holds nothing on cannot perturb the comparison. Escalation is visible; unrelated churn is not.
   const roleGraph = await rows(
     `SELECT format('%s usage=%s member=%s set=%s', r.rolname,
                    pg_has_role(current_user, r.oid, 'USAGE')::text,
                    pg_has_role(current_user, r.oid, 'MEMBER')::text,
                    pg_has_role(current_user, r.oid, 'SET')::text) AS line
-       FROM pg_roles r ORDER BY 1`,
+       FROM pg_roles r
+      WHERE r.rolname LIKE 'freightos%'
+         OR r.rolname = ANY($1)
+         OR pg_has_role(current_user, r.oid, 'USAGE')
+         OR pg_has_role(current_user, r.oid, 'MEMBER')
+         OR pg_has_role(current_user, r.oid, 'SET')
+      ORDER BY 1`,
+    [[...namedRoles]],
   );
 
   const tablePrivileges = await rows(
@@ -214,7 +245,7 @@ async function privilegesOf(
   fixture: IdentityFixture,
 ): Promise<PrivilegeSnapshot> {
   const snap = await withAuthenticatedTestPrincipal(db, principal, (c) =>
-    readPrivileges(c, fixture),
+    readPrivileges(c, fixture, [adminOperatorRole]),
   );
   return { ...snap, visibility: snap.visibility.filter((l) => !l.includes('.network_')) };
 }
@@ -289,6 +320,30 @@ describe('the privilege oracle grades something', () => {
       'the acting principal already holds every permission — nothing left to escalate to',
     ).toBeGreaterThan(0);
     expect(before.roleGraph.length).toBeGreaterThan(5);
+    // The role dimension is filtered rather than a whole-cluster dump, so it has to be shown to
+    // still carry the roles that matter: the fixed authority set, the impersonated administrator
+    // login, and at least one role the principal actually holds.
+    for (const role of [
+      'freightos_app',
+      'freightos_admin',
+      'freightos_admin_owner',
+      'freightos_control_plane',
+      'freightos_migrator',
+    ]) {
+      expect(
+        before.roleGraph.map((l) => l.split(' ')[0]),
+        `${role} dropped out of the role dimension`,
+      ).toContain(role);
+    }
+    expect(
+      before.roleGraph.filter((l) => l.includes('usage=true')).length,
+      'the principal holds no role at all — the dimension is inert',
+    ).toBeGreaterThan(0);
+    // And no unrelated operator login leaked in: those are cluster-global and owned by other files.
+    expect(
+      before.roleGraph.filter((l) => l.startsWith('op_') && !l.startsWith(adminOperatorRole)),
+      'another test file’s operator role entered the snapshot',
+    ).toEqual([]);
     expect(before.tablePrivileges.length).toBeGreaterThan(100);
     expect(before.functionPrivileges.length).toBeGreaterThan(50);
     expect(before.visibility.length).toBeGreaterThan(20);
