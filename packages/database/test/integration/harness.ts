@@ -511,7 +511,36 @@ export class TestDatabase {
     }
   }
 
-  /** Drop and recreate the database, migrate it, and make the test roles connectable. */
+  /**
+   * Drop and recreate the database, migrate it, and make the test roles connectable.
+   *
+   * THE CONVERGENCE RUNS TWICE, AND THE SECOND TIME IS THE ONE THAT MATTERS.
+   *
+   * `bootstrapMigrator` converges the migrator's membership on the four managed roles, and it can
+   * only converge a role that exists — `present.rowCount === 0` skips the rest. On a cluster where
+   * the managed roles have not been created yet, that is every one of them: `freightos_app` and
+   * `freightos_control_plane` arrive with migration 0001 and `freightos_admin` and
+   * `freightos_admin_owner` with 0013. So the pre-migration pass establishes nothing, and what the
+   * roles end up with is whatever their creation happened to produce.
+   *
+   * For three of them that is already right. `freightos_admin_owner` is handed objects by 0013,
+   * which therefore takes its own `SET TRUE, INHERIT FALSE` grant, and the two runtime roles want
+   * SET FALSE, which is what PostgreSQL's implicit creator grant gives. `freightos_admin` is the
+   * one that is not: it owns nothing, so no migration needs to become it and none grants SET, and
+   * the implicit `ADMIN TRUE, INHERIT FALSE, SET FALSE` row is all it ever gets. The contract this
+   * harness and `scripts/converge-migration-authority.sql` both state — the migrator CAN SET ROLE
+   * to freightos_admin — was then satisfied only from the SECOND convergence onwards, because by
+   * then the role existed. Measured, not reasoned: on a genuinely fresh cluster the contract was
+   * violated at the migration tip and repaired by the next convergence pass, and
+   * `identity-migrations.test.ts > migration authority` failed on 10 of 20 fresh clusters —
+   * deterministically, whenever it was the first file to touch one.
+   *
+   * Converging again AFTER the migrations have created the roles is what makes one lifecycle
+   * sufficient. It stays inside the SAME held lock: releasing between migrateUp and convergence
+   * would expose a partially converged cluster-global role graph to any other migration-driving
+   * process, which is the race this lock exists to prevent. `fresh-install-authority.test.ts`
+   * proves the property from an empty role namespace, and fails if this second call is removed.
+   */
   async reset(): Promise<void> {
     await this.recreateDatabase();
 
@@ -525,6 +554,9 @@ export class TestDatabase {
       } finally {
         await migrator.end();
       }
+
+      // Post-migration convergence — the managed roles exist now, so this one is not a no-op.
+      await this.bootstrapMigrator(m);
       await this.grantRoles(m);
     });
   }
