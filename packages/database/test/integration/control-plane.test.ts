@@ -72,12 +72,13 @@ beforeAll(async () => {
   await admin.connect();
   a = await seedIdentity(db, TENANT_A);
 
-  await admin.query(
-    process.env['PGPASSWORD'] !== undefined
-      ? `ALTER ROLE freightos_admin LOGIN PASSWORD '${process.env['FREIGHTOS_TEST_ROLE_PASSWORD'] ?? 'devonly'}'`
-      : 'ALTER ROLE freightos_admin LOGIN',
-  );
-  await admin.query(`GRANT CONNECT ON DATABASE ${db.name} TO freightos_admin`);
+  // Through the harness rather than by hand. `ALTER ROLE` mutates pg_authid, which is
+  // CLUSTER-WIDE, so issuing it directly here ran a role mutation outside the cluster role lock —
+  // the same unserialised class of write as the one that produced the migrator/owner race, and the
+  // exact thing `grantTestRoleLogin` documents itself as existing to prevent. It is also the
+  // password-safe path: a hand-rolled `ALTER ROLE ... LOGIN` drops the credential under the
+  // password auth CI uses and fails only there.
+  await db.grantTestRoleLogin();
 }, 60_000);
 
 afterAll(async () => {

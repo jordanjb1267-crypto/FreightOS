@@ -1,9 +1,23 @@
 -- Bootstrap the FreightOS migration authority — F-04.
 --
--- ONE-TIME, RUN BY A CLUSTER SUPERUSER OR DBA, BEFORE THE FIRST MIGRATION.
+-- RUN BY A CLUSTER SUPERUSER OR DBA, BEFORE THE FIRST MIGRATION.
 -- This is the only step in the deployment that needs superuser. Everything after it — every
 -- migration, up and down, including non-transactional enum evolution, role provisioning, RLS
 -- enablement and reference seeding — runs as `freightos_migrator`.
+--
+-- IT IS NOT THE WHOLE LIFECYCLE, and treating it as such is what left a fresh install with a
+-- contract this file attests to but does not establish. Section 2's convergence can only converge
+-- a role that already exists, and on a fresh cluster none of the managed roles do — they arrive
+-- with migrations 0001 and 0013. The full installation is four phases:
+--
+--   1. prerequisites   THIS FILE                                    superuser, before migrations
+--   2. migrations      pnpm db:up                                   as freightos_migrator
+--   3. convergence     scripts/converge-migration-authority.sql     after the roles exist
+--   4. attestation     the same file, with -v require_complete=1
+--
+-- Phases 3 and 4 are the same file as section 2 includes, invoked again — one implementation, two
+-- lifecycle points. `fresh install authority` in the integration suite runs exactly this sequence
+-- against a cluster proven to hold no FreightOS role, and fails if phase 3 is skipped.
 --
 -- Why this file exists: the migration lifecycle was previously proved only under a superuser
 -- connection, which bypasses RLS entirely. That hid four migrations that could not run under the
@@ -87,102 +101,26 @@ ALTER ROLE freightos_migrator PASSWORD :migrator_password;
 \endif
 
 -- ---------------------------------------------------------------------------
--- 2. Admin option on any pre-existing runtime role.
+-- 2. The migration-authority membership contract.
 --
--- On a fresh cluster this loop does nothing: migration 0001 creates the runtime roles, and a role
--- creator holds admin option on what it created. It matters when migrating a cluster that already
--- carries the Phase 0 baseline, where those roles were created by someone else.
+-- Factored into scripts/converge-migration-authority.sql because it has to run TWICE in a
+-- deployment and must not exist as two copies that can drift. Here it converges any managed role
+-- that already exists — which on an upgrade of a Phase 0 baseline cluster is all of them, and on a
+-- genuinely fresh cluster is none of them, since migrations 0001 and 0013 have not run yet.
 --
--- INHERIT FALSE is the point on every role: administer without inheriting. SET FALSE additionally
--- withholds SET ROLE on the two runtime roles, where nothing needs it — see ROLE SEPARATION above
--- for what remains reachable and why.
+-- THAT SECOND CASE IS WHY PHASE 3 EXISTS. Running this file only here leaves freightos_admin
+-- without the SET edge the ROLE SEPARATION section above attests to, because nothing else grants
+-- it: freightos_admin owns no object, so no migration needs to become it. After the migrations
+-- have created the managed roles, run:
+--
+--   psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+--        -v require_complete=1 \
+--        -f scripts/converge-migration-authority.sql
+--
+-- \ir resolves relative to THIS file, so the include works from any working directory.
 -- ---------------------------------------------------------------------------
 
--- An existing membership is CONVERGED, not simply re-granted. A GRANT never narrows a membership
--- that is already there: `GRANT x TO y WITH INHERIT FALSE` issued over a membership that already
--- carries INHERIT TRUE leaves the inheriting one in place. That is how a migrator ends up
--- inheriting freightos_control_plane through freightos_admin_owner and quietly passing the
--- control-plane branch of every policy in the schema. Migration 0013 refuses to proceed if it
--- finds that state, so a cluster this file failed to converge fails the deployment rather than
--- silently weakening it.
---
--- Convergence is judged on the memberships TAKEN TOGETHER, never on any single catalog row.
--- PostgreSQL 16 splits them in two: creating a role as a CREATEROLE user leaves an implicit
--- `ADMIN TRUE, INHERIT FALSE, SET FALSE` membership whose grantor is the bootstrap superuser, and
--- migration 0013 then takes its own `SET TRUE, INHERIT FALSE` on top so that
--- `ALTER FUNCTION ... OWNER TO` can run. Neither row carries the whole profile; their union is
--- exactly the wanted one. Demanding that one row carry all three revoked the implicit grant that
--- the second row had been made under, and PostgreSQL rightly rejected it with "dependent
--- privileges exist" — which is what re-running this script against an already-migrated cluster
--- did, so the idempotence claimed above did not hold.
---
--- A membership is therefore revoked only when it confers something forbidden, and then by its own
--- grantor: INHERIT on any of these roles, or SET on a role the migrator must be able to administer
--- without ever becoming. What survives must still supply ADMIN OPTION, and SET where the role is
--- an ownership target; the corrective GRANT below adds whatever is missing, and re-granting from
--- the same grantor updates that row in place rather than adding a second one.
-
-DO $bootstrap$
-DECLARE
-  spec record;
-  held record;
-BEGIN
-  -- Runtime roles: administer without inheriting, and without SET ROLE either. SET FALSE is
-  -- available here because nothing in the deployment needs to become freightos_app or
-  -- freightos_control_plane — unlike the definer owners below, where object ownership requires it.
-  --
-  -- The definer owner is different, and deliberately so. `ALTER FUNCTION ... OWNER TO` requires
-  -- the assigning role to be able to SET ROLE to the target, so migration 0013 cannot hand the
-  -- admin functions to their definer owner without it. SET TRUE is therefore required there and
-  -- is deployment-time only: freightos_admin_owner is NOLOGIN, so this opens no connection path,
-  -- and INHERIT FALSE is what keeps the migrator from acquiring its rights in ordinary queries.
-  FOR spec IN
-    SELECT * FROM (VALUES
-      ('freightos_app',           false),
-      ('freightos_control_plane', false),
-      ('freightos_admin_owner',   true),
-      ('freightos_admin',         true)
-    ) AS t(role_name, set_option)
-  LOOP
-    CONTINUE WHEN NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = spec.role_name);
-
-    FOR held IN
-      SELECT am.admin_option, am.inherit_option, am.set_option, g.rolname AS grantor
-        FROM pg_auth_members am
-        JOIN pg_roles r ON r.oid = am.roleid
-        JOIN pg_roles m ON m.oid = am.member
-        JOIN pg_roles g ON g.oid = am.grantor
-       WHERE r.rolname = spec.role_name AND m.rolname = 'freightos_migrator'
-    LOOP
-      CONTINUE WHEN NOT held.inherit_option
-                AND NOT (held.set_option AND NOT spec.set_option);
-      EXECUTE format('REVOKE %I FROM freightos_migrator GRANTED BY %I',
-                     spec.role_name, held.grantor);
-    END LOOP;
-
-    -- Re-read: the revocations above have already run, so this sees only what survived.
-    IF NOT EXISTS (
-      SELECT 1
-        FROM pg_auth_members am
-        JOIN pg_roles r ON r.oid = am.roleid
-        JOIN pg_roles m ON m.oid = am.member
-       WHERE r.rolname = spec.role_name AND m.rolname = 'freightos_migrator'
-         AND am.admin_option AND NOT am.inherit_option
-    ) OR (spec.set_option AND NOT EXISTS (
-      SELECT 1
-        FROM pg_auth_members am
-        JOIN pg_roles r ON r.oid = am.roleid
-        JOIN pg_roles m ON m.oid = am.member
-       WHERE r.rolname = spec.role_name AND m.rolname = 'freightos_migrator'
-         AND am.set_option AND NOT am.inherit_option
-    )) THEN
-      EXECUTE format(
-        'GRANT %I TO freightos_migrator WITH ADMIN OPTION, INHERIT FALSE, SET %s',
-        spec.role_name, CASE WHEN spec.set_option THEN 'TRUE' ELSE 'FALSE' END);
-    END IF;
-  END LOOP;
-END
-$bootstrap$;
+\ir converge-migration-authority.sql
 
 -- ---------------------------------------------------------------------------
 -- 3. Database ownership.
