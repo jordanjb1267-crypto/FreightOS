@@ -159,15 +159,54 @@ describe('the permission gate is real — anti-vacuity for every write test belo
     expect(assigned.rows[0]!.count).toBe('0');
   });
 
-  it('refuses a grant BEFORE the permission is assigned, and accepts it after', async () => {
-    // THE ANTI-VACUITY PAIR. Without the second half, every denial in this file would also pass
-    // against a table nobody can write.
+  /**
+   * ROOT CAUSE REGRESSION — `INSERT ... RETURNING` is a READ.
+   *
+   * This sequence is both the anti-vacuity pair for every write test below and the regression for
+   * the defect that blocked N5-A implementation.
+   *
+   * `INSERT ... RETURNING` requires the SELECT policy to pass for the new row, not only the INSERT
+   * policy's WITH CHECK. A principal holding `network.disclosure_grant.create` but NOT
+   * `.read` can therefore create a grant and cannot read it back — and PostgreSQL raises the SAME
+   * "new row violates row-level security policy" text for both failures, which is what made this
+   * look like a broken write policy.
+   *
+   * It is CORRECT least privilege, not a defect: create authority is not read authority. The steps
+   * are ordered so nobody can later "fix" it by weakening the read policy without this failing.
+   */
+  it('refuses a grant with NO permission at all', async () => {
     await expect(asAdminOfA(async (c) => insertGrant(c, orgA, orgExternal))).rejects.toThrow(
       /row-level security/i,
     );
+  });
 
+  it('permits a plain INSERT with only .create — the write policy is satisfied', async () => {
     await grantPermission('network.disclosure_grant.create', fixtureA, adminA);
+    const r = await asAdminOfA(async (c) =>
+      (c as Client).query(
+        `INSERT INTO network_disclosure_grants
+           (grantor_participant_id, recipient_participant_id, purpose_code, projection_ref,
+            authority_basis_code, effective_from)
+         VALUES ($1,$2,$3,$4,$5,'2026-01-01T00:00:00Z')`,
+        [orgA, orgExternal, PURPOSE, PROJECTION, BASIS],
+      ),
+    );
+    expect(r.rowCount).toBe(1);
+  });
 
+  it('REFUSES the same INSERT with RETURNING — RETURNING reads the new row', async () => {
+    const error = await asAdminOfA(async (c) =>
+      insertGrant(c, orgA, orgExternal).then(
+        () => null,
+        (e: Error & { code?: string }) => e,
+      ),
+    );
+    expect(error, 'RETURNING succeeded without the read permission').not.toBeNull();
+    expect(error!.code).toBe('42501');
+  });
+
+  it('accepts RETURNING once .read is assigned — the repaired state', async () => {
+    await grantPermission('network.disclosure_grant.read', fixtureA, adminA);
     const created = await asAdminOfA(async (c) => insertGrant(c, orgA, orgExternal));
     expect(created.rows[0]!.grant_id).toMatch(/^[0-9a-f-]{36}$/);
   });
@@ -404,17 +443,17 @@ describe('revocation', () => {
 });
 
 describe('append-only', () => {
-  it('matches zero rows for UPDATE and DELETE by the runtime role', async () => {
-    // Under FORCE RLS with no UPDATE or DELETE policy, the runtime role sees nothing to change.
-    // That is invisibility, not the trigger — which is why the superuser case below exists.
-    const outcome = await asAdminOfA(async (c) => {
-      const u = await (c as Client).query(
-        `UPDATE network_disclosure_grants SET purpose_code = 'shipment_execution'`,
-      );
-      const d = await (c as Client).query(`DELETE FROM network_disclosure_grants`);
-      return [u.rowCount, d.rowCount];
-    });
-    expect(outcome).toEqual([0, 0]);
+  it('refuses UPDATE and DELETE to the runtime role at the PRIVILEGE, before RLS', async () => {
+    // Stronger than a zero-row match: 0032 grants freightos_app only SELECT and INSERT, so these
+    // never reach a policy at all. Reported as the privilege error it actually is.
+    await expect(
+      asAdminOfA(async (c) =>
+        (c as Client).query(`UPDATE network_disclosure_grants SET purpose_code = 'x'`),
+      ),
+    ).rejects.toThrow(/permission denied/i);
+    await expect(
+      asAdminOfA(async (c) => (c as Client).query(`DELETE FROM network_disclosure_grants`)),
+    ).rejects.toThrow(/permission denied/i);
   });
 
   it('RAISES for the superuser — the trigger itself, not RLS invisibility', async () => {
@@ -525,7 +564,12 @@ describe('authority neutrality — a grant confers disclosure and nothing else',
       (await owner.query<{ count: string }>('SELECT count(*)::text AS count FROM role_permissions'))
         .rows[0]!.count;
     const before = await count();
-    await grantPermission('network.disclosure_grant.read', fixtureA, adminA);
+    // Granting to the ADMINISTRATOR's own role is refused (self-elevation), and the role under
+    // test already holds several keys, so this creates a brand-new role and assigns to that. The
+    // point is only that the oracle MOVES when real authority moves.
+    // Through the governed administrative path, with a permission this role does not hold. The
+    // control's only job is to move the oracle so the comparison above cannot be vacuous.
+    await grantPermission('governance.kill_switch.engage', fixtureA, adminA);
     expect(await count()).not.toBe(before);
   });
 });
