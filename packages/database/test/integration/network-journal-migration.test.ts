@@ -715,10 +715,13 @@ describe('N3 is additive and exactly reversible', () => {
 
   it('is migration 29, with N4 the only migration after it', () => {
     expect(N3).toBe(29);
-    // N3 was the tip when this file was written; N4 (transport intent, 0030) now follows it. The
-    // guard is kept rather than deleted, because it fires whenever a new migration lands — which is
-    // exactly the moment to ask whether this file's N2 → N3 round trip still isolates what it claims.
-    expect(TIP).toBe(30);
+    // N3 was the tip when this file was written; N4 (transport intent, 0030) and then the
+    // SR-AUDIT-ACL-NOOP hotfix (0031) now follow it. The guard is kept rather than deleted, because
+    // it fires whenever a new migration lands — which is exactly the moment to ask whether this
+    // file's N2 → N3 round trip still isolates what it claims. It does: 0031 changes one function
+    // ACL and touches no table, no policy and no trigger, so nothing in this file's comparison
+    // window moves.
+    expect(TIP).toBe(31);
   });
 });
 
