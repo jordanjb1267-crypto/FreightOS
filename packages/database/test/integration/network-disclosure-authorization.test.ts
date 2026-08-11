@@ -29,6 +29,7 @@ const BASIS = 'bilateral_grant';
 
 let owner: Client;
 let adminA: Client;
+let adminB: Client;
 let fixtureA: IdentityFixture;
 let fixtureB: IdentityFixture;
 
@@ -127,6 +128,12 @@ beforeAll(async () => {
   owner = db.connectAs('postgres');
   await owner.connect();
   adminA = await connectAsFixtureAdministrator(db, fixtureA);
+  // A distinct operator LOGIN: `connectAsFixtureAdministrator` derives its role name from the
+  // database and the label alone, so a second call would try to bind one role to two principals.
+  adminB = db.connectAsOperator(
+    await db.provisionOperator('badmin', fixtureB.tenantId, fixtureB.adminUserId),
+  );
+  await adminB.connect();
 
   orgA = await registerOrganization('org-a', TENANT_A);
   orgExternal = await registerOrganization('org-external', null);
@@ -136,6 +143,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await owner?.end();
   await adminA?.end();
+  await adminB?.end();
 });
 
 describe('the permission gate is real — anti-vacuity for every write test below', () => {
@@ -371,6 +379,117 @@ describe('audit coupling is structural', () => {
     );
     expect(Number(audits.rows[0]!.count)).toBe(Number(after.rows[0]!.count));
     expect(Number(after.rows[0]!.count)).toBeGreaterThanOrEqual(Number(before.rows[0]!.count));
+  });
+
+  /**
+   * A FAILING AUDIT WRITE FAILS THE GRANT.
+   *
+   * "Same transaction" is only half the coupling claim. The other half is direction: if the ledger
+   * write raises, the grant must not commit — otherwise a disclosure authority could come into
+   * existence with no record that anyone created it, which is precisely the state the audit ledger
+   * exists to make impossible.
+   *
+   * Forced through a constraint the ledger itself enforces rather than by breaking the function:
+   * `audit_events` refuses an event type outside its namespace, so a grant whose trigger names an
+   * out-of-namespace type fails at the ledger.
+   *
+   * The substitution has to COMMIT — DDL inside an open transaction is invisible to the session
+   * that performs the insert, so a "restore by rollback" version of this test would prove nothing
+   * and pass. The exact original is captured with `pg_get_functiondef` and reinstated in a
+   * `finally`, then re-read from the catalog and asserted, because every later test depends on it.
+   */
+  it('does not commit the grant when the audit write fails', async () => {
+    const before = await owner.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM network_disclosure_grants',
+    );
+
+    const migrator = db.connectAs('freightos_migrator');
+    await migrator.connect();
+    const original = (
+      await migrator.query<{ def: string }>(
+        `SELECT pg_get_functiondef(p.oid) AS def
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'app' AND p.proname = 'network_disclosure_grant_audit'`,
+      )
+    ).rows[0]!.def;
+    expect(original).toContain('rig.freight.network.disclosure_grant.created.v1');
+
+    try {
+      await migrator.query(
+        `CREATE OR REPLACE FUNCTION app.network_disclosure_grant_audit() RETURNS trigger
+         LANGUAGE plpgsql SET search_path = pg_catalog, public AS $fn$
+         BEGIN
+           PERFORM app.record_audit_event(
+             (SELECT app.current_tenant_id()), 'not.a.freight.namespace.v1',
+             'network_disclosure_grant', NEW.grant_id::text, 'service_operation');
+           RETURN NEW;
+         END $fn$`,
+      );
+
+      await expect(
+        asAdminOfA(async (c) => insertGrant(c, orgA, orgExternal)),
+      ).rejects.toThrow(/audit|constraint|namespace|event_type/i);
+    } finally {
+      await migrator.query(original);
+      await migrator.end();
+    }
+
+    const after = await owner.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM network_disclosure_grants',
+    );
+    expect(after.rows[0]!.count, 'a grant committed while its ledger write failed').toBe(
+      before.rows[0]!.count,
+    );
+
+    // The trigger is back — proven, not assumed, because every later test depends on it.
+    const restored = await owner.query<{ def: string }>(
+      `SELECT pg_get_functiondef(p.oid) AS def
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'app' AND p.proname = 'network_disclosure_grant_audit'`,
+    );
+    expect(restored.rows[0]!.def).toBe(original);
+
+    // And the restored coupling still works, so the restoration is not merely textual.
+    const grantId = await asAdminOfA(
+      async (c) => (await insertGrant(c, orgA, orgExternal)).rows[0]!.grant_id,
+    );
+    const ledger = await owner.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM audit_events
+        WHERE event_type = 'rig.freight.network.disclosure_grant.created.v1' AND resource_id = $1`,
+      [grantId],
+    );
+    expect(ledger.rows[0]!.count).toBe('1');
+  });
+});
+
+describe('grant visibility is grantor-side and tenant-bound', () => {
+  /**
+   * M-H. A recipient does not get grant transparency in N5-A, and neither does a bystander: read
+   * requires the grantor's tenant to equal the caller's verified tenant AND the caller to hold
+   * `network.disclosure_grant.read`.
+   *
+   * Paired with the positive immediately after it, because "tenant B sees nothing" also holds on a
+   * table nobody can read at all.
+   */
+  it('shows tenant A a grant its own organization issued', async () => {
+    await asAdminOfA(async (c) => insertGrant(c, orgA, orgExternal));
+    const seen = await asAdminOfA(async (c) =>
+      (c as Client).query<{ count: string }>(
+        'SELECT count(*)::text AS count FROM network_disclosure_grants WHERE grantor_participant_id = $1',
+        [orgA],
+      ),
+    );
+    expect(Number(seen.rows[0]!.count)).toBeGreaterThan(0);
+  });
+
+  it('shows tenant B nothing of it, even holding .read in its own tenant', async () => {
+    await grantPermission('network.disclosure_grant.read', fixtureB, adminB);
+    const seen = await asAdminOfB(async (c) =>
+      (c as Client).query<{ count: string }>(
+        'SELECT count(*)::text AS count FROM network_disclosure_grants',
+      ),
+    );
+    expect(seen.rows[0]!.count, 'a foreign tenant browsed the grant table').toBe('0');
   });
 });
 

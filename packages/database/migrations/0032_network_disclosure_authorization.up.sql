@@ -797,6 +797,32 @@ BEGIN
     RAISE EXCEPTION '0032: expected 6 statement-level TRUNCATE guards, found %', v_int;
   END IF;
 
+  -- The AUDIT COUPLING and PROVENANCE triggers, by exact name, table, timing and function.
+  --
+  -- Counting was not enough: the eighteen append-only guards above are matched by a name pattern
+  -- these four do not share, so removing or renaming an audit trigger passed every count in this
+  -- migration. "A grant cannot exist without its ledger entry" is the claim that matters most in
+  -- N5-A, and until this assertion existed nothing here checked the object that makes it true.
+  SELECT string_agg(format('%s:%s:%s:%s', c.relname, t.tgname,
+                           CASE WHEN (t.tgtype & 2) <> 0 THEN 'BEFORE' ELSE 'AFTER' END,
+                           f.proname), ',' ORDER BY t.tgname) INTO v_text
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_proc f ON f.oid = t.tgfoid
+   WHERE c.relname LIKE 'network_disclosure%' AND NOT t.tgisinternal
+     AND t.tgname !~ '_(no_update|no_delete|no_truncate)$';
+  IF v_text IS DISTINCT FROM
+     'network_disclosure_grant_revocations:network_disclosure_grant_revocations_audit:AFTER:'
+     'network_disclosure_revocation_audit,'
+     'network_disclosure_grant_revocations:network_disclosure_grant_revocations_provenance:BEFORE:'
+     'network_disclosure_revocation_provenance,'
+     'network_disclosure_grants:network_disclosure_grants_audit:AFTER:'
+     'network_disclosure_grant_audit,'
+     'network_disclosure_grants:network_disclosure_grants_provenance:BEFORE:'
+     'network_disclosure_grant_provenance' THEN
+    RAISE EXCEPTION '0032: the audit/provenance trigger set is wrong: %', coalesce(v_text, '(none)');
+  END IF;
+
   -- (j) Runtime privileges: SELECT+INSERT on the two governed tables, SELECT on reference data,
   -- and no UPDATE/DELETE/TRUNCATE anywhere.
   SELECT string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type) INTO v_text
