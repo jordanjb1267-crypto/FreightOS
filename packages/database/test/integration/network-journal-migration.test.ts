@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadMigrations, migrateDown, migrateUp } from '../../src/migrator.ts';
+import { acceptNetworkEvent } from '../../src/network-events.ts';
 import { MIGRATIONS_DIR } from '../../src/paths.ts';
 import { acquireClusterRoleLock, releaseClusterRoleLock } from './harness.ts';
 
@@ -596,46 +597,43 @@ describe('N3 is additive and exactly reversible', () => {
     expect(definers, 'N3 introduced SECURITY DEFINER code').toEqual([]);
   });
 
-  it('releases every privilege it took in THIS database when reverted', () => {
-    // Every dimension, both directions — with EXACTLY TWO permitted survivals, named rather than
-    // filtered out of the snapshot: the writer's catalog row, and the implicit ADMIN membership
-    // PostgreSQL gave its creator. Both are cluster-wide objects that a per-database migration does
-    // not own; everything else must be gone.
+  it('restores N2 EXACTLY when reverted — the single-database rollback parity proof', () => {
+    // NO PERMITTED RESIDUE, in either direction, across every dimension: relations, column ACLs,
+    // types, functions, policies, triggers, indexes, constraints, columns, schemas, database ACLs,
+    // default ACLs, ROLES, MEMBERSHIPS and the seeded projection.
     //
-    // This is the repository's standing doctrine, not an N3 concession. 0020's down migration
-    // records it verbatim — "0020 was the only migration attempting a DROP ROLE, and it was wrong
-    // to" — and `freightos_hierarchy_owner`, `freightos_identity_guard`, `freightos_admin_owner`,
-    // `freightos_audit_writer` and `freightos_binding_owner` are all left in place the same way.
-    expect(differences(preN3, afterDown)).toEqual([
-      `roles +${WRITER_ROLE_LINE}`,
-      'memberships +freightos_migrator in freightos_event_writer admin=true inherit=false set=false',
-    ]);
+    // The role and its creator edge are inside that `[]`, not excepted from it. This cluster holds
+    // exactly one FreightOS database, so when it reverts nothing anywhere still depends on the
+    // writer and 0029 drops it — returning the cluster to its pre-N3 role inventory. That is the
+    // whole point of the dependency-aware rule: a standalone cluster back at N2 is not left holding
+    // an authenticatable service identity that nothing uses.
+    expect(differences(preN3, afterDown)).toEqual([]);
   });
 
-  it('leaves the surviving role with ZERO REACH in the reverted database', () => {
-    // What the revert actually guarantees, and the reason the surviving row is harmless. 0026 puts
-    // it exactly: "what reverting must actually guarantee is that the role has no REACH, not that
-    // its catalog row is gone."
-    //
-    // `pg_shdepend` is the catalog `DROP ROLE` itself consults, so this asks PostgreSQL the same
-    // question — scoped to this database, which is the whole of a per-database migration's remit.
+  it('leaves NO trace of the writer — role, reach and membership all gone', () => {
+    // Stated as its own case so a failure says which half broke.
     expect(refsAfterDown.local, 'the revert left a privilege reference behind locally').toBe(0);
+    expect(
+      refsAfterDown.cluster,
+      'the revert left a dependency behind somewhere in the cluster',
+    ).toBe(0);
 
-    // Nothing in the snapshot names the writer either — no ACL, no column ACL, no policy.
+    expect(
+      afterDown['roles']!.filter((l) => l.startsWith('freightos_event_writer ')),
+      'the role survived a standalone revert',
+    ).toEqual([]);
+    // DROP ROLE removes the membership rows itself; nothing revokes the creator edge by hand,
+    // because doing so would leave a later re-apply unable to grant the role at all (0020's finding).
+    expect(afterDown['memberships']!.filter((l) => l.includes('freightos_event_writer'))).toEqual(
+      [],
+    );
+
     for (const dimension of ['relations', 'columnAcls', 'policies', 'schemas', 'databaseAcls']) {
       expect(
         afterDown[dimension]!.filter((l) => l.includes('freightos_event_writer')),
         `${dimension} still names the writer after the revert`,
       ).toEqual([]);
     }
-
-    // THE LOGIN CAVEAT, stated rather than glossed. Every other role this doctrine covers is
-    // NOLOGIN, so a surviving row is inert by construction. This one can still authenticate, and
-    // what makes it harmless is the emptiness above — not `ALTER ROLE … NOLOGIN`, which is itself
-    // cluster-global and would disable the writer for every other database still at N3.
-    expect(afterDown['roles']!.find((l) => l.startsWith('freightos_event_writer '))).toBe(
-      WRITER_ROLE_LINE,
-    );
   });
 
   it('reproduces the same database when re-applied — the role included', () => {
@@ -722,27 +720,31 @@ describe('N3 is additive and exactly reversible', () => {
 });
 
 /**
- * THE CLUSTER-GLOBAL ROLE CONTRACT.
+ * THE CLUSTER-GLOBAL ROLE CONTRACT — dependency-aware, proven in both directions.
  *
- * A role is a cluster-wide catalog row; a migration is per-database. This repository decided what
- * follows from that twice, from measurement — 0020's down migration ("0020 was the only migration
- * attempting a DROP ROLE, and it was wrong to") and 0026's ("what reverting must actually guarantee
- * is that the role has no REACH, not that its catalog row is gone").
+ * A role is a cluster-wide catalog row; a migration is per-database. 0029's revert resolves that in
+ * four ordered steps rather than by picking one horn:
  *
- * So the contract is NOT drop-or-fail. It is:
+ *   A. Strip every N3 privilege, policy, grant and schema reach the writer holds in the reverting
+ *      database.
+ *   B. Ask the CLUSTER whether anything still depends on the role.
+ *   C. Nothing does  -> DROP it. The cluster is back to its pre-N3 role inventory.
+ *   D. Something does -> LEAVE it, and STILL SUCCEED.
  *
- *   * The reverted database keeps NO reach for the writer — no grant, no policy, no membership it
- *     can use here.
- *   * Every OTHER database still at N3 is completely unaffected: its grants intact, its writer
- *     still able to accept events.
- *   * Re-applying converges: the role is reused, and the grants come back.
+ * The single-database round trip above proves C. This file proves D and then C again, in sequence,
+ * on the same cluster: two databases at N3, revert one, revert the other, re-apply the first.
  *
- * The alternative — attempt the drop and fail when another database holds the role — was
- * implemented first and measured. It makes 0029 un-revertable on ANY cluster with more than one
- * FreightOS database, which is the normal state of CI and of any deployment with a staging copy.
- * Nine existing gates failed at once, each reporting 390+ surviving references across 33 databases.
- * `DROP OWNED` and `CASCADE` are worse again: they reach into the other database and strip the
- * privileges its running system depends on.
+ * WHY D MUST SUCCEED RATHER THAN FAIL. Failing would make 0029 un-revertable on any cluster with a
+ * staging copy, a clone or a parallel test database. Measured: it took nine unrelated gates down at
+ * once, each reporting hundreds of surviving references across 33 databases. A database cannot be
+ * held hostage by its neighbours.
+ *
+ * WHY C MUST DROP RATHER THAN RETAIN. `freightos_event_writer` is a LOGIN service credential, not
+ * one of the five NOLOGIN owner roles the other migrations leave in place. A standalone cluster
+ * rolled back to N2 should not keep an authenticatable identity nothing uses.
+ *
+ * `ALTER ROLE ... NOLOGIN` is never used as a middle path: it is equally cluster-global, so applying
+ * it while another database is at N3 breaks that database's acceptance component.
  *
  * Runs last, and cleans up after itself, because it deliberately puts a second database at N3.
  */
@@ -768,11 +770,81 @@ describe('the cluster-global role contract', () => {
     }
   }
 
+  async function revert(database: string): Promise<void> {
+    const client = asMigrator(database);
+    await client.connect();
+    try {
+      await migrateDown(client, migrations, PRE_N3);
+    } finally {
+      await client.end();
+    }
+  }
+
   const COLUMN_GRANTS = `SELECT count(*)::text AS n FROM pg_attribute a
        JOIN pg_class c ON c.oid = a.attrelid
       WHERE a.attacl::text LIKE '%freightos\\_event\\_writer=%'`;
 
-  it('reverts one database without touching another that is still at N3', async () => {
+  const ROLE_EXISTS = `SELECT count(*)::text AS n FROM pg_roles
+      WHERE rolname = 'freightos_event_writer'`;
+
+  const CLUSTER_DEPS = `SELECT count(*)::text AS n FROM pg_shdepend s
+       JOIN pg_roles r ON r.oid = s.refobjid
+      WHERE r.rolname = 'freightos_event_writer'`;
+
+  /**
+   * Accept one event through the REAL trusted path, as the writer, against `database`.
+   *
+   * "The privileges look right" is not the same claim as "acceptance works", and after a neighbour's
+   * revert it is the second one that matters. An external organization (NULL tenant) is used so the
+   * proof needs no `tenants` row — the journal's tenant derivation resolves it to NULL, which is
+   * exactly the path an external producer takes.
+   */
+  async function acceptOneEvent(database: string): Promise<string> {
+    const admin = connect(database);
+    await admin.connect();
+    let organizationId: string;
+    try {
+      const r = await admin.query<{ id: string }>(
+        `INSERT INTO network_participants
+           (participant_type, display_name, tenant_id, status, source_system, created_by, updated_by)
+         VALUES ('organization', $1, NULL, 'active', 'test:n3-role-contract', 'x', 'x')
+         RETURNING id`,
+        [`writer-liveness-${database}`],
+      );
+      organizationId = r.rows[0]!.id;
+    } finally {
+      await admin.end();
+    }
+
+    const writer = new Client({
+      host: cluster.sockDir,
+      port: cluster.port,
+      user: 'freightos_event_writer',
+      database,
+    });
+    await writer.connect();
+    try {
+      await writer.query('BEGIN');
+      const accepted = await acceptNetworkEvent(writer, {
+        type: 'com.rigreceipts.network.example.recorded.v1',
+        source: 'urn:freightos:test:role-contract',
+        subject: [{ network_id: 'obj-00000001', object_type: 'example-only' }],
+        time: new Date().toISOString(),
+        organization_id: organizationId,
+        classification: 'internal',
+        schema_ref: 'https://schemas.rigreceipts.com/network/logistics-object-reference.v1.json',
+        data: { network_id: 'obj-00000001', object_type: 'example-only' },
+      });
+      await writer.query('COMMIT');
+      expect(accepted.inserted).toBe(true);
+      return accepted.event_id;
+    } finally {
+      await writer.end();
+    }
+  }
+
+  it('retains the role when a neighbour needs it, drops it when the last one lets go', async () => {
+    // ── Both databases to N3.
     await driveTo(N3);
     const su = connect('postgres');
     await su.connect();
@@ -790,27 +862,20 @@ describe('the cluster-global role contract', () => {
     } finally {
       await up.end();
     }
-
-    // Both databases at N3, both holding the shared role's grants.
     expect(await scalar(DB_NAME, COLUMN_GRANTS)).toBe('5');
     expect(await scalar(SECOND, COLUMN_GRANTS)).toBe('5');
+    // Both are live before anything is reverted, so the liveness check below is a change and not a
+    // property that was never true.
+    await acceptOneEvent(SECOND);
 
-    // ── REVERT ONE. It must SUCCEED: refusing here would make 0029 un-revertable on any cluster
-    //    with a second FreightOS database, which is the normal state of CI.
-    const down = asMigrator(DB_NAME);
-    await down.connect();
-    try {
-      await migrateDown(down, migrations, PRE_N3);
-    } finally {
-      await down.end();
-    }
+    // ── STEP D: revert A while B still needs the role. Must SUCCEED.
+    await revert(DB_NAME);
 
-    // ── THE REVERTED DATABASE: zero reach. Asked of `pg_shdepend`, the same catalog `DROP ROLE`
-    //    consults, so this is PostgreSQL's own answer rather than a re-reading of the REVOKEs.
+    // A: zero reach, asked of the catalog DROP ROLE itself consults.
     const probe = connect(DB_NAME);
     await probe.connect();
     try {
-      expect((await writerReferences(probe)).local).toBe(0);
+      expect((await writerReferences(probe)).local, 'A kept a reference to the writer').toBe(0);
     } finally {
       await probe.end();
     }
@@ -829,71 +894,82 @@ describe('the cluster-global role contract', () => {
       ),
     ).toBe('false');
 
-    // ── THE OTHER DATABASE: completely untouched. This is what `DROP OWNED` would have destroyed
-    //    and what a failed revert would have held hostage.
+    // The role SURVIVES — B still depends on it.
+    expect(await scalar('postgres', ROLE_EXISTS), 'the role was dropped out from under B').toBe(
+      '1',
+    );
+
+    // B: privileges intact AND still FUNCTIONAL. This is the assertion `DROP OWNED` would have
+    // broken and a failing revert would have held hostage.
     expect(await scalar(SECOND, COLUMN_GRANTS)).toBe('5');
-    expect(
-      await scalar(
-        SECOND,
-        `SELECT has_schema_privilege('freightos_event_writer', 'app', 'USAGE')::text AS n`,
-      ),
-    ).toBe('true');
     expect(
       await scalar(
         SECOND,
         `SELECT has_table_privilege('freightos_event_writer', 'network_events', 'INSERT')::text AS n`,
       ),
     ).toBe('true');
+    await acceptOneEvent(SECOND);
+    expect(
+      await scalar(SECOND, `SELECT count(*)::text AS n FROM network_events`),
+      'B lost accepted events to A' + "'s revert",
+    ).toBe('2');
 
-    // …and it is still FUNCTIONAL, not merely still privileged: the writer can insert into the
-    // second database's journal after the first database was reverted out from under it.
-    const writer = new Client({
-      host: cluster.sockDir,
-      port: cluster.port,
-      user: 'freightos_event_writer',
-      database: SECOND,
-    });
-    await writer.connect();
-    try {
-      const r = await writer.query<{ n: string }>(`SELECT count(*)::text AS n FROM network_events`);
-      // The column grant is (event_id, event_fingerprint) only, so count(*) is the readable probe.
-      expect(r.rows[0]!.n).toBe('0');
-    } finally {
-      await writer.end();
-    }
+    // ── STEP C: revert B, the last database that needed the role.
+    await revert(SECOND);
+    expect(await scalar('postgres', ROLE_EXISTS), 'the role survived the LAST revert').toBe('0');
+    expect(await scalar('postgres', CLUSTER_DEPS), 'a cluster dependency outlived the role').toBe(
+      '0',
+    );
+    // DROP ROLE clears membership rows itself; nothing here revokes the creator edge by hand.
+    expect(
+      await scalar(
+        'postgres',
+        `SELECT count(*)::text AS n FROM pg_auth_members am
+           JOIN pg_roles m ON m.oid = am.member
+           JOIN pg_roles r ON r.oid = am.roleid
+          WHERE m.rolname = 'freightos_event_writer' OR r.rolname = 'freightos_event_writer'`,
+      ),
+    ).toBe('0');
 
-    // ── THE ROLE SURVIVES, deliberately, and its creator edge with it. Revoking that edge would
-    //    remove the implicit ADMIN row PostgreSQL 16 creates for a role's creator, leaving a later
-    //    re-apply unable to grant the role at all — 0020's finding.
-    const su2 = connect('postgres');
-    await su2.connect();
-    try {
-      expect(
-        (
-          await su2.query<{ n: string }>(
-            `SELECT count(*)::text AS n FROM pg_roles WHERE rolname = 'freightos_event_writer'`,
-          )
-        ).rows[0]!.n,
-      ).toBe('1');
-      expect(
-        (
-          await su2.query<{ line: string }>(
-            `SELECT format('%s admin=%s inherit=%s set=%s', m.rolname,
-                           am.admin_option::text, am.inherit_option::text, am.set_option::text) AS line
-               FROM pg_auth_members am
-               JOIN pg_roles m ON m.oid = am.member
-               JOIN pg_roles r ON r.oid = am.roleid
-              WHERE r.rolname = 'freightos_event_writer'`,
-          )
-        ).rows.map((x) => x.line),
-      ).toEqual(['freightos_migrator admin=true inherit=false set=false']);
-    } finally {
-      await su2.end();
-    }
-
-    // ── AND RE-APPLY CONVERGES. The role is reused rather than recreated, and every grant returns.
+    // ── RE-APPLY CONVERGENCE, from a cluster that genuinely no longer has the role.
     await driveTo(N3);
+    expect(await scalar('postgres', ROLE_EXISTS), 'the role was not recreated exactly once').toBe(
+      '1',
+    );
+    expect(
+      await scalar(
+        'postgres',
+        `SELECT format('%s login=%s super=%s bypassrls=%s createrole=%s createdb=%s inherit=%s',
+                       rolname, rolcanlogin::text, rolsuper::text, rolbypassrls::text,
+                       rolcreaterole::text, rolcreatedb::text, rolinherit::text) AS n
+           FROM pg_roles WHERE rolname = 'freightos_event_writer'`,
+      ),
+    ).toBe(WRITER_ROLE_LINE);
+    // Exactly one membership edge, identical to the original — no duplicate, no widened path.
+    const edges = connect('postgres');
+    await edges.connect();
+    try {
+      const r = await edges.query<{ line: string }>(
+        `SELECT format('grantor=%s member=%s role=%s admin=%s inherit=%s set=%s',
+                       g.rolname, m.rolname, r.rolname,
+                       am.admin_option::text, am.inherit_option::text, am.set_option::text) AS line
+           FROM pg_auth_members am
+           JOIN pg_roles m ON m.oid = am.member
+           JOIN pg_roles r ON r.oid = am.roleid
+           JOIN pg_roles g ON g.oid = am.grantor
+          WHERE m.rolname = 'freightos_event_writer' OR r.rolname = 'freightos_event_writer'
+          ORDER BY 1`,
+      );
+      expect(r.rows.map((x) => x.line)).toEqual([
+        'grantor=postgres member=freightos_migrator role=freightos_event_writer ' +
+          'admin=true inherit=false set=false',
+      ]);
+    } finally {
+      await edges.end();
+    }
     expect(await scalar(DB_NAME, COLUMN_GRANTS)).toBe('5');
+    // …and acceptance works again, end to end, on the recreated role.
+    await acceptOneEvent(DB_NAME);
 
     const drop = connect('postgres');
     await drop.connect();

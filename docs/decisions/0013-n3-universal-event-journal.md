@@ -301,26 +301,41 @@ fighting it:
   Destroying an unrelated role's property to make a revert tidy is worse than a failed revert.
 - Zero remaining privilege references **in this database** is a hard assertion — that is the part
   0029 controls, and a leftover there is a defect in the revert.
-- **The role is not dropped**, and that is this repository's standing doctrine rather than an N3
-  choice. 0020's down migration records it verbatim — _"0020 was the only migration attempting a
-  DROP ROLE, and it was wrong to"_ — and 0026 re-derived it independently: _"what reverting must
-  actually guarantee is that the role has no REACH, not that its catalog row is gone."_
-  `freightos_hierarchy_owner`, `freightos_identity_guard`, `freightos_admin_owner`,
-  `freightos_audit_writer` and `freightos_binding_owner` are all created idempotently on the way up
-  and left in place on the way down, because `DROP ROLE` consults every database in the cluster and
-  a per-database migration cannot reach the others. The migrator's implicit ADMIN membership is
-  retained for the same reason 0020 gives: revoking it would remove the row PostgreSQL creates for
-  a role's creator and leave a later re-apply unable to grant the role at all.
-- **The reach guarantee is measured, not inferred.** §5 asks `pg_shdepend` — the same catalog
-  `DROP ROLE` consults — plus policies and default ACLs, because "we revoked the grants we
-  remembered" is how a revert ends up almost right.
-- **One N3-specific caveat, stated because it is real.** The five roles above are all NOLOGIN, so a
-  surviving catalog row is inert by construction. `freightos_event_writer` is a LOGIN service
-  credential, so inertness has to be established: after the revert it holds no schema USAGE, no
-  table or column privilege and no policy in this database, so a session that connects can do
-  nothing. `ALTER ROLE … NOLOGIN` is deliberately **not** used — it is equally cluster-global and
-  would disable the writer for every other database still at N3, which is the same error as
-  dropping it.
+- **The role's fate is DEPENDENCY-AWARE**, in four ordered steps:
+
+  1. Strip every N3 privilege, policy, grant and schema reach the writer holds **in the reverting
+     database**.
+  2. Ask the **cluster** whether anything still depends on the role.
+  3. Nothing does → **`DROP ROLE`**. The cluster returns to its pre-N3 role inventory.
+  4. Something does → **retain the role, and still succeed.** This database is fully reverted;
+     another database legitimately remaining at N3 is not a failure of this one's rollback.
+
+  Neither unconditional answer is right. **Never dropping** is what 0007/0010/0013/0018/0020 do —
+  correctly, because every one of those roles is NOLOGIN and a surviving row is inert by
+  construction. `freightos_event_writer` is a **LOGIN service credential**, so a standalone cluster
+  rolled back to N2 should not keep an authenticatable identity nothing uses. **Always dropping, or
+  failing when it cannot,** makes 0029 un-revertable on any cluster with a staging copy, a clone or
+  a parallel test database — measured: it took nine unrelated gates down at once, each reporting
+  hundreds of surviving references. `ALTER ROLE … NOLOGIN` is not a middle path either: it is
+  equally cluster-global, so applying it while another database is at N3 breaks that database's
+  acceptance component.
+
+- **The detector is `pg_shdepend`** — the catalog `DROP ROLE` itself consults, so the question asked
+  is the one PostgreSQL will ask. Privileges, column privileges, policies, default ACLs, ownership
+  and database-level grants all land there, across every database. Cleanliness is never inferred
+  from `current_database()` alone, and `DROP OWNED`/`CASCADE` appear nowhere: either would reach
+  into another database and strip privileges its running system depends on.
+
+- **The reach guarantee is measured, not inferred**, and the role's fate is asserted as a
+  **biconditional**: gone if and only if nothing anywhere still depends on it. A surviving role with
+  no dependencies means the drop was skipped; a missing role with dependencies left means it was
+  forced. Both fail. Local reach is separately asserted zero — references, policies and default ACLs
+  — because "we revoked the grants we remembered" is how a revert ends up almost right.
+
+- **The migrator's ADMIN edge is never revoked by hand.** It is what authorises the drop, and 0020
+  records what happens otherwise: a plain REVOKE removes the implicit row PostgreSQL creates for a
+  role's creator, leaving a later re-apply unable to grant the role at all. When the drop runs,
+  `DROP ROLE` clears the membership rows itself.
 
 The down migration asserts its own totality, including that the five N1 tables survive RLS-forced
 and that the four shared `app` helpers N3 borrowed are still present.

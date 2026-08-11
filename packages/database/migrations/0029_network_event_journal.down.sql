@@ -1,20 +1,20 @@
--- Revert 0029 — remove the network event journal and its schema projection, and strip the writer
--- role's reach in this database.
+-- Revert 0029 — remove the network event journal and its schema projection, strip the writer role's
+-- reach in this database, and drop the role itself once no database needs it.
 --
--- N3 is additive: it created two tables, one enum, one function, six triggers, five indexes, one
+-- N3 is additive: it created two tables, one enum, one function, eight triggers, five indexes, one
 -- additive N1 constraint, one N1 policy, one PostgreSQL role, and nothing else. So the revert is a
 -- removal and must restore the N2 state exactly.
 --
 -- NO CASCADE. Every object is dropped by name, dependants first, so a dependency that should not
 -- exist raises instead of being swept away silently.
 --
--- THE ROLE IS THE DELICATE PART, AND IT IS NOT DROPPED. A role is a cluster-wide catalog row; a
--- migration is per-database. 0020 and 0026 both reached this conclusion from measurement, and every
--- role this repository provisions in a migration is created idempotently on the way up and left in
--- place on the way down. What the revert guarantees instead — and it is the stronger property — is
--- that `freightos_event_writer` HAS NO REACH IN THIS DATABASE, measured in §5 along every dimension
--- a role can hold reach rather than inferred from the list of REVOKEs above it. §4 carries the full
--- reasoning, including why a LOGIN role makes "inert" something to establish rather than assume.
+-- THE ROLE IS THE DELICATE PART, and it is DEPENDENCY-AWARE rather than unconditional in either
+-- direction. A role is a cluster-wide catalog row; a migration is per-database. So the revert first
+-- makes the writer's reach in THIS database nil, then asks the cluster whether anyone else still
+-- depends on it: if nobody does the role is dropped and the cluster returns to its pre-N3 role
+-- inventory; if somebody does the role stays and this database's revert still SUCCEEDS. §4 carries
+-- the full reasoning, including why a LOGIN service credential is treated differently from the five
+-- NOLOGIN owner roles the other migrations leave in place.
 
 -- ---------------------------------------------------------------------------
 -- §1. The N1 touches, reversed first — they are the only things 0029 changed
@@ -94,45 +94,45 @@ BEGIN
 END
 $$;
 
--- A ROLE IS CLUSTER-GLOBAL; A MIGRATION IS PER-DATABASE. That asymmetry decides everything below,
--- and this repository has already decided it twice, from measurement.
+-- A ROLE IS CLUSTER-GLOBAL; A MIGRATION IS PER-DATABASE. That asymmetry is what this section
+-- resolves, and it resolves it in four ordered steps rather than by picking one horn:
 --
--- THE ROLE IS NOT DROPPED. 0020's down migration records the conclusion verbatim — "0020 was the
--- only migration attempting a DROP ROLE, and it was wrong to" — and 0026 re-derived it
--- independently: "what reverting must actually guarantee is that the role has no REACH, not that
--- its catalog row is gone". Every other role this repository provisions in a migration follows it:
--- 0007's freightos_hierarchy_owner, 0010's freightos_identity_guard, 0013's freightos_admin_owner,
--- 0018's freightos_audit_writer and 0020's freightos_binding_owner are all created idempotently on
--- the way up and left in place on the way down. N3 is not the exception.
+--   A. Strip every N3 privilege, policy, grant and schema reach the writer holds IN THIS DATABASE.
+--      That happens above; by the time control arrives here the writer's reach here is nil.
+--   B. Ask the CLUSTER — not this database — whether anything still depends on the role.
+--   C. Nothing does  → DROP the role. The cluster is back to its pre-N3 role inventory.
+--   D. Something does → LEAVE the role, and STILL SUCCEED. This database is fully reverted; another
+--      database legitimately remaining at N3 is not a failure of this one's rollback.
 --
--- The reason is not tidiness. `DROP ROLE` consults `pg_shdepend` across EVERY database in the
--- cluster, and PostgreSQL offers no way to revoke a privilege in a database you are not connected
--- to. A second FreightOS database still at N3 — a staging copy, a clone, a parallel test database —
--- makes the drop fail no matter how complete this database's revert is. That is not a recoverable
--- condition for a down migration: the objects it names are in a database this connection cannot
--- reach, and there is nothing correct for it to do about them. `DROP OWNED` and `DROP ROLE CASCADE`
--- are worse still — they reach into that other database and strip privileges its running system
--- depends on — and neither appears anywhere in this file.
+-- WHY NOT SIMPLY NEVER DROP, as 0007/0010/0013/0018/0020 do for their roles. Every one of those is
+-- NOLOGIN, so a surviving catalog row is inert by construction and leaving it costs nothing.
+-- `freightos_event_writer` is a LOGIN service credential. A genuinely standalone cluster that has
+-- rolled back to N2 should not be left holding an authenticatable identity that nothing uses, so
+-- when this database is the last one that needed it, the honest end state is for it to be gone.
 --
--- WHAT THE REVERT DOES GUARANTEE, and it is the stronger property: after this file runs,
--- `freightos_event_writer` HAS NO REACH IN THIS DATABASE, along every dimension a role can hold
--- reach. §5 measures that rather than asserting it, because "we revoked the grants we remembered"
--- is exactly how a revert ends up almost right.
+-- WHY NOT SIMPLY ALWAYS DROP, OR FAIL WHEN WE CANNOT. `DROP ROLE` consults `pg_shdepend` across
+-- EVERY database, and PostgreSQL offers no way to revoke a privilege in a database you are not
+-- connected to. Failing here would make 0029 un-revertable on any cluster with a staging copy, a
+-- clone or a parallel test database — measured: it took nine unrelated gates down at once, each
+-- reporting hundreds of surviving references. A database cannot be held hostage by its neighbours.
 --
--- ONE DIFFERENCE FROM THE FIVE ROLES ABOVE, AND IT IS THE ONE THAT MATTERS. All of them are
--- NOLOGIN, so a surviving catalog row is inert by construction. `freightos_event_writer` is a LOGIN
--- service credential, so "inert" has to be established: it may still authenticate, and what makes
--- the surviving row harmless here is that it holds no schema USAGE, no table or column privilege
--- and no policy in this database — a session that connects can do nothing at all. `ALTER ROLE …
--- NOLOGIN` is deliberately NOT used: that too is cluster-global, and it would disable the writer
--- for every other database still at N3, which is the same error as dropping it.
+-- WHY NOT `ALTER ROLE … NOLOGIN` AS A MIDDLE PATH. It is equally cluster-global. Applied while
+-- another database is still at N3 it breaks that database's acceptance component, which is the same
+-- error as dropping the role, reached more quietly.
 --
--- THE MIGRATOR'S ADMIN MEMBERSHIP IS ALSO RETAINED, for 0020's reason: a plain REVOKE would remove
--- the implicit ADMIN row PostgreSQL 16 creates for a role's creator, leaving a later re-apply
--- unable to grant the role at all.
+-- `DROP OWNED` and `CASCADE` appear NOWHERE in this file. Either would reach into the other
+-- database and strip privileges its running system depends on.
+--
+-- THE MIGRATOR'S ADMIN EDGE IS NEVER REVOKED BY HAND. It is what authorises the drop below, and
+-- 0020 records what happens if it is removed instead: a plain REVOKE takes the implicit ADMIN row
+-- PostgreSQL creates for a role's creator, leaving a later re-apply unable to grant the role at
+-- all. When step C succeeds, `DROP ROLE` removes the membership rows itself.
 DO $$
 DECLARE
-  v_owned integer;
+  v_owned   integer;
+  v_elsewhere integer;
+  v_holders text;
+  v_self    oid := (SELECT oid FROM pg_database WHERE datname = current_database());
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'freightos_event_writer') THEN
     RETURN;
@@ -150,6 +150,41 @@ BEGIN
       '0029 down: freightos_event_writer owns % relation(s). Reassign or drop them deliberately — '
       'this revert will not use DROP OWNED.', v_owned;
   END IF;
+
+  -- STEP B. THE DETECTOR IS `pg_shdepend`, because that is the catalog `DROP ROLE` itself consults —
+  -- privileges, column privileges, policies, default ACLs, ownership and database-level grants all
+  -- land there, in every database. Asking it is asking PostgreSQL the same question it will ask.
+  --
+  -- Rows for THIS database are excluded: step A has already removed them, and §5 asserts that
+  -- independently. What remains after that exclusion is, by definition, another database's.
+  -- Database-level grants are recorded with `dbid = 0` and the database in `objid`, so that arm is
+  -- matched separately — otherwise a lingering CONNECT here would be counted as somebody else's.
+  SELECT count(*),
+         coalesce(string_agg(DISTINCT coalesce(
+           d.datname,
+           (SELECT dd.datname FROM pg_database dd
+             WHERE dd.oid = s.objid AND s.classid = 'pg_database'::regclass),
+           '(cluster-wide)'), ', '), '')
+    INTO v_elsewhere, v_holders
+    FROM pg_shdepend s
+    LEFT JOIN pg_database d ON d.oid = s.dbid
+    JOIN pg_roles r ON r.oid = s.refobjid
+   WHERE r.rolname = 'freightos_event_writer'
+     AND NOT (s.dbid = v_self
+              OR (s.classid = 'pg_database'::regclass AND s.objid = v_self));
+
+  -- STEP D. Retained, and said out loud. This is not a partial revert: this database is done.
+  IF v_elsewhere <> 0 THEN
+    RAISE NOTICE
+      '0029 down: database % is fully reverted. freightos_event_writer is RETAINED because % '
+      'reference(s) remain in: %. The role is dropped by whichever database releases it last.',
+      current_database(), v_elsewhere, v_holders;
+    RETURN;
+  END IF;
+
+  -- STEP C. Nothing anywhere depends on it. Dropped through the migrator's ADMIN edge, which is the
+  -- authorised path — `DROP ROLE` clears the membership rows as part of the drop.
+  EXECUTE 'DROP ROLE freightos_event_writer';
 END
 $$;
 
@@ -224,6 +259,26 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_default_acl
               WHERE defaclacl::text LIKE '%freightos\_event\_writer=%') THEN
     RAISE EXCEPTION '0029 down: a default ACL still names freightos_event_writer';
+  END IF;
+
+  -- THE ROLE'S FATE IS A BICONDITIONAL, and asserting it as one is what makes §4's branch honest.
+  -- The role must be gone IF AND ONLY IF nothing anywhere in the cluster still depends on it. A
+  -- surviving role with no cluster dependencies means the drop was SKIPPED, not deferred; a missing
+  -- role while another database still holds grants would mean the drop was FORCED. Both are
+  -- failures, and neither would be visible from a one-sided check.
+  SELECT count(*) INTO v_n
+    FROM pg_shdepend s JOIN pg_roles r ON r.oid = s.refobjid
+   WHERE r.rolname = 'freightos_event_writer';
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'freightos_event_writer') THEN
+    IF v_n = 0 THEN
+      RAISE EXCEPTION
+        '0029 down: freightos_event_writer survived with NO remaining cluster dependency — '
+        'the drop was skipped, not deferred';
+    END IF;
+  ELSIF v_n <> 0 THEN
+    RAISE EXCEPTION
+      '0029 down: freightos_event_writer was dropped while % cluster dependency/dependencies '
+      'remained — another database was stripped', v_n;
   END IF;
 
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
