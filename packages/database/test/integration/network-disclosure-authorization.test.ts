@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
+import { TENANT_A, TENANT_B, TestDatabase, withClusterRoleLock } from './harness.ts';
 import type { IdentityFixture } from './identity-harness.ts';
 import { connectAsFixtureAdministrator } from './identity-harness.ts';
 import { asRole, seedVerifiedFixture } from './sr2-harness.ts';
@@ -826,9 +826,25 @@ describe('authority neutrality — a grant confers disclosure and nothing else',
       ).rows.map((r) => r.line),
     });
 
-    const before = await snapshot();
-    await asAdminOfA(async (c) => insertGrant(c, orgA, orgExternal));
-    const after = await snapshot();
+    // UNDER THE CLUSTER ROLE LOCK, and only for the window being measured.
+    //
+    // `roleEdges` reads the WHOLE cluster's `pg_auth_members` deliberately — the claim is that
+    // creating a grant changes no role membership anywhere, and filtering the snapshot to the roles
+    // this file happens to know about would weaken exactly the assertion that matters. But roles
+    // are cluster-global while test databases are not, so a sibling file provisioning its own
+    // operator login mid-window adds an edge this comparison then attributes to the grant. That is
+    // what CI caught: `op_vr8fcs_prov|freightos_admin` appeared between the two snapshots, minted
+    // by another suite's database entirely.
+    //
+    // The exclusion belongs around the WINDOW, not in the query. Every path that mutates cluster
+    // roles — `provisionOperator`, `reset`, `bootstrapMigrator` — takes this same advisory lock, so
+    // holding it here means no sibling can mint a role between `before` and `after`. Wrapped around
+    // the three steps rather than taken for the whole file, so nothing else serialises behind it.
+    const { before, after } = await withClusterRoleLock(async () => {
+      const b = await snapshot();
+      await asAdminOfA(async (c) => insertGrant(c, orgA, orgExternal));
+      return { before: b, after: await snapshot() };
+    });
 
     expect(after.tableGrants).toEqual(before.tableGrants);
     expect(after.roleEdges).toEqual(before.roleEdges);
