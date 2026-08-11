@@ -609,25 +609,41 @@ BEGIN
   -- and every existing correction test would keep passing, while cross-organization corrections
   -- silently became possible. Both keys must carry `organization_id` and both must reference the
   -- pair.
-  SELECT count(*), coalesce(string_agg(format('%s(%s)', conname,
-           (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
-              FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
-              JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum)), '; '), '')
+  -- COUNTED BY DISTINCT LEADING COLUMN, not by row count. Counting rows alone would be satisfied by
+  -- TWO COPIES OF THE SAME KEY — two constraints both scoping `corrects_event_id`, with
+  -- `replacement_event_id` left unscoped and free to name another organization's event. The
+  -- leading column is what says WHICH half of the lineage each key governs, so that is what is
+  -- counted, and both halves are required by name.
+  SELECT count(DISTINCT lead), coalesce(string_agg(format('%s(%s,%s)', conname, lead, trail), '; '), '')
     INTO v_n, v_detail
-    FROM pg_catalog.pg_constraint c
-   WHERE c.conrelid = 'network_events'::regclass
-     AND c.contype = 'f'
-     AND c.confrelid = 'network_events'::regclass
-     AND array_length(c.conkey, 1) = 2
-     AND (SELECT a.attname FROM pg_attribute a
-           WHERE a.attrelid = c.conrelid AND a.attnum = c.conkey[2]) = 'organization_id'
-     AND (SELECT a.attname FROM pg_attribute a
-           WHERE a.attrelid = c.confrelid AND a.attnum = c.confkey[2]) = 'organization_id';
+    FROM (
+      SELECT c.conname,
+             (SELECT a.attname FROM pg_attribute a
+               WHERE a.attrelid = c.conrelid AND a.attnum = c.conkey[1]) AS lead,
+             (SELECT a.attname FROM pg_attribute a
+               WHERE a.attrelid = c.conrelid AND a.attnum = c.conkey[2]) AS trail
+        FROM pg_catalog.pg_constraint c
+       WHERE c.conrelid = 'network_events'::regclass
+         AND c.contype = 'f'
+         AND c.confrelid = 'network_events'::regclass
+         AND array_length(c.conkey, 1) = 2
+         -- MATCH SIMPLE. MATCH FULL would reject every ordinary event, so a key that is not
+         -- 's' is not this invariant however it is spelled.
+         AND c.confmatchtype = 's'
+         AND (SELECT a.attname FROM pg_attribute a
+               WHERE a.attrelid = c.conrelid AND a.attnum = c.conkey[2]) = 'organization_id'
+         AND (SELECT a.attname FROM pg_attribute a
+               WHERE a.attrelid = c.confrelid AND a.attnum = c.confkey[1]) = 'event_id'
+         AND (SELECT a.attname FROM pg_attribute a
+               WHERE a.attrelid = c.confrelid AND a.attnum = c.confkey[2]) = 'organization_id'
+    ) k
+   WHERE k.lead IN ('corrects_event_id', 'replacement_event_id');
   IF v_n <> 2 THEN
     RAISE EXCEPTION
-      '0029: expected 2 organization-scoped self-referencing lineage keys on network_events, '
-      'found % (%). A correction may only correct and replace facts of its OWN organization; '
-      'cross-organization challenge is the `dispute` event class, not a correction.', v_n, v_detail;
+      '0029: both lineage halves must be organization-scoped — expected keys leading on '
+      'corrects_event_id AND replacement_event_id, found % of 2 (%). A correction may only correct '
+      'and replace facts of its OWN organization; cross-organization challenge is the `dispute` '
+      'event class, not a correction.', v_n, v_detail;
   END IF;
 END
 $assert$;
