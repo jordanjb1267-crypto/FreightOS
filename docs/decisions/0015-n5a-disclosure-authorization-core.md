@@ -223,12 +223,9 @@ of scope and needs its own model.
 `permissions.action` is constrained to `read|write|engage|release`, which contains neither `create`
 nor `revoke`. The three permission **keys** are seeded exactly as specified — and
 `app.user_has_permission` resolves on `key` — so the authorization contract is unaffected; the two
-write keys carry action `write`. Extending that CHECK would alter an existing surface. Flagged for
+write keys carry action `write`. Extending that CHECK would alter an existing surface, and the CHECK
+is therefore left unchanged and pinned by assertion in both directions of the migration. Flagged for
 owner confirmation.
-
-The three permission keys also **survive** a revert of 0032: `permissions` has no DELETE policy, and
-adding one would permanently widen an existing security surface to tidy up after a revert. A key
-with no role assignment authorizes no one, and both migrations assert zero assignments.
 
 ## Migration and rollback
 
@@ -236,6 +233,25 @@ with no role assignment authorizes no one, and both migrations assert zero assig
 `CASCADE`, no `DROP OWNED`. The down migration removes every N5-A object and asserts that N1–N4 and
 migration 0031's hardened audit ACL survive intact — reverting a feature must never reopen a
 security control belonging to something else.
+
+The rollback is an **exact logical rollback**, including the three permission rows. Removing them
+takes a temporary, migration-only DELETE path, because `permissions` is under `FORCE ROW LEVEL
+SECURITY` with policies for SELECT, INSERT and UPDATE and none for DELETE — and under FORCE RLS a
+DELETE with no applicable policy silently matches zero rows even for the table owner.
+
+No privilege is granted to open that path. `freightos_migrator` owns the table and its ACL already
+carries `d`; what is missing is a policy, not a privilege. The down migration therefore creates a
+DELETE policy scoped to `freightos_migrator` and to the three exact keys, deletes exactly those keys
+by name, requires an affected row count of exactly **3**, and drops the policy before commit. There
+is no `LIKE`, no key prefix, and no automatic deletion of `role_permissions`: the migration first
+refuses to run at all if any of the three keys is assigned to a role or a service account, so a
+rollback can never silently strip authority a tenant is relying on.
+
+What is asserted afterwards is parity, not intent: the `permissions` ACL is compared byte-for-byte
+against the value captured before the migration touched the table, DELETE on `permissions` is proved
+by `aclexplode` to be held by the owner and nobody else, the policy inventory is required to equal
+`permissions_insert`/`permissions_read`/`permissions_update` exactly with no surviving DELETE policy,
+and `ENABLE`/`FORCE ROW LEVEL SECURITY` are required to still be on.
 
 ## Open decisions
 

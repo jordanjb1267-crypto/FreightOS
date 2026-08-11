@@ -654,9 +654,9 @@ REVOKE ALL PRIVILEGES ON network_disclosure_grant_revocations FROM freightos_eve
 -- read/write/engage/release, and the KEYS are what `app.user_has_permission` resolves on.
 -- ---------------------------------------------------------------------------
 
--- IDEMPOTENT ON `key`. The down migration cannot remove these rows — `permissions` has no DELETE
--- policy and adding one would permanently widen an existing security surface to solve a revert
--- cosmetics problem — so a revert leaves them behind and a re-apply must not collide with them.
+-- IDEMPOTENT ON `key`, defensively. The down migration removes these three rows exactly, so a
+-- re-apply should find none — but a migration that would collide if a row somehow survived is a
+-- migration that fails at the worst moment, and the cost of the guard is one clause.
 --
 -- The arbiter is NAMED (`ON CONFLICT (key)`) rather than bare. That form requires SELECT on the
 -- table, because inferring an arbiter index is treated as a read — the lesson N4 learned the hard
@@ -853,20 +853,70 @@ BEGIN
 
   -- (o) The three permission keys exist and are assigned to NO role.
   SELECT string_agg(key, ',' ORDER BY key) INTO v_text
-    FROM permissions WHERE key LIKE 'network.disclosure_grant.%';
+    FROM permissions WHERE key IN ('network.disclosure_grant.create',
+                                   'network.disclosure_grant.read',
+                                   'network.disclosure_grant.revoke');
   IF v_text IS DISTINCT FROM
      'network.disclosure_grant.create,network.disclosure_grant.read,network.disclosure_grant.revoke' THEN
     RAISE EXCEPTION '0032: expected the three disclosure permission keys, found %', coalesce(v_text, '(none)');
   END IF;
 
+  -- READ AS THE CONTROL PLANE. `role_permissions` and `service_account_permissions` are under
+  -- FORCE RLS with `USING (app.is_control_plane() OR tenant_id = app.current_tenant_id())`, and the
+  -- migrator satisfies neither disjunct — it holds `freightos_control_plane` with INHERIT FALSE and
+  -- carries no tenant. Counted as the migrator these return 0 unconditionally, which would make the
+  -- central "this migration hands authority to nobody" claim an assertion that cannot fail.
+  SET LOCAL ROLE freightos_admin_owner;
+
   SELECT count(*) INTO v_int
     FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
-   WHERE p.key LIKE 'network.disclosure_grant.%';
+   WHERE p.key IN ('network.disclosure_grant.create',
+                   'network.disclosure_grant.read',
+                   'network.disclosure_grant.revoke');
   IF v_int <> 0 THEN
     RAISE EXCEPTION
       '0032: the disclosure permissions must be assigned to NO role by this migration, found % '
       'assignment(s). A migration that hands new authority to an existing role has widened human '
       'authority as a side effect of shipping a feature.', v_int;
+  END IF;
+
+  SELECT count(*) INTO v_int
+    FROM service_account_permissions sap JOIN permissions p ON p.id = sap.permission_id
+   WHERE p.key IN ('network.disclosure_grant.create',
+                   'network.disclosure_grant.read',
+                   'network.disclosure_grant.revoke');
+  IF v_int <> 0 THEN
+    RAISE EXCEPTION
+      '0032: the disclosure permissions must be held by NO service account, found %', v_int;
+  END IF;
+
+  RESET ROLE;
+  IF current_user <> 'freightos_migrator' THEN
+    RAISE EXCEPTION '0032: the control-plane loan was not returned, still %', current_user;
+  END IF;
+
+  -- THE OWNER-APPROVED ACTION MAPPING, pinned so a later implementer cannot "fix" it by widening
+  -- the existing CHECK. `permissions.action` is the repository's coarse action family; the KEY is
+  -- the fine-grained authorization identity and is what `app.user_has_permission` resolves on.
+  SELECT string_agg(key || '=' || action, ',' ORDER BY key) INTO v_text
+    FROM permissions WHERE key IN ('network.disclosure_grant.create',
+                                   'network.disclosure_grant.read',
+                                   'network.disclosure_grant.revoke');
+  IF v_text IS DISTINCT FROM
+     'network.disclosure_grant.create=write,network.disclosure_grant.read=read,'
+     'network.disclosure_grant.revoke=write' THEN
+    RAISE EXCEPTION '0032: N5-A permission action mapping is wrong: %', coalesce(v_text, '(none)');
+  END IF;
+
+  -- And the action vocabulary itself is UNCHANGED from the pre-N5-A base. N5-A adds no action.
+  SELECT pg_get_constraintdef(oid) INTO v_text
+    FROM pg_constraint
+   WHERE conrelid = 'public.permissions'::regclass AND conname = 'permissions_action_check';
+  IF v_text IS DISTINCT FROM
+     'CHECK ((action = ANY (ARRAY[''read''::text, ''write''::text, ''engage''::text, ''release''::text])))' THEN
+    RAISE EXCEPTION
+      '0032: permissions_action_check changed. N5-A must not widen the action vocabulary — the '
+      'permission KEY is the authorization identity. Found: %', coalesce(v_text, '(none)');
   END IF;
 
   -- (p) NON-REGRESSION. N3, N4 and the audit ledger are untouched by N5-A.
