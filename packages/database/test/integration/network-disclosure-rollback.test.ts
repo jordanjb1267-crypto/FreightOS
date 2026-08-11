@@ -3,7 +3,12 @@ import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadMigrations, migrateDown, migrateUp } from '../../src/migrator.ts';
 import { MIGRATIONS_DIR } from '../../src/paths.ts';
-import { TENANT_A, TestDatabase } from './harness.ts';
+import {
+  TENANT_A,
+  TestDatabase,
+  acquireClusterRoleLock,
+  releaseClusterRoleLock,
+} from './harness.ts';
 import type { IdentityFixture } from './identity-harness.ts';
 import { connectAsFixtureAdministrator } from './identity-harness.ts';
 import { seedVerifiedFixture } from './sr2-harness.ts';
@@ -162,6 +167,10 @@ async function seedDecoys(): Promise<void> {
 }
 
 beforeAll(async () => {
+  // This file drives migrateUp/migrateDown itself. Migrations mutate cluster-wide catalog state, so
+  // the lock is held for the whole file rather than per call — a revert landing between two `it`
+  // blocks is the same race as one landing inside one. Re-entrant, so `reset()` below is free.
+  await acquireClusterRoleLock();
   await db.reset();
   await db.seedTenants();
   fixtureA = await seedVerifiedFixture(db, TENANT_A);
@@ -174,6 +183,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await owner?.end();
   await adminA?.end();
+  await releaseClusterRoleLock();
 });
 
 describe('the three rows come out — and only those three', () => {
@@ -195,8 +205,10 @@ describe('the three rows come out — and only those three', () => {
 
   it('leaves neighbouring permission keys untouched, including the LIKE-wildcard trap', async () => {
     await driveTo(N5A);
-    expect(await presentKeys(DECOYS), 'the decoys must exist before the revert can prove anything')
-      .toEqual([...DECOYS].sort());
+    expect(
+      await presentKeys(DECOYS),
+      'the decoys must exist before the revert can prove anything',
+    ).toEqual([...DECOYS].sort());
 
     await driveTo(N4);
 

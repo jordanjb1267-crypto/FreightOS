@@ -331,7 +331,12 @@ describe('SR-AUDIT-ACL-NOOP — upgrade from a cluster carrying the broken 0018 
       // Newest first, so the hotfix is reverted LAST — everything stacked above it comes off first.
       // Derived from the loaded set for the same reason as above: this case is about what 0031's
       // down does to one function ACL, not about how many migrations sit on top of it.
-      expect(down.reverted).toEqual(migrations.filter((m) => m.version >= HOTFIX).map((m) => m.version).reverse());
+      expect(down.reverted).toEqual(
+        migrations
+          .filter((m) => m.version >= HOTFIX)
+          .map((m) => m.version)
+          .reverse(),
+      );
 
       const reverted = await aclFacts(client);
       expect(reverted.publicExec, 'reverting 0031 reopened PUBLIC ledger forgery').toBe(false);
@@ -342,7 +347,9 @@ describe('SR-AUDIT-ACL-NOOP — upgrade from a cluster carrying the broken 0018 
 
       // And it re-applies cleanly on top of the state its own down migration left.
       const again = await migrateUp(client, migrations);
-      expect(again.applied).toEqual(migrations.filter((m) => m.version >= HOTFIX).map((m) => m.version));
+      expect(again.applied).toEqual(
+        migrations.filter((m) => m.version >= HOTFIX).map((m) => m.version),
+      );
       expect(await aclFacts(client)).toEqual(after);
     } finally {
       await client.end();
@@ -419,7 +426,9 @@ describe('SR-AUDIT-ACL-NOOP — a superuser-migrated cluster, where 0018 actuall
     try {
       before = await aclFacts(client);
       const second = await migrateUp(client, migrations);
-      expect(second.applied).toEqual(migrations.filter((m) => m.version >= HOTFIX).map((m) => m.version));
+      expect(second.applied).toEqual(
+        migrations.filter((m) => m.version >= HOTFIX).map((m) => m.version),
+      );
       after = await aclFacts(client);
     } finally {
       await client.end();

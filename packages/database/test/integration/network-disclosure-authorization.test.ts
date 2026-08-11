@@ -426,9 +426,9 @@ describe('audit coupling is structural', () => {
          END $fn$`,
       );
 
-      await expect(
-        asAdminOfA(async (c) => insertGrant(c, orgA, orgExternal)),
-      ).rejects.toThrow(/audit|constraint|namespace|event_type/i);
+      await expect(asAdminOfA(async (c) => insertGrant(c, orgA, orgExternal))).rejects.toThrow(
+        /audit|constraint|namespace|event_type/i,
+      );
     } finally {
       await migrator.query(original);
       await migrator.end();
