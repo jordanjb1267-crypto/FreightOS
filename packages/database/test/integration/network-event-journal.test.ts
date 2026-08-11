@@ -1129,6 +1129,77 @@ describe('journal RLS read matrix', () => {
       await client.end();
     }
   });
+
+  it('refuses TRUNCATE from the TABLE OWNER — the hole an ACL cannot close', async () => {
+    // THE OWNER IS THE CASE THAT MATTERS, and the one the other TRUNCATE assertion in this file
+    // cannot reach. That one runs as `freightos_event_writer`, where the ACL refuses it — so it
+    // proves the grant, not the guard.
+    //
+    // TRUNCATE rights come with OWNERSHIP and no REVOKE can take them away. Row-level triggers
+    // never fire for TRUNCATE, and FORCE ROW LEVEL SECURITY does not apply to it — there is no
+    // TRUNCATE policy type. `freightos_migrator` owns these tables because it runs the migrations,
+    // so before the statement-level trigger existed the ordinary deployment credential could erase
+    // the entire journal, and the whole correction lineage graph with it, in one statement.
+    //
+    // `audit_events` and `outbox_events` have refused this since 0003. ADR-N0008 requires
+    // "UPDATE/DELETE/TRUNCATE rejected even for the owner" of all four artifacts; the journal was
+    // the one that did not.
+    const owner = db.connectAsMigrator();
+    await owner.connect();
+    try {
+      // The precondition, so a passing test cannot mean "the migrator was not the owner anyway".
+      const owns = await owner.query<{ line: string }>(
+        `SELECT format('%s owner=%s', c.relname, pg_get_userbyid(c.relowner)) AS line
+           FROM pg_class c
+          WHERE c.relnamespace = 'public'::regnamespace
+            AND c.relname IN ('network_events', 'network_schema_versions') ORDER BY 1`,
+      );
+      expect(owns.rows.map((x) => x.line)).toEqual([
+        'network_events owner=freightos_migrator',
+        'network_schema_versions owner=freightos_migrator',
+      ]);
+
+      for (const [statement, expected] of [
+        ['TRUNCATE network_events', /append-only/i],
+        // The projection alone is refused EARLIER, by the journal's inbound foreign key — PostgreSQL
+        // checks that before firing triggers. Refused either way, but by a different guard, and
+        // saying which one is the whole point of naming the expectation per statement.
+        ['TRUNCATE network_schema_versions', /cannot truncate a table referenced/i],
+        // Both together satisfies the foreign-key check — every referencing table is in the list —
+        // so the trigger is the only thing left, and it is exactly the sequence that would
+        // otherwise sidestep the FK guard.
+        ['TRUNCATE network_events, network_schema_versions', /append-only/i],
+      ] as const) {
+        await owner.query('BEGIN');
+        await expect(owner.query(statement), statement).rejects.toThrow(expected);
+        await owner.query('ROLLBACK');
+      }
+    } finally {
+      await owner.end();
+    }
+  });
+
+  it('carries a statement-level TRUNCATE trigger on both tables — the structural gate', async () => {
+    // What the behavioural test cannot see: a FOR EACH ROW trigger declared `BEFORE TRUNCATE` is
+    // accepted by PostgreSQL and never fires. The bit test is what separates the two.
+    const r = await asAdmin(async (admin) =>
+      (
+        await admin.query<{ line: string }>(
+          `SELECT format('%s.%s rowlevel=%s', c.relname, t.tgname, ((t.tgtype & 1) <> 0)::text)
+                  AS line
+             FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+            WHERE NOT t.tgisinternal AND (t.tgtype & 32) <> 0
+              AND c.relnamespace = 'public'::regnamespace
+              AND c.relname IN ('network_events', 'network_schema_versions')
+            ORDER BY 1`,
+        )
+      ).rows.map((x) => x.line),
+    );
+    expect(r).toEqual([
+      'network_events.network_events_no_truncate rowlevel=false',
+      'network_schema_versions.network_schema_versions_no_truncate rowlevel=false',
+    ]);
+  });
 });
 
 describe('the schema projection', () => {

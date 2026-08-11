@@ -432,6 +432,32 @@ CREATE TRIGGER network_schema_versions_no_delete
   BEFORE DELETE ON network_schema_versions
   FOR EACH ROW EXECUTE FUNCTION app.reject_mutation();
 
+-- TRUNCATE NEEDS ITS OWN STATEMENT-LEVEL TRIGGER, and the reason the ACL is not enough here is the
+-- TABLE OWNER.
+--
+-- Row-level triggers never fire for TRUNCATE, and FORCE ROW LEVEL SECURITY does not apply to it —
+-- there is no TRUNCATE policy type. The §8 REVOKEs reach `freightos_app`, `freightos_control_plane`
+-- and `freightos_event_writer`, but an owner's rights are not held through the ACL and cannot be
+-- revoked away: `freightos_migrator` owns these tables because it runs the migrations, so without
+-- this trigger the ordinary deployment credential can erase the entire journal — and the lineage
+-- graph with it — in one statement, leaving no trace in the journal itself.
+--
+-- `audit_events` and `outbox_events` have carried exactly this guard since 0003, and ADR-N0008
+-- requires "UPDATE/DELETE/TRUNCATE rejected even for the owner" of all four artifacts. The journal
+-- was the one that did not, which is the sort of asymmetry that is invisible until someone runs the
+-- statement.
+--
+-- It is defence in depth, not an absolute boundary: the same owner can DISABLE or DROP the trigger,
+-- or DROP the table. 0003 concedes the same point and adds the trigger anyway — raising on the
+-- direct act is worth more than the residual bypass costs.
+CREATE TRIGGER network_events_no_truncate
+  BEFORE TRUNCATE ON network_events
+  FOR EACH STATEMENT EXECUTE FUNCTION app.reject_mutation();
+
+CREATE TRIGGER network_schema_versions_no_truncate
+  BEFORE TRUNCATE ON network_schema_versions
+  FOR EACH STATEMENT EXECUTE FUNCTION app.reject_mutation();
+
 -- ---------------------------------------------------------------------------
 -- §7. Indexes — only what core access and integrity semantics justify.
 -- ---------------------------------------------------------------------------
@@ -586,6 +612,26 @@ BEGIN
      AND NOT (c.relrowsecurity AND c.relforcerowsecurity);
   IF v_n <> 0 THEN
     RAISE EXCEPTION '0029: % table(s) without ENABLE+FORCE RLS: %', v_n, v_detail;
+  END IF;
+
+  -- Both tables carry a statement-level TRUNCATE guard. Asserted rather than assumed because it is
+  -- the ONE append-only hole an ACL cannot close: TRUNCATE rights come with ownership, and the
+  -- owner is the credential that runs deployments.
+  SELECT count(*), coalesce(string_agg(c.relname, ', '), '') INTO v_n, v_detail
+    FROM pg_catalog.pg_class c
+   WHERE c.relname IN ('network_events', 'network_schema_versions')
+     AND c.relnamespace = 'public'::regnamespace
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_trigger t
+        WHERE t.tgrelid = c.oid AND NOT t.tgisinternal
+          -- pg_trigger.tgtype bit 5 (32) is TRUNCATE; bit 0 (1) is row-level, and a row-level
+          -- trigger never fires for TRUNCATE however it is declared.
+          AND (t.tgtype & 32) <> 0 AND (t.tgtype & 1) = 0);
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION
+      '0029: % table(s) have no statement-level TRUNCATE guard: %. The owner holds TRUNCATE by '
+      'virtue of ownership and no REVOKE can reach it — ADR-N0008 requires UPDATE/DELETE/TRUNCATE '
+      'to be rejected even for the owner.', v_n, v_detail;
   END IF;
 
   -- freightos_app must hold no write on the journal, by any route.

@@ -273,7 +273,13 @@ the v1.4 prose's `com.freightos.*` examples are illustrative prose, not a govern
   migration asserts that **no** membership of the writer, from any role, confers either.
 - **Zero** new SECURITY DEFINER functions.
 - Both new tables are `ENABLE` **and** `FORCE ROW LEVEL SECURITY`; both are append-only by trigger
-  and by ACL, neither being sufficient alone.
+  and by ACL, neither being sufficient alone. **TRUNCATE has its own statement-level trigger**,
+  because it is the one append-only hole an ACL structurally cannot close: TRUNCATE rights come with
+  ownership, row-level triggers never fire for it, and `FORCE ROW LEVEL SECURITY` does not apply —
+  there is no TRUNCATE policy type. `freightos_migrator` owns these tables because it runs the
+  migrations, so without the trigger the ordinary deployment credential could erase the whole
+  journal in one statement. `audit_events` and `outbox_events` have carried the same guard since
+  0003; ADR-N0008 requires it for all four artifacts.
 - `tenant_id IS NULL` means the asserting organization is **external**. It never means public, and
   the RLS read matrix asserts that no tenant-bound session sees a NULL-tenant row.
 - `freightos_app` holds no INSERT on the journal by any route — direct, default-privilege or role
