@@ -244,8 +244,19 @@ carries `d`; what is missing is a policy, not a privilege. The down migration th
 DELETE policy scoped to `freightos_migrator` and to the three exact keys, deletes exactly those keys
 by name, requires an affected row count of exactly **3**, and drops the policy before commit. There
 is no `LIKE`, no key prefix, and no automatic deletion of `role_permissions`: the migration first
-refuses to run at all if any of the three keys is assigned to a role or a service account, so a
-rollback can never silently strip authority a tenant is relying on.
+refuses to run at all if any of the three keys is referenced by a role or service-account
+assignment, so a rollback can never silently strip authority a tenant is relying on.
+
+**Revoking an assignment does not make the rollback safe, and that is deliberate.**
+`admin.revoke_role_permission` marks a `role_permissions` row revoked and keeps it — an
+authorization ledger does not forget that authority was once held. The foreign key
+`role_permissions.permission_id → permissions.id` does not distinguish a revoked row from a live
+one, so the guard counts **rows**, not active grants. The operational consequence is stated plainly
+because it is a fact and not an oversight: once one of these three keys has ever been assigned,
+reverting 0032 stops until a human decides what happens to that history. Counting only unrevoked
+assignments would move the refusal from a guard that can explain itself to a raw foreign-key error,
+and would invite a later implementer to "fix" it by deleting the evidence. The same rule governs
+0032's own zero-assignment self-assertion, for the same reason.
 
 What is asserted afterwards is parity, not intent: the `permissions` ACL is compared byte-for-byte
 against the value captured before the migration touched the table, DELETE on `permissions` is proved
@@ -261,3 +272,31 @@ data residency · retention periods · right-to-delete versus immutable evidence
 rules · network terms artifact (`terms_ref`/`terms_hash` becoming mandatory) · network
 delegation/representation for external self-service grant creation · recipient grant transparency ·
 downstream sharing.
+
+## The RLS proconfig exception
+
+N5-A's four policies call `app.user_has_permission`, which carries a pinned `search_path` from
+migration 0019. Until 0032 no RLS policy called it, so the repository invariant "no function called
+by an RLS policy carries a proconfig" — P-01, whose reason is that a proconfig blocks SQL function
+inlining — held by absence rather than by design.
+
+Three resolutions were possible and two were rejected. Removing 0019's hardening would undo an
+accepted control to satisfy an invariant written before anything exercised it. Inlining the
+predicate into four policies would create four security-critical implementations of one
+authorization rule, which can diverge; there is exactly one canonical permission resolver and it
+stays that way.
+
+What ships is an **exact-function exception**: an invoker-rights function reachable from an RLS
+policy may carry a proconfig only if it is
+`app.user_has_permission(uuid,uuid,text,timestamp with time zone)` — one signature, not a schema
+exemption, not a name match, not an overload family — and only while that identity remains
+`SECURITY INVOKER`, `STABLE`, owned by `freightos_migrator`, and carrying exactly the accepted 0019
+path. The gate resolves policy→function edges from `pg_depend` rather than by pattern-matching the
+deparsed expression, so overloads are distinguished and a call cannot hide behind formatting.
+
+The cost of the exception is that this one predicate does not inline. It is paid back by the call
+shape: the check is a scalar sub-select whose arguments are session authority context and a decision
+time, with no reference to any column of the table being protected, so PostgreSQL evaluates it once
+per statement rather than once per candidate row. That shape is asserted structurally against
+`pg_get_expr`, together with the exact permission key per policy and the absence of any identity
+table that an inlined predicate would have to name.

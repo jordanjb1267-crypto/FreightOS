@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadMigrations, migrateDown, migrateUp } from '../../src/migrator.ts';
@@ -318,5 +320,153 @@ describe('the rollback refuses rather than strip authority', () => {
     expect(await presentKeys(DECOYS)).toEqual([...DECOYS].sort());
 
     await driveTo(N5A);
+  }, 300_000);
+});
+
+/**
+ * THE MIGRATION'S OWN ZERO-ASSIGNMENT ASSERTION — §14 to §16.
+ *
+ * 0032 claims it "assigns the new permission keys to no role". The S-C mutation aimed at that
+ * assertion and never reached it: 0010/0027's `reject_role_permission_self_elevation` refuses a
+ * migration-authored `role_permissions` row outright, because a migration has no human actor. That
+ * proves the earlier boundary works; it proves nothing about 0032's own detector.
+ *
+ * So these two cases isolate it, from opposite directions.
+ *
+ * THE ASSERTION IS NOT RETYPED HERE. It is extracted verbatim from the shipped migration and
+ * executed, so the test cannot drift from what actually runs — a copy would keep passing after
+ * someone edited the migration.
+ */
+describe("0032's zero-assignment assertion is live — §14 to §16", () => {
+  const GUARD = 'app.reject_role_permission_self_elevation';
+
+  /** The shipped §11 block, from `SET LOCAL ROLE` through `RESET ROLE`, wrapped to run alone. */
+  function shippedAssertion(): string {
+    const sql = readFileSync(
+      join(MIGRATIONS_DIR, '0032_network_disclosure_authorization.up.sql'),
+      'utf8',
+    );
+    const from = sql.indexOf(
+      '  SET LOCAL ROLE freightos_admin_owner;\n\n  SELECT count(*) INTO v_int\n    FROM role_permissions',
+    );
+    expect(
+      from,
+      'the shipped neutrality assertion moved — this test must follow it',
+    ).toBeGreaterThan(0);
+    const to = sql.indexOf('  RESET ROLE;', from);
+    expect(to).toBeGreaterThan(from);
+    return `DO $probe$\nDECLARE v_int integer;\nBEGIN\n${sql.slice(from, to)}  RESET ROLE;\nEND\n$probe$;`;
+  }
+
+  const runShippedAssertion = (): Promise<string> =>
+    asMigrator(async (client) => {
+      try {
+        await client.query(shippedAssertion());
+        return 'passed';
+      } catch (error) {
+        return (error as Error).message;
+      }
+    });
+
+  it('fires on a MIGRATION-AUTHORED assignment once the earlier guard is out of the way — S-C refined', async () => {
+    await driveTo(N5A);
+
+    // The earlier detector is neutralised for exactly as long as it takes the bad row to reach the
+    // N5-A assertion, and its definition is captured first so the restoration is the original and
+    // not a retyped approximation. Production semantics are unchanged by the end of this case.
+    const original = (
+      await owner.query<{ def: string }>(
+        `SELECT pg_get_functiondef(p.oid) AS def FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'app' AND p.proname = 'reject_role_permission_self_elevation'`,
+      )
+    ).rows[0]!.def;
+    expect(original).toContain('identity change refused');
+
+    const roleId = fixtureA.roleId;
+    let outcome = '';
+    try {
+      await owner.query(
+        `CREATE OR REPLACE FUNCTION ${GUARD}() RETURNS trigger
+         LANGUAGE plpgsql AS $mut$ BEGIN RETURN NEW; END $mut$`,
+      );
+
+      // Exactly what a careless 0032 would do: assign a key to an existing role, as the migration,
+      // with no human actor anywhere.
+      await owner.query(
+        `INSERT INTO role_permissions (tenant_id, role_id, permission_id, created_by, updated_by)
+         SELECT $1, $2, p.id, 'migration:0032', 'migration:0032'
+           FROM permissions p WHERE p.key = 'network.disclosure_grant.read'`,
+        [fixtureA.tenantId, roleId],
+      );
+
+      outcome = await runShippedAssertion();
+    } finally {
+      await owner.query(original);
+      await owner.query(
+        `DELETE FROM role_permissions rp USING permissions p
+          WHERE p.id = rp.permission_id AND p.key LIKE 'network.disclosure_grant.%'`,
+      );
+    }
+
+    // THE INTENDED DETECTOR, and nothing else.
+    expect(outcome).toMatch(/must be assigned to NO role by this migration, found 1 assignment/);
+
+    // The earlier guard is back, byte for byte, and still refuses.
+    const restored = (
+      await owner.query<{ def: string }>(
+        `SELECT pg_get_functiondef(p.oid) AS def FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'app' AND p.proname = 'reject_role_permission_self_elevation'`,
+      )
+    ).rows[0]!.def;
+    expect(restored).toBe(original);
+    expect(await runShippedAssertion()).toBe('passed');
+  }, 300_000);
+
+  it('fires on a GOVERNED assignment too, and keeps firing after a governed revoke — §16', async () => {
+    await driveTo(N5A);
+    expect(await runShippedAssertion(), 'the assertion is dirty before this case starts').toBe(
+      'passed',
+    );
+
+    const granted = await adminA.query<{ outcome: string; reason: string | null }>(
+      'SELECT * FROM admin.grant_role_permission($1, $2, $3, $4, $5)',
+      [
+        fixtureA.tenantId,
+        fixtureA.roleId,
+        'network.disclosure_grant.create',
+        'identity_administration',
+        randomUUID(),
+      ],
+    );
+    expect(granted.rows[0]!.outcome, granted.rows[0]!.reason ?? '').toBe('succeeded');
+
+    // LIVE. Real authority, created the way a tenant would create it, and the shipped assertion
+    // sees it — which is what makes the zero it reports on a clean database mean something.
+    expect(await runShippedAssertion()).toMatch(/must be assigned to NO role by this migration/);
+
+    const assignmentId = (
+      await owner.query<{ id: string }>(
+        `SELECT rp.id FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
+          WHERE p.key = 'network.disclosure_grant.create' AND rp.revoked_at IS NULL`,
+      )
+    ).rows[0]!.id;
+    const revoked = await adminA.query<{ outcome: string; reason: string | null }>(
+      'SELECT * FROM admin.revoke_role_permission($1, $2, $3, $4)',
+      [fixtureA.tenantId, assignmentId, 'identity_administration', randomUUID()],
+    );
+    expect(revoked.rows[0]!.outcome, revoked.rows[0]!.reason ?? '').toBe('succeeded');
+
+    // STILL FIRES, and that is the accepted behaviour rather than a defect — §19. The governed
+    // path marks the row revoked and keeps it, because an authorization ledger does not forget
+    // that authority was once held, and the assertion counts rows rather than live grants for the
+    // same reason the down migration does: the foreign key does not distinguish them either.
+    expect(await runShippedAssertion()).toMatch(/must be assigned to NO role by this migration/);
+
+    // Only physically removing the ledger row clears it — a decision taken outside the migration,
+    // which is exactly what the guard exists to force. Fixture cleanup, not a supported path.
+    await owner.query('DELETE FROM role_permissions WHERE id = $1', [assignmentId]);
+    expect(await runShippedAssertion()).toBe('passed');
   }, 300_000);
 });
