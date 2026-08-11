@@ -888,6 +888,7 @@ describe('the read model a nullable tenant forces N1 to state — ADR-N0011', ()
       'network_participants delete=false truncate=false',
       'network_relationship_types delete=false truncate=false',
       'network_schema_versions delete=false truncate=false',
+      'network_transport_intents delete=false truncate=false',
     ]);
   });
 });
@@ -1612,6 +1613,7 @@ describe('the structural authority-graph gate', () => {
       'network_participants rls=true force=true',
       'network_relationship_types rls=true force=true',
       'network_schema_versions rls=true force=true',
+      'network_transport_intents rls=true force=true',
     ]);
   });
 
