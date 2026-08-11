@@ -882,6 +882,15 @@ describe('the read model a nullable tenant forces N1 to state — ADR-N0011', ()
     // it matters most.
     expect(state).toEqual([
       'network_alias_namespaces delete=false truncate=false',
+      // N5-A's six, added when 0032 shipped. The gate widened rather than narrowed: a disclosure
+      // grant is authorization evidence, so erasing one is exactly as wrong as erasing a journal
+      // entry, and the revocation table exists precisely so that revoking is not deleting.
+      'network_disclosure_authority_bases delete=false truncate=false',
+      'network_disclosure_grant_revocations delete=false truncate=false',
+      'network_disclosure_grants delete=false truncate=false',
+      'network_disclosure_projection_fields delete=false truncate=false',
+      'network_disclosure_projections delete=false truncate=false',
+      'network_disclosure_purposes delete=false truncate=false',
       'network_events delete=false truncate=false',
       'network_participant_aliases delete=false truncate=false',
       'network_participant_relationships delete=false truncate=false',
@@ -1607,6 +1616,12 @@ describe('the structural authority-graph gate', () => {
     // too, so a migration-authority session cannot read past the tenant policy either.
     expect(r.rows.map((x) => x.line)).toEqual([
       'network_alias_namespaces rls=true force=true',
+      'network_disclosure_authority_bases rls=true force=true',
+      'network_disclosure_grant_revocations rls=true force=true',
+      'network_disclosure_grants rls=true force=true',
+      'network_disclosure_projection_fields rls=true force=true',
+      'network_disclosure_projections rls=true force=true',
+      'network_disclosure_purposes rls=true force=true',
       'network_events rls=true force=true',
       'network_participant_aliases rls=true force=true',
       'network_participant_relationships rls=true force=true',

@@ -40,6 +40,13 @@ const SUPERUSER_DB = 'freightos_audit_acl_superuser';
 /** The version that introduces the hotfix, and the tip it repairs. */
 const HOTFIX = 31;
 const BEFORE_HOTFIX = HOTFIX - 1;
+/**
+ * The repository tip. Distinct from HOTFIX because a fresh bootstrap applies everything, while the
+ * hotfix cases below deliberately stop at 0031 — conflating the two made "the hotfix is last" and
+ * "the migration set is complete" the same assertion, and only the second one moves when a
+ * migration lands.
+ */
+const TIP = 32;
 
 const FN = 'app.record_audit_event(text,text,text,uuid,uuid,text,jsonb)';
 
@@ -216,7 +223,7 @@ describe('SR-AUDIT-ACL-NOOP — fresh cluster', () => {
       const result = await migrateUp(client, migrations);
       // Bootstrapped from zero: every migration applied here, in one pass.
       expect(result.applied).toEqual(migrations.map((m) => m.version));
-      expect(result.applied.at(-1)).toBe(HOTFIX);
+      expect(result.applied.at(-1)).toBe(TIP);
       facts = await aclFacts(client);
     } finally {
       await client.end();
@@ -274,7 +281,12 @@ describe('SR-AUDIT-ACL-NOOP — upgrade from a cluster carrying the broken 0018 
       before = await aclFacts(client);
 
       const second = await migrateUp(client, migrations);
-      expect(second.applied).toEqual([HOTFIX]);
+      // The hotfix and everything after it. Enumerated from the loaded set rather than written out,
+      // so a later migration joining the tail does not require an edit here — what this case is
+      // about is the ACL the hotfix converges, not the length of the tail behind it.
+      expect(second.applied).toEqual(
+        migrations.filter((m) => m.version >= HOTFIX).map((m) => m.version),
+      );
       after = await aclFacts(client);
     } finally {
       await client.end();
@@ -316,7 +328,10 @@ describe('SR-AUDIT-ACL-NOOP — upgrade from a cluster carrying the broken 0018 
     await client.connect();
     try {
       const down = await migrateDown(client, migrations, BEFORE_HOTFIX);
-      expect(down.reverted).toEqual([HOTFIX]);
+      // Newest first, so the hotfix is reverted LAST — everything stacked above it comes off first.
+      // Derived from the loaded set for the same reason as above: this case is about what 0031's
+      // down does to one function ACL, not about how many migrations sit on top of it.
+      expect(down.reverted).toEqual(migrations.filter((m) => m.version >= HOTFIX).map((m) => m.version).reverse());
 
       const reverted = await aclFacts(client);
       expect(reverted.publicExec, 'reverting 0031 reopened PUBLIC ledger forgery').toBe(false);
@@ -327,7 +342,7 @@ describe('SR-AUDIT-ACL-NOOP — upgrade from a cluster carrying the broken 0018 
 
       // And it re-applies cleanly on top of the state its own down migration left.
       const again = await migrateUp(client, migrations);
-      expect(again.applied).toEqual([HOTFIX]);
+      expect(again.applied).toEqual(migrations.filter((m) => m.version >= HOTFIX).map((m) => m.version));
       expect(await aclFacts(client)).toEqual(after);
     } finally {
       await client.end();
@@ -404,7 +419,7 @@ describe('SR-AUDIT-ACL-NOOP — a superuser-migrated cluster, where 0018 actuall
     try {
       before = await aclFacts(client);
       const second = await migrateUp(client, migrations);
-      expect(second.applied).toEqual([HOTFIX]);
+      expect(second.applied).toEqual(migrations.filter((m) => m.version >= HOTFIX).map((m) => m.version));
       after = await aclFacts(client);
     } finally {
       await client.end();

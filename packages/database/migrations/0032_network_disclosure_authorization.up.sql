@@ -266,10 +266,19 @@ CREATE TABLE network_disclosure_grants (
 CREATE INDEX network_disclosure_grants_lookup_idx
   ON network_disclosure_grants
      (recipient_participant_id, grantor_participant_id, purpose_code, effective_from);
-CREATE INDEX network_disclosure_grants_grantor_idx
-  ON network_disclosure_grants (grantor_participant_id);
 CREATE INDEX network_disclosure_grants_projection_idx
   ON network_disclosure_grants (projection_ref);
+
+-- F-20: EVERY composite foreign key is indexed on the REFERENCING side, on the constraint's exact
+-- column list and in its order. A single-column index on `grantor_participant_id` looks like it
+-- covers the grantor constraint and does not: the constraint is
+-- (grantor_participant_id, grantor_participant_type), and it is the referenced side's DELETE and
+-- UPDATE that scan the referencing side. The type column is `GENERATED ALWAYS ... STORED`, so these
+-- are ordinary two-column btrees over stored values.
+CREATE INDEX network_disclosure_grants_grantor_idx
+  ON network_disclosure_grants (grantor_participant_id, grantor_participant_type);
+CREATE INDEX network_disclosure_grants_recipient_idx
+  ON network_disclosure_grants (recipient_participant_id, recipient_participant_type);
 
 COMMENT ON TABLE network_disclosure_grants IS
   'Append-only, effective-dated disclosure authorizations. A grant authorizes DISCLOSURE ONLY: it '
@@ -306,11 +315,18 @@ COMMENT ON TABLE network_disclosure_grant_revocations IS
 -- SR-2 doctrine: authoritative fields derive from authenticated context and are never caller
 -- supplied. These triggers OVERWRITE unconditionally rather than defaulting, because a DEFAULT
 -- applies only to an omitted column and a caller who names it explicitly would otherwise win.
+--
+-- NO `SET search_path` ON ANY OF THE FOUR TRIGGER FUNCTIONS IN THIS MIGRATION. That is P-01, and it
+-- is not an oversight: a proconfig blocks SQL function inlining, so the repository permits exactly
+-- one invoker-rights function in `app` to carry one, and `sr2-definer-body-qualification` asserts
+-- that inventory by exact equality. What protects an invoker-rights function here is 0023 §3 /
+-- 0025 / 0027 layer 3 — the body NAMES ITS SCHEMA — plus 0019's revocation of TEMPORARY from every
+-- runtime role. Every reference in the four bodies below is qualified (`app.`, `public.`) for that
+-- reason, and N3's and N4's trigger functions are written the same way.
 -- ---------------------------------------------------------------------------
 
 CREATE FUNCTION app.network_disclosure_grant_provenance() RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
 AS $$
 BEGIN
   NEW.created_by := coalesce(app.current_actor_id(), current_user);
@@ -330,7 +346,6 @@ CREATE TRIGGER network_disclosure_grants_provenance
 
 CREATE FUNCTION app.network_disclosure_revocation_provenance() RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
 AS $$
 BEGIN
   NEW.revoked_by := coalesce(app.current_actor_id(), current_user);
@@ -359,7 +374,6 @@ CREATE TRIGGER network_disclosure_grant_revocations_provenance
 
 CREATE FUNCTION app.network_disclosure_grant_audit() RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
 AS $$
 BEGIN
   PERFORM app.record_audit_event(
@@ -388,7 +402,6 @@ CREATE TRIGGER network_disclosure_grants_audit
 
 CREATE FUNCTION app.network_disclosure_revocation_audit() RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
 AS $$
 BEGIN
   PERFORM app.record_audit_event(
@@ -538,11 +551,11 @@ CREATE POLICY network_disclosure_grants_insert ON network_disclosure_grants
          AND p.tenant_id IS NOT NULL
          AND p.tenant_id = (SELECT app.current_tenant_id())
     )
-    AND app.user_has_permission(
-          (SELECT app.current_tenant_id()),
-          (SELECT app.current_user_id()),
-          'network.disclosure_grant.create',
-          now())
+    AND (SELECT app.user_has_permission(
+                  (SELECT app.current_tenant_id()),
+                  (SELECT app.current_user_id()),
+                  'network.disclosure_grant.create',
+                  now()))
   );
 
 -- Grantor-side read only, and only with the read permission. A RECIPIENT does not get transparency
@@ -557,11 +570,11 @@ CREATE POLICY network_disclosure_grants_read ON network_disclosure_grants
          AND p.tenant_id IS NOT NULL
          AND p.tenant_id = (SELECT app.current_tenant_id())
     )
-    AND app.user_has_permission(
-          (SELECT app.current_tenant_id()),
-          (SELECT app.current_user_id()),
-          'network.disclosure_grant.read',
-          now())
+    AND (SELECT app.user_has_permission(
+                  (SELECT app.current_tenant_id()),
+                  (SELECT app.current_user_id()),
+                  'network.disclosure_grant.read',
+                  now()))
   );
 
 -- Revocation: grantor-side only, with the revoke permission. The recipient cannot revoke, and a
@@ -577,11 +590,11 @@ CREATE POLICY network_disclosure_grant_revocations_insert ON network_disclosure_
          AND p.tenant_id IS NOT NULL
          AND p.tenant_id = (SELECT app.current_tenant_id())
     )
-    AND app.user_has_permission(
-          (SELECT app.current_tenant_id()),
-          (SELECT app.current_user_id()),
-          'network.disclosure_grant.revoke',
-          now())
+    AND (SELECT app.user_has_permission(
+                  (SELECT app.current_tenant_id()),
+                  (SELECT app.current_user_id()),
+                  'network.disclosure_grant.revoke',
+                  now()))
   );
 
 CREATE POLICY network_disclosure_grant_revocations_read ON network_disclosure_grant_revocations
@@ -595,11 +608,11 @@ CREATE POLICY network_disclosure_grant_revocations_read ON network_disclosure_gr
          AND p.tenant_id IS NOT NULL
          AND p.tenant_id = (SELECT app.current_tenant_id())
     )
-    AND app.user_has_permission(
-          (SELECT app.current_tenant_id()),
-          (SELECT app.current_user_id()),
-          'network.disclosure_grant.read',
-          now())
+    AND (SELECT app.user_has_permission(
+                  (SELECT app.current_tenant_id()),
+                  (SELECT app.current_user_id()),
+                  'network.disclosure_grant.read',
+                  now()))
   );
 
 -- ---------------------------------------------------------------------------
@@ -917,8 +930,12 @@ BEGIN
   END IF;
 
   RESET ROLE;
-  IF current_user <> 'freightos_migrator' THEN
-    RAISE EXCEPTION '0032: the control-plane loan was not returned, still %', current_user;
+  -- Compared to `session_user`, not to a hard-coded role name: `RESET ROLE` restores whoever opened
+  -- the session, and a migration is legitimately driven as `postgres` in some deployments as well
+  -- as as `freightos_migrator`. The property is that the loan was HANDED BACK, not who holds it.
+  IF current_user <> session_user THEN
+    RAISE EXCEPTION '0032: the control-plane loan was not returned — current_user is % (session %)',
+      current_user, session_user;
   END IF;
 
   -- THE OWNER-APPROVED ACTION MAPPING, pinned so a later implementer cannot "fix" it by widening

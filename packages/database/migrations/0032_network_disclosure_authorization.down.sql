@@ -156,10 +156,14 @@ BEGIN
 
   RESET ROLE;
 
-  -- The loan is handed back before anything else happens. The DELETE below runs as the migration
-  -- principal, which is the only role the temporary policy admits.
-  IF current_user <> 'freightos_migrator' THEN
-    RAISE EXCEPTION '0032 down: the control-plane loan was not returned, still %', current_user;
+  -- The loan is handed back before anything else happens. Compared to `session_user` rather than to
+  -- a hard-coded role name: `RESET ROLE` restores whoever opened the session, and a migration is
+  -- legitimately driven as `postgres` in some deployments as well as as `freightos_migrator`. The
+  -- property is that the loan was HANDED BACK, not who holds it.
+  IF current_user <> session_user THEN
+    RAISE EXCEPTION
+      '0032 down: the control-plane loan was not returned — current_user is % (session %)',
+      current_user, session_user;
   END IF;
 END
 $$;

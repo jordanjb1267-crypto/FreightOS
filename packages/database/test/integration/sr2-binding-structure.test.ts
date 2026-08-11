@@ -1449,15 +1449,20 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       //
       // The list is enumerated rather than counted so that a migration joining or leaving this
       // stack has to be acknowledged here; that is what caught 0026's arrival, 0027's, 0028's,
-      // 0029's, 0030's and now 0031's. None of 0028, 0030 or 0031 adds a definer or a
+      // 0029's, 0030's, 0031's and now 0032's. None of 0028, 0030, 0031 or 0032 adds a definer or a
       // pg_temp-sensitive function, so `atTop.length` is unchanged by any of them — which the
       // definer-count assertion below states independently.
       //
       // 0031 is the SR-AUDIT-ACL-NOOP hotfix. It changes one function's EXECUTE ACL and nothing
       // else; in particular it does not touch `proconfig`, so the pg_temp pin this block exists to
       // protect is unaffected in both directions.
+      //
+      // 0032 is N5-A. It adds four trigger functions, all INVOKER rights and all without a
+      // proconfig — P-01, and the reason they are absent is that layer 3 (a body that names its
+      // schema) is what protects an invoker-rights function. So it adds nothing to `definers()` and
+      // nothing this block measures.
       expect((await migrateDown(client, migrations, 23)).reverted).toEqual([
-        31, 30, 29, 28, 27, 26, 25, 24,
+        32, 31, 30, 29, 28, 27, 26, 25, 24,
       ]);
       const at23 = await definers();
       expect(at23.length, 'the revert dropped definers it should only have altered').toBe(
@@ -1490,7 +1495,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
 
       // And back up. Everything matches where it started, field for field.
       expect((await migrateUp(client, migrations)).applied).toEqual([
-        24, 25, 26, 27, 28, 29, 30, 31,
+        24, 25, 26, 27, 28, 29, 30, 31, 32,
       ]);
       expect(await definers()).toEqual(atTop);
       expect(await scopeFns()).toEqual(scopeTop);
