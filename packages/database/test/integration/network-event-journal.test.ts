@@ -311,9 +311,39 @@ describe('the acceptance path', () => {
   it('refuses a v1.2 rig.freight.* type as a native network event', async () => {
     // ADR-N0007: the two vocabularies are independently versioned and re-typing belongs to an
     // explicit adapter, which N3 does not build.
+    //
+    // THE ACCEPTANCE-COMPONENT LAYER. It refuses first, and with a reason rather than a constraint
+    // name — that is the whole value of the outer layer. The database layer is tested separately
+    // below, because a test that only exercises the first layer cannot tell you whether the second
+    // exists.
     await expect(
       accept(draftFor({ type: 'rig.freight.shipment.created.v1' })),
     ).rejects.toMatchObject({ reason: 'type_namespace' });
+  });
+
+  it('refuses a non-governed type in the DATABASE too, with the component bypassed', async () => {
+    // THE DATABASE LAYER, PROBED INDEPENDENTLY. `acceptNetworkEvent` rejects a `rig.freight.*` type
+    // before a statement is ever issued, so the test above cannot distinguish "both layers hold"
+    // from "only the component holds". This one goes around the component entirely and INSERTs as
+    // the writer, which is exactly what a future writer that forgot the check would do.
+    //
+    // Both layers are load-bearing and neither is redundant: the component supplies the actionable
+    // reason, the CHECK supplies the guarantee that survives a component that stops asking.
+    await asWriter(async (client) => {
+      await client.query('BEGIN');
+      await expect(
+        client.query(
+          `INSERT INTO network_events (
+             event_id, type, source, subject, occurred_at, organization_id, classification,
+             schema_ref, envelope_schema_ref, data, event_fingerprint, accepted_by
+           ) VALUES ($1, 'rig.freight.shipment.created.v1', 'urn:test',
+             '[{"network_id":"obj-00000001","object_type":"x"}]'::jsonb, now(), $2, 'internal',
+             $3, $4, '{}'::jsonb, repeat('a', 64), 'pending')`,
+          [generateEventId(), orgA, OBJECT_REF_SCHEMA, V1_4_NETWORK_EVENT_ENVELOPE_DURABLE_REF],
+        ),
+      ).rejects.toThrow(/network_events_type_check|violates check constraint/i);
+      await client.query('ROLLBACK');
+    });
   });
 
   it('enforces the configured future-time tolerance, and admits legitimate skew', async () => {
@@ -538,6 +568,269 @@ describe('correction lineage', () => {
   });
 });
 
+/**
+ * THE CORRECTION ORGANIZATION INVARIANT.
+ *
+ *   A correction may correct and replace only events belonging to the SAME canonical organization
+ *   as the correction itself.
+ *
+ * One organization challenging another organization's fact is a `dispute` — a governed event class
+ * in its own right — not a correction. N3 implements no cross-organization correction or delegation
+ * semantics, and this file is where that stops being a claim about intent.
+ *
+ * THE DETECTOR MUST BE INTEGRITY, NOT VISIBILITY. Every negative below asserts the exact
+ * `constraint` name PostgreSQL reports, because "the insert failed" is satisfied by a dozen
+ * mechanisms and only one of them is the invariant. In particular it must not be row-level
+ * security: RLS would make the rule collapse the moment a legitimate cross-tenant reader appeared,
+ * and it does not apply to referential checks at all — which is precisely why the constraint can
+ * decide this about rows the writer is forbidden to read.
+ */
+describe('the correction organization invariant', () => {
+  /** Capture the pg error so the CONSTRAINT that rejected it can be named, not just the failure. */
+  async function rejection(
+    draft: EventDraft,
+  ): Promise<{ constraint: string | undefined; message: string }> {
+    try {
+      await accept(draft);
+    } catch (error) {
+      const e = error as { constraint?: string; message: string };
+      // `constraint` is undefined for a non-constraint failure, and that is a meaningful answer
+      // rather than a missing one: it says the rejection came from somewhere else.
+      return { constraint: e.constraint, message: e.message };
+    }
+    throw new Error('the correction was ACCEPTED — the organization invariant did not hold');
+  }
+
+  function correction(
+    organizationId: string,
+    correctedId: string,
+    replacementId: string,
+  ): EventDraft {
+    return draftFor({
+      organization_id: organizationId,
+      event_class: 'correction',
+      schema_ref: N3_EVENT_CORRECTION_DURABLE_REF,
+      data: {
+        corrected_event_id: correctedId,
+        replacement_event_id: replacementId,
+        reason: 'organization-scoped lineage',
+        effective_at: new Date().toISOString(),
+      },
+    });
+  }
+
+  it('accepts a correction whose original and replacement are both its own — positive control', async () => {
+    // Runs first and deliberately: every negative below is meaningless if the shape it varies from
+    // cannot itself be accepted.
+    const original = await accept(draftFor({ organization_id: orgA }));
+    const replacement = await accept(draftFor({ organization_id: orgA }));
+    const c = await accept(correction(orgA, original.event_id, replacement.event_id));
+    expect(c.inserted).toBe(true);
+
+    const row = await asAdmin(async (admin) => {
+      const r = await admin.query<{ org: string; corrects: string; repl: string }>(
+        `SELECT organization_id::text AS org, corrects_event_id::text AS corrects,
+                replacement_event_id::text AS repl
+           FROM network_events WHERE event_id = $1`,
+        [c.event_id],
+      );
+      return r.rows[0]!;
+    });
+    expect(row.org).toBe(orgA);
+    expect(row.corrects).toBe(original.event_id);
+    expect(row.repl).toBe(replacement.event_id);
+  });
+
+  it('refuses to correct another organization’s original', async () => {
+    const theirOriginal = await accept(draftFor({ organization_id: orgB }));
+    const myReplacement = await accept(draftFor({ organization_id: orgA }));
+
+    const r = await rejection(correction(orgA, theirOriginal.event_id, myReplacement.event_id));
+    expect(r.constraint).toBe('network_events_corrects_same_organization');
+  });
+
+  it('refuses to name another organization’s event as the replacement', async () => {
+    const myOriginal = await accept(draftFor({ organization_id: orgA }));
+    const theirReplacement = await accept(draftFor({ organization_id: orgB }));
+
+    const r = await rejection(correction(orgA, myOriginal.event_id, theirReplacement.event_id));
+    expect(r.constraint).toBe('network_events_replacement_same_organization');
+  });
+
+  it('cannot bridge two organizations from either side', async () => {
+    // A's original, B's replacement. Neither organization can author a correction relating them:
+    // the correction carries exactly ONE organization_id, and both targets must match it.
+    const aOriginal = await accept(draftFor({ organization_id: orgA }));
+    const bReplacement = await accept(draftFor({ organization_id: orgB }));
+
+    // Asserted as A: the original is fine, the replacement is foreign.
+    expect(
+      (await rejection(correction(orgA, aOriginal.event_id, bReplacement.event_id))).constraint,
+    ).toBe('network_events_replacement_same_organization');
+    // Asserted as B: the replacement is fine, the original is foreign.
+    expect(
+      (await rejection(correction(orgB, aOriginal.event_id, bReplacement.event_id))).constraint,
+    ).toBe('network_events_corrects_same_organization');
+    // …and no third organization can adopt the pair either.
+    expect(
+      (await rejection(correction(orgExternal, aOriginal.event_id, bReplacement.event_id)))
+        .constraint,
+    ).toBe('network_events_corrects_same_organization');
+  });
+
+  it('lets a NULL-tenant external organization correct its OWN lineage', async () => {
+    // The invariant is organizational, not tenant-based. An external organization has no FreightOS
+    // tenant at all, and `tenant_id IS NULL` is not a defect to route around — it must be able to
+    // correct its own facts through the trusted path exactly like anyone else.
+    const original = await accept(draftFor({ organization_id: orgExternal }));
+    const replacement = await accept(draftFor({ organization_id: orgExternal }));
+    const c = await accept(correction(orgExternal, original.event_id, replacement.event_id));
+    expect(c.inserted).toBe(true);
+
+    const row = await asAdmin(async (admin) => {
+      const r = await admin.query<{ tenant: string | null; corrects: string }>(
+        `SELECT tenant_id::text AS tenant, corrects_event_id::text AS corrects
+           FROM network_events WHERE event_id = $1`,
+        [c.event_id],
+      );
+      return r.rows[0]!;
+    });
+    expect(row.tenant).toBeNull();
+    expect(row.corrects).toBe(original.event_id);
+
+    // …and it still cannot reach a tenant-bound organization's facts.
+    const theirs = await accept(draftFor({ organization_id: orgA }));
+    expect(
+      (await rejection(correction(orgExternal, theirs.event_id, replacement.event_id))).constraint,
+    ).toBe('network_events_corrects_same_organization');
+  });
+
+  it('is CONSTRAINT-driven, not RLS-driven, and the writer cannot see the targets at all', async () => {
+    // The claim the whole design rests on: referential integrity is evaluated as the referenced
+    // table's owner, so it decides this about rows the writer has no privilege to read. If the rule
+    // needed a read, the writer would need a global journal SELECT — the exact privilege N3's
+    // column-level design exists to avoid.
+    const theirs = await accept(draftFor({ organization_id: orgB }));
+    const mine = await accept(draftFor({ organization_id: orgA }));
+
+    await asWriter(async (client) => {
+      // The writer may not read organization_id from ANY row, its own included.
+      await expect(
+        client.query('SELECT organization_id FROM network_events WHERE event_id = $1', [
+          mine.event_id,
+        ]),
+      ).rejects.toThrow(/permission denied/i);
+      // Nor is it a policy question: the two columns it may read are readable for every row,
+      // including the foreign organization's, so visibility is NOT what separates these cases.
+      const seen = await client.query('SELECT event_id FROM network_events WHERE event_id = $1', [
+        theirs.event_id,
+      ]);
+      expect(seen.rowCount).toBe(1);
+    });
+
+    // …and yet the correction is still refused, by the constraint.
+    expect((await rejection(correction(orgA, theirs.event_id, mine.event_id))).constraint).toBe(
+      'network_events_corrects_same_organization',
+    );
+  });
+
+  it('is not an existence oracle for another organization’s events', async () => {
+    // A correction must not become a probe. Naming a REAL foreign event and naming a uuid that was
+    // never accepted must be indistinguishable — otherwise "did this correction fail differently?"
+    // answers "does organization B hold event X?", and lineage becomes a cross-tenant search tool.
+    const realForeign = await accept(draftFor({ organization_id: orgB }));
+    const neverAccepted = randomUUID();
+    const mine = await accept(draftFor({ organization_id: orgA }));
+
+    const real = await rejection(correction(orgA, realForeign.event_id, mine.event_id));
+    const fake = await rejection(correction(orgA, neverAccepted, mine.event_id));
+
+    // Same constraint, same SQLSTATE, and a message that differs only in the uuid the caller
+    // already supplied. The key is the PAIR, so `(foreign_event, my_org)` is absent whether or not
+    // `foreign_event` exists — there is nothing for the two cases to differ about.
+    expect(real.constraint).toBe('network_events_corrects_same_organization');
+    expect(fake.constraint).toBe(real.constraint);
+    const scrub = (m: string, id: string) => m.split(id).join('<uuid>');
+    expect(scrub(real.message, realForeign.event_id)).toBe(scrub(fake.message, neverAccepted));
+
+    // The same holds in the replacement position.
+    const realRepl = await rejection(correction(orgA, mine.event_id, realForeign.event_id));
+    const fakeRepl = await rejection(correction(orgA, mine.event_id, neverAccepted));
+    expect(realRepl.constraint).toBe('network_events_replacement_same_organization');
+    expect(fakeRepl.constraint).toBe(realRepl.constraint);
+    expect(scrub(realRepl.message, realForeign.event_id)).toBe(
+      scrub(fakeRepl.message, neverAccepted),
+    );
+  });
+
+  it('carries organization_id in both lineage keys — the structural gate', async () => {
+    // What the runtime cases above cannot see: a LATER change to a single-column key would still
+    // enforce "points at a real event", and every one of them would keep passing while
+    // cross-organization corrections silently became possible again.
+    const r = await asAdmin(async (admin) =>
+      (
+        await admin.query<{ line: string }>(
+          `SELECT format('%s: (%s) -> %s(%s)', c.conname,
+                    (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                       FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                       JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum),
+                    c.confrelid::regclass::text,
+                    (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                       FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
+                       JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum))
+                  AS line
+             FROM pg_constraint c
+            WHERE c.conrelid = 'network_events'::regclass AND c.contype = 'f'
+              AND c.confrelid = 'network_events'::regclass ORDER BY 1`,
+        )
+      ).rows.map((x) => x.line),
+    );
+    expect(r).toEqual([
+      'network_events_corrects_same_organization: (corrects_event_id,organization_id) -> ' +
+        'network_events(event_id,organization_id)',
+      'network_events_replacement_same_organization: (replacement_event_id,organization_id) -> ' +
+        'network_events(event_id,organization_id)',
+    ]);
+
+    // MATCH SIMPLE, and it is load-bearing rather than incidental: under MATCH FULL a composite key
+    // that is part-NULL is rejected outright, so every ordinary non-correction event — which
+    // carries (NULL, organization) — would fail to insert at all.
+    const match = await asAdmin(async (admin) =>
+      (
+        await admin.query<{ line: string }>(
+          `SELECT format('%s confmatchtype=%s', conname, confmatchtype) AS line
+             FROM pg_constraint WHERE conrelid = 'network_events'::regclass
+              AND contype = 'f' AND confrelid = 'network_events'::regclass ORDER BY 1`,
+        )
+      ).rows.map((x) => x.line),
+    );
+    expect(match).toEqual([
+      'network_events_corrects_same_organization confmatchtype=s',
+      'network_events_replacement_same_organization confmatchtype=s',
+    ]);
+
+    // `event_id` is still the sole event identity. The composite UNIQUE exists only so the pair can
+    // be referenced; it is not a redefinition of identity.
+    const pk = await asAdmin(async (admin) =>
+      (
+        await admin.query<{ line: string }>(
+          `SELECT format('%s %s (%s)', conname, contype,
+                    (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                       FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                       JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum))
+                  AS line
+             FROM pg_constraint c
+            WHERE c.conrelid = 'network_events'::regclass AND c.contype IN ('p', 'u') ORDER BY 1`,
+        )
+      ).rows.map((x) => x.line),
+    );
+    expect(pk).toEqual([
+      'network_events_id_organization_key u (event_id,organization_id)',
+      'network_events_pkey p (event_id)',
+    ]);
+  });
+});
+
 describe('the writer boundary', () => {
   it('gives freightos_app no INSERT on the journal, by any route', async () => {
     const client = db.connectAs('postgres');
@@ -673,6 +966,91 @@ describe('the writer boundary', () => {
         await client.query('ROLLBACK');
       }
     });
+  });
+
+  it('cannot be ACQUIRED by any ordinary identity — the reverse direction', async () => {
+    // The escape tests above ask "what can the writer become". This asks the question that matters
+    // just as much and is easier to forget: what can become the WRITER. A `SET ROLE` from the
+    // application role would hand it INSERT on an immutable journal without passing through
+    // schema validation — the same breach as granting `freightos_app` INSERT directly, reached
+    // from the other side.
+    for (const role of ['freightos_app', 'freightos_admin', 'freightos_control_plane']) {
+      const client = db.connectAs(role);
+      await client.connect();
+      try {
+        await client.query('BEGIN');
+        await expect(
+          client.query('SET LOCAL ROLE freightos_event_writer'),
+          `${role} could SET ROLE to the writer`,
+        ).rejects.toThrow(/permission denied|must be a member/i);
+        await client.query('ROLLBACK');
+      } finally {
+        await client.end();
+      }
+    }
+
+    // …and not by inheritance either, which `SET ROLE` alone would not have shown.
+    await asAdmin(async (admin) => {
+      const r = await admin.query<{ line: string }>(
+        `SELECT format('%s usage=%s set=%s', rolname,
+                       pg_has_role(rolname, 'freightos_event_writer', 'USAGE')::text,
+                       pg_has_role(rolname, 'freightos_event_writer', 'SET')::text) AS line
+           FROM pg_roles
+          WHERE rolname IN ('freightos_app', 'freightos_admin', 'freightos_control_plane',
+                            'freightos_admin_owner', 'freightos_audit_writer',
+                            'freightos_binding_owner', 'freightos_hierarchy_owner',
+                            'freightos_identity_guard', 'freightos_operator_registry_owner')
+          ORDER BY 1`,
+      );
+      for (const line of r.rows.map((x) => x.line)) {
+        expect(line, 'an ordinary identity can reach the journal writer').toMatch(
+          /usage=false set=false$/,
+        );
+      }
+    });
+  });
+
+  it('has exactly one membership edge, and it is administrative only', async () => {
+    // NOT "no membership" — that would be false, and a comfortable falsehood about a role graph is
+    // worse than an uncomfortable truth. PostgreSQL gives a CREATEROLE creator an implicit
+    // membership over every role it creates, recorded with the bootstrap superuser as grantor.
+    // It is what lets the revert drop the role. It is pinned here, in full, so it stays visible.
+    const edges = await asAdmin(async (admin) =>
+      (
+        await admin.query<{ line: string }>(
+          `SELECT format('grantor=%s member=%s role=%s admin=%s inherit=%s set=%s',
+                         g.rolname, m.rolname, r.rolname,
+                         am.admin_option::text, am.inherit_option::text, am.set_option::text) AS line
+             FROM pg_auth_members am
+             JOIN pg_roles m ON m.oid = am.member
+             JOIN pg_roles r ON r.oid = am.roleid
+             JOIN pg_roles g ON g.oid = am.grantor
+            WHERE m.rolname = 'freightos_event_writer' OR r.rolname = 'freightos_event_writer'
+            ORDER BY 1`,
+        )
+      ).rows.map((x) => x.line),
+    );
+    expect(edges).toEqual([
+      'grantor=postgres member=freightos_migrator role=freightos_event_writer ' +
+        'admin=true inherit=false set=false',
+    ]);
+    // Stated as its own assertions so a failure names the breach rather than a diff:
+    // ADMIN is permitted — administering the writer is how it gets dropped.
+    // INHERIT or SET is not — either would let the migrator BECOME it.
+    expect(edges.every((e) => e.includes('inherit=false set=false'))).toBe(true);
+    for (const forbidden of [
+      'freightos_app',
+      'freightos_admin',
+      'freightos_control_plane',
+      'freightos_admin_owner',
+      'freightos_audit_writer',
+    ]) {
+      expect(edges.join(' '), `${forbidden} appears in the writer's role graph`).not.toContain(
+        forbidden,
+      );
+    }
+    // No operator edge: `op_*` logins are minted by other test files and are cluster-global.
+    expect(edges.filter((e) => /member=op_|role=op_/.test(e))).toEqual([]);
   });
 });
 

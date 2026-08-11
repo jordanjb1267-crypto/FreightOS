@@ -181,6 +181,47 @@ Lineage is written to `corrects_event_id` / `replacement_event_id` **only** from
 against this contract. Both are foreign keys back into the journal, so a correction cannot name an
 event that was never accepted.
 
+### N3-D11 — The correction organization invariant
+
+**A correction may correct and replace only events belonging to the SAME canonical
+`organization_id` as the correction event itself.**
+
+One organization challenging another organization's fact is a **`dispute`** — already a governed
+event class — not a correction. N3 implements no cross-organization correction and no delegation
+semantics of any kind.
+
+**Enforced as referential integrity, not as a read.** `network_events` carries an additional
+`UNIQUE (event_id, organization_id)` and both lineage keys are composite:
+
+```
+(corrects_event_id,    organization_id) -> network_events (event_id, organization_id)
+(replacement_event_id, organization_id) -> network_events (event_id, organization_id)
+```
+
+`event_id` remains the **primary key and the sole event identity**; the composite UNIQUE is
+satisfied for free and exists only because PostgreSQL requires a foreign key's referenced columns to
+be unique. Identity is not redefined as the pair.
+
+Three properties make this the right mechanism rather than a convenient one:
+
+- **It needs no privilege.** Referential checks run as the referenced table's owner and are subject
+  to neither row-level security nor the inserting role's column grants. The alternative — have the
+  acceptance component read each target's `organization_id` and compare — would require giving
+  `freightos_event_writer` a global read of journal organization metadata, which is the exact
+  privilege N3-D9's column-level design exists to avoid. The writer cannot read `organization_id`
+  from any row, its own included, and the invariant still holds.
+- **`MATCH SIMPLE` is load-bearing.** `organization_id` is `NOT NULL`, so the key is checked exactly
+  when a lineage column is present — that is, exactly on corrections. `MATCH FULL` would reject
+  every ordinary event, because `(NULL, organization)` is neither all-null nor all-non-null.
+- **It closes an existence oracle.** The key is the _pair_, so `(foreign_event, my_org)` is absent
+  whether or not `foreign_event` exists under another organization. A correction can therefore never
+  be used to confirm that another organization's event id is real: both cases fail with the same
+  constraint, the same SQLSTATE, and a message differing only in the uuid the caller supplied.
+
+The invariant is organizational, not tenant-based: an external organization with `tenant_id IS NULL`
+corrects its own lineage exactly like anyone else, and still cannot reach a tenant-bound
+organization's facts.
+
 **Clock skew is application configuration.** `NETWORK_EVENT_MAX_FUTURE_SKEW_SECONDS` defaults to
 300 and is validated at startup. It is deliberately absent from the JSON Schema, from every CHECK
 and from the migration: a strict `time <= recorded_at` would reject legitimate producer clock skew,
@@ -254,10 +295,26 @@ fighting it:
   Destroying an unrelated role's property to make a revert tidy is worse than a failed revert.
 - Zero remaining privilege references **in this database** is a hard assertion — that is the part
   0029 controls, and a leftover there is a defect in the revert.
-- The role is dropped only when no reference survives **anywhere in the cluster**. If another
-  FreightOS database is still at N3 the role is retained with a warning naming the holders, because
-  PostgreSQL offers no way to revoke a privilege in a database you are not connected to, and a
-  shared role may only be dropped by the last database that releases it.
+- **The role is not dropped**, and that is this repository's standing doctrine rather than an N3
+  choice. 0020's down migration records it verbatim — _"0020 was the only migration attempting a
+  DROP ROLE, and it was wrong to"_ — and 0026 re-derived it independently: _"what reverting must
+  actually guarantee is that the role has no REACH, not that its catalog row is gone."_
+  `freightos_hierarchy_owner`, `freightos_identity_guard`, `freightos_admin_owner`,
+  `freightos_audit_writer` and `freightos_binding_owner` are all created idempotently on the way up
+  and left in place on the way down, because `DROP ROLE` consults every database in the cluster and
+  a per-database migration cannot reach the others. The migrator's implicit ADMIN membership is
+  retained for the same reason 0020 gives: revoking it would remove the row PostgreSQL creates for
+  a role's creator and leave a later re-apply unable to grant the role at all.
+- **The reach guarantee is measured, not inferred.** §5 asks `pg_shdepend` — the same catalog
+  `DROP ROLE` consults — plus policies and default ACLs, because "we revoked the grants we
+  remembered" is how a revert ends up almost right.
+- **One N3-specific caveat, stated because it is real.** The five roles above are all NOLOGIN, so a
+  surviving catalog row is inert by construction. `freightos_event_writer` is a LOGIN service
+  credential, so inertness has to be established: after the revert it holds no schema USAGE, no
+  table or column privilege and no policy in this database, so a session that connects can do
+  nothing. `ALTER ROLE … NOLOGIN` is deliberately **not** used — it is equally cluster-global and
+  would disable the writer for every other database still at N3, which is the same error as
+  dropping it.
 
 The down migration asserts its own totality, including that the five N1 tables survive RLS-forced
 and that the four shared `app` helpers N3 borrowed are still present.

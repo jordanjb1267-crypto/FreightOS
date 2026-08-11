@@ -29,9 +29,17 @@ export default defineWorkspace([
       // and fail with ENOENT on a protected artifact — which reads as governance tampering rather
       // than as the scheduling accident it is.
       //
-      // Serialising costs about five seconds across the whole unit suite. A gate that fails
-      // intermittently, in a way that mimics the exact incident it exists to detect, costs more.
+      // BOTH LINES ARE REQUIRED, AND THAT WAS MEASURED RATHER THAN ASSUMED. `fileParallelism` is a
+      // ROOT-level option; setting it inside a workspace project is accepted and silently ignored.
+      // With only that line the suite still ran in 4.1s across many workers — indistinguishable
+      // from no fix at all — and the race came back under `pnpm verify`. `poolOptions.singleFork`
+      // is what actually puts every file in one process, and the give-away is `prepare`: 2.09s of
+      // worker startup became 84ms.
+      //
+      // It is also FASTER, 4.1s → 3.6s, because one process replaces a dozen worker startups. The
+      // usual serialisation trade-off does not apply here, so there is nothing to weigh.
       fileParallelism: false,
+      poolOptions: { forks: { singleFork: true }, threads: { singleThread: true } },
     },
   },
   {

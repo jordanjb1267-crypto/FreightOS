@@ -292,12 +292,23 @@ CREATE TABLE network_events (
   event_fingerprint   text NOT NULL CHECK (event_fingerprint ~ '^[0-9a-f]{64}$'),
 
   -- GOVERNED LINEAGE --------------------------------------------------------
-  corrects_event_id     uuid REFERENCES network_events (event_id),
-  replacement_event_id  uuid REFERENCES network_events (event_id),
+  -- Bare columns. The references are declared at table level below, because BOTH of them are
+  -- COMPOSITE — they carry `organization_id` with them.
+  corrects_event_id     uuid,
+  replacement_event_id  uuid,
 
   CONSTRAINT network_events_organization_is_participant
     FOREIGN KEY (organization_id, organization_type)
     REFERENCES network_participants (id, participant_type),
+
+  -- The referenced side of the two lineage keys below.
+  --
+  -- `event_id` REMAINS THE PRIMARY KEY AND THE SOLE EVENT IDENTITY. This is an additional unique
+  -- constraint, not a redefinition: `event_id` is already unique, so `(event_id, organization_id)`
+  -- is unique for free and adds no semantic constraint whatsoever. It exists only because
+  -- PostgreSQL requires a foreign key's referenced columns to carry a unique constraint, and the
+  -- lineage keys must reference the PAIR.
+  CONSTRAINT network_events_id_organization_key UNIQUE (event_id, organization_id),
 
   -- Lineage is present exactly when the event is a correction, and both halves travel together.
   -- `IS NOT DISTINCT FROM` rather than `=` because a NULL event_class would make `=` yield NULL,
@@ -312,7 +323,40 @@ CREATE TABLE network_events (
     OR (corrects_event_id <> event_id
         AND replacement_event_id <> event_id
         AND corrects_event_id <> replacement_event_id)
-  )
+  ),
+
+  -- THE CORRECTION ORGANIZATION INVARIANT.
+  --
+  --   A correction may correct and replace only events belonging to the SAME canonical
+  --   organization as the correction itself.
+  --
+  -- One organization challenging another organization's fact is a `dispute`, which is a governed
+  -- event class in its own right. It is NOT a correction, and N3 implements no cross-organization
+  -- correction or delegation semantics.
+  --
+  -- ENFORCED AS REFERENTIAL INTEGRITY, NOT AS A READ. The alternative — have the acceptance
+  -- component SELECT each target's `organization_id` and compare — would require giving
+  -- `freightos_event_writer` a global read of journal organization metadata, which is exactly the
+  -- privilege N3 spent its column-level design avoiding. Referential-integrity checks run as the
+  -- REFERENCED table's owner and are not subject to row-level security or to the inserting role's
+  -- privileges, so the database can prove this about rows the writer cannot see at all.
+  --
+  -- MATCH SIMPLE, WHICH IS THE DEFAULT AND IS LOAD-BEARING. Under MATCH SIMPLE a composite key with
+  -- ANY column NULL is satisfied without a lookup. `organization_id` is NOT NULL always, so the key
+  -- is checked exactly when `corrects_event_id`/`replacement_event_id` is present — which is
+  -- exactly when the event is a correction. MATCH FULL would reject every ordinary event, because
+  -- (NULL, organization) is neither all-null nor all-non-null.
+  --
+  -- IT IS ALSO WHAT CLOSES THE EXISTENCE ORACLE. The key is the PAIR, so `(foreign_event, my_org)`
+  -- is absent whether or not `foreign_event` exists under some other organization. A correction can
+  -- therefore never be used to confirm that another organization's event id is real: both cases
+  -- fail identically, with the same constraint and the same detail.
+  CONSTRAINT network_events_corrects_same_organization
+    FOREIGN KEY (corrects_event_id, organization_id)
+    REFERENCES network_events (event_id, organization_id),
+  CONSTRAINT network_events_replacement_same_organization
+    FOREIGN KEY (replacement_event_id, organization_id)
+    REFERENCES network_events (event_id, organization_id)
 );
 
 COMMENT ON TABLE network_events IS
@@ -397,9 +441,18 @@ CREATE INDEX network_events_tenant_recorded_idx ON network_events (tenant_id, re
 -- Interaction reconstruction (ADR-N0009): correlation is how a business interaction is reassembled.
 CREATE INDEX network_events_correlation_idx ON network_events (correlation_id)
   WHERE correlation_id IS NOT NULL;
--- Lineage walks, both directions, only over the rows that have lineage at all.
-CREATE INDEX network_events_corrects_idx ON network_events (corrects_event_id)
-  WHERE corrects_event_id IS NOT NULL;
+-- Lineage walks, both directions — AND the referencing side of the two organization-scoped lineage
+-- foreign keys.
+--
+-- NOT PARTIAL, and the column order is not cosmetic. F-20 requires a foreign key's columns to be a
+-- PREFIX of some non-partial index, in `conkey` order. A `WHERE corrects_event_id IS NOT NULL`
+-- index would read as sufficient — most lineage rows are NULL — but the planner cannot prove a
+-- referential check falls inside that predicate, so it would leave every key check scanning the
+-- whole journal. That is R2-04's lesson, applied before it becomes an incident rather than after.
+CREATE INDEX network_events_corrects_idx
+  ON network_events (corrects_event_id, organization_id);
+CREATE INDEX network_events_replacement_idx
+  ON network_events (replacement_event_id, organization_id);
 -- Schema-impact queries: "which accepted events reference this governed contract".
 CREATE INDEX network_events_schema_ref_idx ON network_events (schema_ref);
 -- F-20: the REFERENCING side of the composite organization foreign key. Without it, PostgreSQL
@@ -547,6 +600,34 @@ BEGIN
    WHERE has_table_privilege(who, 'network_schema_versions', priv);
   IF v_n <> 0 THEN
     RAISE EXCEPTION '0029: network_schema_versions is runtime-writable — %', v_detail;
+  END IF;
+
+  -- THE CORRECTION ORGANIZATION INVARIANT, asserted structurally.
+  --
+  -- Read from `pg_constraint` rather than trusted from the DDL above, because the failure mode this
+  -- guards is a LATER change: a single-column lineage key still enforces "points at a real event"
+  -- and every existing correction test would keep passing, while cross-organization corrections
+  -- silently became possible. Both keys must carry `organization_id` and both must reference the
+  -- pair.
+  SELECT count(*), coalesce(string_agg(format('%s(%s)', conname,
+           (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+              FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+              JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum)), '; '), '')
+    INTO v_n, v_detail
+    FROM pg_catalog.pg_constraint c
+   WHERE c.conrelid = 'network_events'::regclass
+     AND c.contype = 'f'
+     AND c.confrelid = 'network_events'::regclass
+     AND array_length(c.conkey, 1) = 2
+     AND (SELECT a.attname FROM pg_attribute a
+           WHERE a.attrelid = c.conrelid AND a.attnum = c.conkey[2]) = 'organization_id'
+     AND (SELECT a.attname FROM pg_attribute a
+           WHERE a.attrelid = c.confrelid AND a.attnum = c.confkey[2]) = 'organization_id';
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION
+      '0029: expected 2 organization-scoped self-referencing lineage keys on network_events, '
+      'found % (%). A correction may only correct and replace facts of its OWN organization; '
+      'cross-organization challenge is the `dispute` event class, not a correction.', v_n, v_detail;
   END IF;
 END
 $assert$;
