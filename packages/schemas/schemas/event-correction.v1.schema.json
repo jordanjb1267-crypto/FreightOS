@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.rigreceipts.com/network/event-correction.v1.json",
+  "title": "FreightOS Network Event Correction",
+  "description": "The payload of a correction event. A correction is a LINEAGE STATEMENT relating an already-accepted fact to an already-accepted replacement fact; it never carries replacement content itself and never mutates the original. There is deliberately no correcting_authority field: the envelope's organization_id records on whose behalf the correction is asserted, and the journal's trusted accepted_by records the FreightOS acceptance principal, which together preserve the provenance layers without inventing delegation semantics that do not exist.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["corrected_event_id", "replacement_event_id", "reason", "effective_at"],
+  "properties": {
+    "corrected_event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "event_id of the already-accepted event this correction supersedes."
+    },
+    "replacement_event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "event_id of the already-accepted companion fact carrying the replacement truth."
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why the original is being corrected. Human-readable; carries no machine semantics."
+    },
+    "effective_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the correction takes effect in domain time. Not an acceptance timestamp."
+    }
+  }
+}

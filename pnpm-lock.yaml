@@ -74,6 +74,9 @@ importers:
       '@freightos/context':
         specifier: workspace:*
         version: link:../context
+      '@freightos/schemas':
+        specifier: workspace:*
+        version: link:../schemas
       pg:
         specifier: ^8.13.1
         version: 8.22.0

@@ -37,3 +37,6 @@ export {
   type BindingIssuer,
   type VerifiedSessionFailure,
 } from './verified-session.ts';
+
+/** N3 — the trusted network event acceptance component. */
+export * from './network-events.ts';

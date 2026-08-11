@@ -66,7 +66,8 @@ export type ArtifactClass =
   | 'capability-advertisement'
   | 'consent-grant'
   | 'evidence-envelope'
-  | 'workflow-state';
+  | 'workflow-state'
+  | 'event-correction';
 
 /**
  * Lifecycle status.
@@ -91,11 +92,30 @@ export interface RegisteredSchema {
   readonly artifactClass: ArtifactClass;
   readonly status: SchemaStatus;
   /** Governance layer the contract belongs to. Two layers coexist by design — ADR-N0007. */
-  readonly layer: 'v1.2' | 'v1.4';
+  readonly layer: 'v1.2' | 'v1.4' | 'n3';
   /** Repository-relative path to the authoritative file. Provenance, never identity. */
   readonly path: string;
   /** SHA-256 over the file's canonical bytes. See CONTENT_HASHES. */
   readonly contentHash: string;
+  /**
+   * The PRODUCTION-STABLE identity durable artifacts store — N3.
+   *
+   * The protected v1.4 contracts declare `$id`s under `schemas.freightos.example`. As JSON Schema
+   * identifiers those are valid and are never fetched over the network — they are names, not
+   * addresses — and N2 keeps them as the canonical validator identity. Every schema this module
+   * compiles is read from a file on disk whose bytes are hash-pinned; nothing here retrieves
+   * anything by URL, which is why the registry can carry a namespace it does not control.
+   *
+   * But `.example` is the reserved documentation namespace, and a durable
+   * network event is permanent: freezing a documentation namespace into immutable history would be
+   * unfixable later, because changing it afterwards would be a new schema identity.
+   *
+   * So N3 introduces a second, production-owned identity that maps IMMUTABLY 1:1 onto
+   * `(id, version, contentHash)`. The protected files are not edited — this is an additional
+   * naming layer, not a rewrite. A durable ref may never be repointed at different content; a
+   * semantic change requires a new durable ref.
+   */
+  readonly durableRef: string;
 }
 
 /**
@@ -181,6 +201,8 @@ const CONTENT_HASHES: Readonly<Record<string, string>> = Object.freeze({
     'a78903548e297c35986e86a8001622aceb893e0746aa6ff23a2f13fa0c95bd88',
   'https://schemas.freightos.example/network/workflow-state.v1.json':
     'b3baae8a704b7e30ab924fe19c2a5f49bb7d3230fc8b258171a2687e54d5491a',
+  'https://schemas.rigreceipts.com/network/event-correction.v1.json':
+    '75381aa0971b34bdce58e1d6d01c020d23234e4ae82f535d363efc16c3001f0e',
 });
 
 /** File name per canonical id. The path is provenance; the id is identity. */
@@ -223,6 +245,40 @@ export const V1_4_NETWORK_EVENT_ENVELOPE_ID =
 export const V1_4_LOGISTICS_OBJECT_REFERENCE_ID =
   'https://schemas.freightos.example/network/logistics-object-reference.v1.json';
 
+/**
+ * The owner-controlled production namespace for durable schema references — N3.
+ *
+ * `rigreceipts.com` is the registrable domain the owner controls. These identifiers are PERMANENT
+ * PROTOCOL IDENTITIES: a future product or company rename is not authorization to rewrite them,
+ * because durable events already reference them and a reference that changes meaning is exactly
+ * what the immutability rule forbids.
+ */
+export const DURABLE_SCHEMA_NAMESPACE = 'https://schemas.rigreceipts.com/network/';
+
+/** The reverse-DNS root and the network event type pattern derived from the same ownership. */
+export const NETWORK_EVENT_TYPE_PATTERN = /^com\.rigreceipts\.network\.[a-z0-9_.-]+\.v[0-9]+$/;
+
+/**
+ * The N3 correction contract. Unlike the eight v1.4 schemas it is NOT a protected handoff artifact
+ * — it is a new N3-governed contract, so it is authored under the production namespace directly and
+ * its canonical id and durable ref coincide. It lives inside this package rather than under the
+ * protected tree precisely because the protected tree must not be edited to manufacture it.
+ */
+export const N3_EVENT_CORRECTION_ID =
+  'https://schemas.rigreceipts.com/network/event-correction.v1.json';
+
+const N3_SCHEMA_DIR = 'packages/schemas/schemas';
+
+/**
+ * Durable slug DERIVED, never invented: the last path segment of the protected `$id`, which already
+ * carries both the contract name and its `.vN`. Recording the derivation rather than hand-writing
+ * each mapping is what keeps the two identities provably in step.
+ */
+function durableRefFor(canonicalId: string): string {
+  const slug = canonicalId.slice(canonicalId.lastIndexOf('/') + 1);
+  return `${DURABLE_SCHEMA_NAMESPACE}${slug}`;
+}
+
 /** Major version parsed from a canonical id ending `.v<N>.json`, or 1 for the unversioned v1.2 id. */
 function versionFromId(id: string): number {
   const m = /\.v(\d+)\.json$/.exec(id);
@@ -247,6 +303,24 @@ function buildRegistry(): readonly RegisteredSchema[] {
       layer: 'v1.4',
       path,
       contentHash: sha256OfFile(join(root, path)),
+      durableRef: durableRefFor(id),
+    });
+  }
+
+  // The N3 correction contract — authored under the production namespace, so canonical id and
+  // durable ref are the same string. Registered here so it resolves through exactly the same
+  // explicit {id, version} path as everything else; there is no second registry.
+  {
+    const path = `${N3_SCHEMA_DIR}/event-correction.v1.schema.json`;
+    entries.push({
+      id: N3_EVENT_CORRECTION_ID,
+      version: versionFromId(N3_EVENT_CORRECTION_ID),
+      artifactClass: 'event-correction',
+      status: 'active',
+      layer: 'n3',
+      path,
+      contentHash: sha256OfFile(join(root, path)),
+      durableRef: N3_EVENT_CORRECTION_ID,
     });
   }
 
@@ -260,6 +334,10 @@ function buildRegistry(): readonly RegisteredSchema[] {
     layer: 'v1.2',
     path: 'schemas/event-envelope.schema.json',
     contentHash: sha256OfFile(join(root, 'schemas/event-envelope.schema.json')),
+    // The v1.2 envelope is internal (ADR-N0007) and never referenced by a durable network event,
+    // so its durable ref is its own canonical id: no production alias is minted for a contract
+    // that will never appear in the network journal.
+    durableRef: V1_2_EVENT_ENVELOPE_ID,
   });
 
   return Object.freeze(entries);
@@ -301,7 +379,7 @@ function networkAjv(): InstanceType<typeof Ajv2020> {
   const ajv = new Ajv2020({ allErrors: true, strict: false });
   addFormats(ajv);
 
-  for (const entry of listRegisteredSchemas().filter((s) => s.layer === 'v1.4')) {
+  for (const entry of listRegisteredSchemas().filter((s) => s.layer !== 'v1.2')) {
     const absolute = join(root, entry.path);
     const actual = sha256OfFile(absolute);
     const expected = CONTENT_HASHES[entry.id];
@@ -421,3 +499,33 @@ export interface LogisticsObjectReference {
 export function isLogisticsObjectReference(value: unknown): value is LogisticsObjectReference {
   return validateV14LogisticsObjectReference(value).valid;
 }
+
+/**
+ * Resolve a DURABLE reference to its governed contract.
+ *
+ * This is the lookup a durable artifact performs: an event row stores a production durable ref, and
+ * validation must reach exactly the contract that ref was minted against — never "the newest one
+ * with a similar name". Fails closed on an unknown ref for the same reason `resolveSchema` does.
+ */
+export function resolveDurableRef(durableRef: string): RegisteredSchema {
+  const found = listRegisteredSchemas().find((s) => s.durableRef === durableRef);
+  if (!found) {
+    throw new UnknownSchemaError({ id: durableRef, version: 0 });
+  }
+  return found;
+}
+
+/** Validate a payload against the contract a durable reference names. */
+export function validateAgainstDurableRef(durableRef: string, value: unknown): ValidationOutcome {
+  const entry = resolveDurableRef(durableRef);
+  return validateAgainst({ id: entry.id, version: entry.version }, value);
+}
+
+/** The durable reference of the v1.4 network event envelope — what `envelope_schema_ref` stores. */
+export const V1_4_NETWORK_EVENT_ENVELOPE_DURABLE_REF = `${DURABLE_SCHEMA_NAMESPACE}event-envelope.v1.json`;
+
+/** The durable reference of the N3 correction payload contract. */
+export const N3_EVENT_CORRECTION_DURABLE_REF = N3_EVENT_CORRECTION_ID;
+
+export const validateN3EventCorrection = (value: unknown): ValidationOutcome =>
+  validateAgainst({ id: N3_EVENT_CORRECTION_ID, version: 1 }, value);

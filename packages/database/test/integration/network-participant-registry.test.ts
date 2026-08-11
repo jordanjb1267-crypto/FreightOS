@@ -876,12 +876,18 @@ describe('the read model a nullable tenant forces N1 to state — ADR-N0011', ()
       );
       return r.rows.map((x) => x.line);
     });
+    // The scan is `network\_%`, so it covers the N3 journal and schema projection too, and that is
+    // deliberately not narrowed back to the five N1 tables: "no DELETE on any network table" is a
+    // stronger and equally true statement, and a permanently append-only journal is exactly where
+    // it matters most.
     expect(state).toEqual([
       'network_alias_namespaces delete=false truncate=false',
+      'network_events delete=false truncate=false',
       'network_participant_aliases delete=false truncate=false',
       'network_participant_relationships delete=false truncate=false',
       'network_participants delete=false truncate=false',
       'network_relationship_types delete=false truncate=false',
+      'network_schema_versions delete=false truncate=false',
     ]);
   });
 });
@@ -1533,7 +1539,12 @@ describe('the structural authority-graph gate', () => {
         WHERE NOT t.tgisinternal
           AND ((c.relname NOT LIKE 'network\\_%' AND p.proname LIKE 'network\\_%')
             OR (c.relname LIKE 'network\\_%' AND p.proname NOT LIKE 'network\\_%'
-                AND p.proname NOT IN ('set_updated_at', 'bump_version')))`,
+                -- SHARED PLATFORM HELPERS, not network code. \`reject_mutation\` is the append-only
+                -- rejector already attached to the audit ledger, the outbox and the kill-switch
+                -- table; N3 attaches it to the journal and the schema projection. Minting a
+                -- \`network_reject_mutation\` twin purely to satisfy a name-prefix rule would be
+                -- duplication dressed as isolation — and would leave two rejectors to keep in step.
+                AND p.proname NOT IN ('set_updated_at', 'bump_version', 'reject_mutation')))`,
     );
     expect(r.rows.map((x) => x.line)).toEqual([]);
   });
@@ -1565,6 +1576,10 @@ describe('the structural authority-graph gate', () => {
           AND g.rolname <> 'freightos_migrator'
         ORDER BY 1`,
     );
+    // N3 adds exactly ONE further principal, and exactly ONE table-level privilege for it: INSERT
+    // on the journal. Its journal READ is column-scoped and its participant read is column-scoped,
+    // so neither appears in `relacl` at all — which is the point of using column privileges. If a
+    // future change widens the writer to a whole-table SELECT, a new line appears here.
     expect(r.rows.map((x) => x.line)).toEqual([
       'freightos_app INSERT',
       'freightos_app SELECT',
@@ -1572,6 +1587,7 @@ describe('the structural authority-graph gate', () => {
       'freightos_control_plane INSERT',
       'freightos_control_plane SELECT',
       'freightos_control_plane UPDATE',
+      'freightos_event_writer INSERT',
     ]);
   });
 
@@ -1584,12 +1600,18 @@ describe('the structural authority-graph gate', () => {
         WHERE n.nspname = 'public' AND c.relname LIKE 'network\\_%' AND c.relkind = 'r'
         ORDER BY 1`,
     );
+    // Widened to every `network_*` table rather than pinned to N1's five: a new network table that
+    // forgot FORCE would otherwise be added without this gate noticing, which is the one thing it
+    // exists to prevent. FORCE matters more on the journal than anywhere else — it binds the OWNER
+    // too, so a migration-authority session cannot read past the tenant policy either.
     expect(r.rows.map((x) => x.line)).toEqual([
       'network_alias_namespaces rls=true force=true',
+      'network_events rls=true force=true',
       'network_participant_aliases rls=true force=true',
       'network_participant_relationships rls=true force=true',
       'network_participants rls=true force=true',
       'network_relationship_types rls=true force=true',
+      'network_schema_versions rls=true force=true',
     ]);
   });
 
