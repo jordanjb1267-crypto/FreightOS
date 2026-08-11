@@ -186,6 +186,35 @@ Publishing today would disclose data with no policy capable of saying who may re
 The security checklist states the surrounding rule: the repository has no external ingress surface,
 and _"the first one is an architectural event, not a detail."_ The same applies to the first egress.
 
+#### The absence is enforced, not merely observed
+
+`scripts/check-network-egress.mjs` is a CI gate (`pnpm validate:egress`) asserting that the network
+band's runtime surface contains no external egress capability. It scans three executable surfaces —
+runtime TypeScript under `packages/*/src`, migration SQL, and declared dependencies in every package
+manifest — for capability acquisition and invocation: `fetch`/`WebSocket`/`XMLHttpRequest`,
+network-capable module imports matched **in import position only**, broker and queue clients as both
+imports and dependencies, and PostgreSQL's external-I/O primitives (`dblink`, `postgres_fdw` and its
+server/mapping/foreign-table surface, `COPY … PROGRAM`, `pg_read_file`, HTTP-extension calls,
+`CREATE EXTENSION` of any of those).
+
+It is a **targeted architectural guard, not exhaustive language-level network detection**, and it
+says so: obfuscated or dynamically-constructed capability acquisition, capability reached through a
+dependency's own code, and anything a superuser could do interactively are all outside it. It raises
+the cost of adding egress and makes it reviewable; it is not a sandbox.
+
+Two properties make it a detector rather than a string search. Comments and string literals are
+removed before call-shape matching, and module specifiers are read only from import, re-export,
+`require` and dynamic-import positions — so a documentation URL, a durable
+`https://schemas.rigreceipts.com/…` `$id`, a `RAISE` message, or a prose comment naming the
+primitives it forbids cannot trip it. And `pg_notify`, `NOTIFY` and `LISTEN` are counted and
+reported as **database-local signalling, explicitly not egress**: they cross no boundary this
+database does not already own.
+
+A clean-tree PASS proves only that the tree is clean, so the gate carries its own anti-vacuity
+control in `scripts/test/network-egress.test.ts`: a real primitive is introduced on each covered
+surface and a failure naming it is required, alongside a false-positive control asserting that legal
+URLs, prose and non-import mentions still pass. Nothing in it performs network I/O.
+
 ### The two invariants N4 freezes
 
 **TRANSPORT INTENT CONFERS ZERO SECURITY AUTHORITY.** The existence of a row must never grant a
