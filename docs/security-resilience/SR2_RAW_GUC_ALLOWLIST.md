@@ -56,11 +56,16 @@ writer and covers all six GUC names, so a seventh accessor gaining a GUC writer 
 actor it has already authorised. It is not reachable by `freightos_app` and it does not decide
 authority — it publishes a decision already made.
 
-## 3. Test code — 4 files
+## 3. Test code — 11 files
 
 Fenced by `sr2-production-boundaries.test.ts` → _keeps raw identity-GUC writes in test code to the
 reviewed allowlist_. The check fixes the SET of files, so a new call site cannot appear without the
 review that classifies it.
+
+The allowlist in that test is authoritative; this document is the reasoning behind it. The count
+above had drifted (it read "4 files" while the test fenced ten) and is corrected here rather than
+left to drift further — a stale count invites the reader to assume the two are in step when they
+are not.
 
 ### 3a. The adversarial primitive
 
@@ -128,6 +133,35 @@ on itself and this write can only ever be the attack.
   the ledger must name the administrator. The GUC write is the attack; the authenticated principal
   is what must win. Written with `is_local = false` deliberately — a `SET LOCAL` would expire at the
   boundary's own transaction and the forgery would never reach the audit write it is aimed at.
+
+### 3d-2. The SR-AUDIT-ACL-NOOP reproduction — a forged session on a role that has no binding
+
+| File                                                            | Lines            | Disposition                                        |
+| --------------------------------------------------------------- | ---------------- | -------------------------------------------------- |
+| `packages/database/test/integration/audit-function-acl.test.ts` | `attemptForgery` | **PERMITTED — the attack, asserted to be refused** |
+
+This one does not fit 3d's shape and is filed separately rather than stretched to fit. Every other
+entry above layers a forged claim on top of a session that already holds a real verified binding.
+This one has no binding at all, deliberately, and that absence is the finding.
+
+`app.current_tenant_id()` and `app.current_actor_id()` read the verified binding **only** when
+`session_user = 'freightos_app'` (migration 0020). For every other `session_user` they fall through
+to the legacy GUC branch. `attemptForgery` connects as `freightos_event_writer`,
+`freightos_control_plane`, `freightos_admin` and `freightos_migrator` in turn — none of which can
+ever hold a binding — supplies all five identity GUCs itself, and calls
+`app.record_audit_event`.
+
+Before migration 0031 that call **succeeded**, inserting an audit row naming a tenant of the
+caller's choosing and a fabricated `human` actor: the SECURITY DEFINER was executable by PUBLIC
+because 0018's `REVOKE … FROM PUBLIC` was issued by a role PostgreSQL did not accept as the owner
+and was silently discarded. After 0031 the same call is refused at the function ACL, and every case
+asserts both the refusal and `has_function_privilege(...) = false` — the second because a refusal
+alone could come from schema `USAGE` or a downstream CHECK and would leave the ACL untested.
+
+The positive control lives in the same file and writes no GUC: it goes through
+`withAuthenticatedTestPrincipal` as `freightos_app` and asserts the ledger records the verified
+principal's tenant, actor, `actor_type` and `created_by` even when the caller's payload names
+different ones.
 
 ### 3e. Forged claims through the harness, not open-coded
 

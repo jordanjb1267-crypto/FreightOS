@@ -263,6 +263,15 @@ describe('SR-2 production boundaries', () => {
         // The A-M adversarial matrix. Case F does the same forgery against the identity layer and
         // asserts it changes neither authorization nor provenance.
         'packages/database/test/integration/sr2-authenticated-principal-matrix.test.ts',
+        // SR-AUDIT-ACL-NOOP. `attemptForgery` reproduces the finding verbatim: a NON-runtime login
+        // role (freightos_event_writer and three others) supplies its own tenant, actor, legal
+        // class, operating context and legal entity, then calls app.record_audit_event. Before
+        // migration 0031 that inserted a forged audit row; after it, the call is refused at the
+        // function ACL. The GUC writes ARE the attack, and every one of them is asserted to fail —
+        // over a role that never holds a verified binding, which is precisely why the legacy GUC
+        // branch is reachable for it at all. The positive control in the same file uses
+        // withAuthenticatedTestPrincipal and writes no GUC.
+        'packages/database/test/integration/audit-function-acl.test.ts',
       ].sort(),
     );
     // The privileged provisioning and control-plane paths are deliberately NOT here. They reach

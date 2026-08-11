@@ -230,6 +230,59 @@ async function bothPaths(
   }
 }
 
+/**
+ * THE ONE DELIBERATE ASYMMETRY — SR-AUDIT-ACL-NOOP, migration 0031.
+ *
+ * 0031 revoked PUBLIC EXECUTE on `app.record_audit_event` and replaced it with an explicit grant to
+ * `freightos_app`. Its down migration does NOT put PUBLIC back: reverting it would mean handing
+ * audit-ledger forgery back to every role that can log in, and 0031's entire diff IS that control,
+ * so a symmetric revert has no other content to justify it. `0031_...down.sql` states the reasoning
+ * and `NETWORK_SECURITY_NON_REGRESSION_CHECKLIST.md` §Rules 4 is the governing rule.
+ *
+ * The consequence lands here. A database migrated FORWARD to v25 or v19 has never run 0031 and
+ * carries the broken ACL; one migrated to the tip and ROLLED BACK carries the hardened one. The two
+ * paths therefore disagree, legitimately, on exactly one function.
+ *
+ * This is handled by NARROWING, not by weakening. The three affected dimensions drop exactly one
+ * named line, and `expectsTheAuditAclAsymmetry` then asserts POSITIVELY that the difference is the
+ * expected one and that the rolled-back path is the safer of the two. Excluding it silently would
+ * be indistinguishable from the class of defect 0031 exists to fix.
+ */
+const AUDIT_FN = 'app.record_audit_event(text,text,text,uuid,uuid,text,jsonb)';
+
+const withoutAuditFn = (lines: string[]): string[] =>
+  lines.filter((line) => !line.includes('app.record_audit_event('));
+
+/**
+ * Assert the asymmetry is exactly what 0031's down migration promises, and no larger.
+ *
+ * Direction matters: the ROLLED path must be the one without PUBLIC. If these ever swap, a down
+ * migration has reopened the hole and this fails.
+ */
+function expectsTheAuditAclAsymmetry(forward: Snapshot, rolled: Snapshot): void {
+  const hasAudit = (lines: string[]): boolean => lines.some((l) => l.includes(AUDIT_FN));
+
+  expect(
+    hasAudit(forward.publicExec),
+    'forward path lost PUBLIC EXECUTE without running 0031 — has 0018 been edited?',
+  ).toBe(true);
+  expect(
+    hasAudit(rolled.publicExec),
+    'reverting 0031 restored PUBLIC EXECUTE on the audit function — ledger forgery is reopened',
+  ).toBe(false);
+
+  // The authorized caller must work on BOTH paths: through PUBLIC before 0031, through its own
+  // grant after. This is why `runtimeExec` is compared without an exclusion.
+  expect(
+    hasAudit(forward.runtimeExec),
+    'freightos_app cannot reach the audit fn on the forward path',
+  ).toBe(true);
+  expect(
+    hasAudit(rolled.runtimeExec),
+    'freightos_app cannot reach the audit fn on the rolled path',
+  ).toBe(true);
+}
+
 describe('logical v25 — forward vs reverted from the tip', () => {
   let forward: Snapshot;
   let rolled: Snapshot;
@@ -290,10 +343,20 @@ describe('logical v25 — forward vs reverted from the tip', () => {
     expect(rolled.authnObjects, 'reverting 0026 left authn objects behind').toEqual([]);
   });
 
+  it('differs from the forward path on the audit ACL, and only in the safe direction', () => {
+    expectsTheAuditAclAsymmetry(forward, rolled);
+  });
+
   it('matches on every other security-relevant dimension', () => {
-    expect(rolled.functions).toEqual(forward.functions);
-    expect(rolled.adminExec).toEqual(forward.adminExec);
-    expect(rolled.publicExec).toEqual(forward.publicExec);
+    // The three dimensions that carry the audit function's ACL drop exactly that one line. Every
+    // other function in app/admin/authn is still compared in full, so this narrowing costs the gate
+    // nothing beyond the single entry 0031's down migration deliberately does not revert.
+    expect(withoutAuditFn(rolled.functions)).toEqual(withoutAuditFn(forward.functions));
+    expect(withoutAuditFn(rolled.adminExec)).toEqual(withoutAuditFn(forward.adminExec));
+    expect(withoutAuditFn(rolled.publicExec)).toEqual(withoutAuditFn(forward.publicExec));
+    // Not excluded — freightos_app reaches the function on both paths, so this must still match
+    // exactly, and it is the assertion that would catch a down migration that took the runtime
+    // path away.
     expect(rolled.runtimeExec).toEqual(forward.runtimeExec);
     expect(rolled.schemaAcls).toEqual(forward.schemaAcls);
     expect(rolled.policies).toEqual(forward.policies);
@@ -342,11 +405,16 @@ describe('logical v19 — forward vs reverted from the tip', () => {
     );
   });
 
+  it('differs from the forward path on the audit ACL, and only in the safe direction', () => {
+    expectsTheAuditAclAsymmetry(forward, rolled);
+  });
+
   it('matches on every security-relevant dimension', () => {
-    expect(rolled.functions).toEqual(forward.functions);
+    // Same single exclusion as v25, for the same reason — see `expectsTheAuditAclAsymmetry`.
+    expect(withoutAuditFn(rolled.functions)).toEqual(withoutAuditFn(forward.functions));
     expect(rolled.adminGrants).toEqual(forward.adminGrants);
-    expect(rolled.adminExec).toEqual(forward.adminExec);
-    expect(rolled.publicExec).toEqual(forward.publicExec);
+    expect(withoutAuditFn(rolled.adminExec)).toEqual(withoutAuditFn(forward.adminExec));
+    expect(withoutAuditFn(rolled.publicExec)).toEqual(withoutAuditFn(forward.publicExec));
     expect(rolled.runtimeExec).toEqual(forward.runtimeExec);
     expect(rolled.schemaAcls).toEqual(forward.schemaAcls);
     expect(rolled.policies).toEqual(forward.policies);

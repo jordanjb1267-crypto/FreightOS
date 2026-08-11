@@ -1449,11 +1449,15 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       //
       // The list is enumerated rather than counted so that a migration joining or leaving this
       // stack has to be acknowledged here; that is what caught 0026's arrival, 0027's, 0028's,
-      // 0029's and now 0030's. Neither 0028 nor 0030 adds a definer or a pg_temp-sensitive
-      // function, so `atTop.length` is unchanged by either — which the definer-count assertion
-      // below states independently.
+      // 0029's, 0030's and now 0031's. None of 0028, 0030 or 0031 adds a definer or a
+      // pg_temp-sensitive function, so `atTop.length` is unchanged by any of them — which the
+      // definer-count assertion below states independently.
+      //
+      // 0031 is the SR-AUDIT-ACL-NOOP hotfix. It changes one function's EXECUTE ACL and nothing
+      // else; in particular it does not touch `proconfig`, so the pg_temp pin this block exists to
+      // protect is unaffected in both directions.
       expect((await migrateDown(client, migrations, 23)).reverted).toEqual([
-        30, 29, 28, 27, 26, 25, 24,
+        31, 30, 29, 28, 27, 26, 25, 24,
       ]);
       const at23 = await definers();
       expect(at23.length, 'the revert dropped definers it should only have altered').toBe(
@@ -1485,7 +1489,9 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       );
 
       // And back up. Everything matches where it started, field for field.
-      expect((await migrateUp(client, migrations)).applied).toEqual([24, 25, 26, 27, 28, 29, 30]);
+      expect((await migrateUp(client, migrations)).applied).toEqual([
+        24, 25, 26, 27, 28, 29, 30, 31,
+      ]);
       expect(await definers()).toEqual(atTop);
       expect(await scopeFns()).toEqual(scopeTop);
       expect(await publicTemp()).toBe(false);
