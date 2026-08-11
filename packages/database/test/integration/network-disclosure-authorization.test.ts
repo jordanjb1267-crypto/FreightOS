@@ -633,6 +633,167 @@ describe('the seeded reference data matches the package contract', () => {
   });
 });
 
+/**
+ * THE POLICY EXPRESSIONS THEMSELVES, read out of the catalog rather than out of the migration.
+ *
+ * Source review cannot prove any of this: what PostgreSQL stored is the only thing that runs, and a
+ * later `CREATE OR REPLACE POLICY` in some other migration would leave the 0032 source untouched.
+ * So every assertion below reads `pg_get_expr(polqual/polwithcheck)`.
+ *
+ * Four properties, and each one exists because its opposite is a real way to get this wrong:
+ *
+ *   - the permission call is a SCALAR SUB-SELECT, so it is evaluated once for the statement;
+ *   - it is UNCORRELATED — nothing inside it names a column of the table being protected, which is
+ *     what makes once-per-statement correct rather than merely faster;
+ *   - the grantor tenant binding is a SEPARATE conjunct, not folded into the permission check;
+ *   - the authorization predicate is NOT duplicated inline — no policy names the identity tables
+ *     that `app.user_has_permission` resolves over.
+ */
+describe('the permission gate has the approved call shape — §7 and §8', () => {
+  interface PolicyRow {
+    polname: string;
+    expr: string;
+  }
+
+  /** The four N5-A policies that carry a permission check, with their stored expression. */
+  const permissionPolicies = async (): Promise<PolicyRow[]> =>
+    (
+      await owner.query<PolicyRow>(
+        `SELECT polname,
+                coalesce(pg_get_expr(polqual, polrelid), '')
+                  || ' ' || coalesce(pg_get_expr(polwithcheck, polrelid), '') AS expr
+           FROM pg_policy
+          WHERE polname LIKE 'network_disclosure_grant%'
+          ORDER BY polname`,
+      )
+    ).rows;
+
+  /** The permission sub-select, extracted by balancing parentheses from its opening bracket. */
+  function permissionSubselect(expr: string): string {
+    const open = expr.indexOf('( SELECT app.user_has_permission(');
+    expect(open, 'the permission check is not a scalar sub-select').toBeGreaterThanOrEqual(0);
+    let depth = 0;
+    for (let i = open; i < expr.length; i += 1) {
+      if (expr[i] === '(') depth += 1;
+      else if (expr[i] === ')') {
+        depth -= 1;
+        if (depth === 0) return expr.slice(open, i + 1);
+      }
+    }
+    throw new Error(`unbalanced permission sub-select in: ${expr}`);
+  }
+
+  const EXPECTED_KEY: Readonly<Record<string, string>> = {
+    network_disclosure_grants_insert: 'network.disclosure_grant.create',
+    network_disclosure_grants_read: 'network.disclosure_grant.read',
+    network_disclosure_grant_revocations_insert: 'network.disclosure_grant.revoke',
+    network_disclosure_grant_revocations_read: 'network.disclosure_grant.read',
+  };
+
+  /**
+   * The column each policy's tenancy EXISTS correlates on — the positive control for "the
+   * permission sub-select correlates on nothing".
+   *
+   * The two tables reach the grantor differently: a grant carries `grantor_participant_id`
+   * directly, while a revocation reaches it through its grant, so its correlated column is
+   * `grant_id`. Writing one pattern for both would have made the anti-vacuity control pass by
+   * accident on one of them.
+   */
+  const CORRELATED_ON: Readonly<Record<string, string>> = {
+    network_disclosure_grants_insert: 'network_disclosure_grants.grantor_participant_id',
+    network_disclosure_grants_read: 'network_disclosure_grants.grantor_participant_id',
+    network_disclosure_grant_revocations_insert: 'network_disclosure_grant_revocations.grant_id',
+    network_disclosure_grant_revocations_read: 'network_disclosure_grant_revocations.grant_id',
+  };
+
+  it('carries a permission check on exactly the four governed policies, with the exact keys', async () => {
+    const policies = await permissionPolicies();
+    expect(policies.map((p) => p.polname)).toEqual(Object.keys(EXPECTED_KEY).sort());
+
+    for (const { polname, expr } of policies) {
+      const sub = permissionSubselect(expr);
+      // The key is a literal inside the call. Not derived, not concatenated, not a column.
+      expect(sub, `${polname} names the wrong permission key`).toContain(
+        `'${EXPECTED_KEY[polname]}'::text`,
+      );
+      // And no OTHER disclosure key appears anywhere in the policy, so a copy-paste that left two
+      // keys in one policy is caught rather than passing on the first match.
+      for (const other of Object.values(EXPECTED_KEY).filter((k) => k !== EXPECTED_KEY[polname])) {
+        expect(expr, `${polname} also names ${other}`).not.toContain(`'${other}'::text`);
+      }
+    }
+  });
+
+  it('keeps the permission call UNCORRELATED — nothing in it names a protected row', async () => {
+    for (const { polname, expr } of await permissionPolicies()) {
+      const sub = permissionSubselect(expr);
+      const table = polname.startsWith('network_disclosure_grant_revocations')
+        ? 'network_disclosure_grant_revocations'
+        : 'network_disclosure_grants';
+
+      // THE PROPERTY. A correlated reference would appear as `<table>.<column>` inside the
+      // sub-select, and would force PostgreSQL to re-evaluate the authorization function for every
+      // candidate row.
+      expect(sub, `${polname}: the permission check reads a row of ${table}`).not.toContain(
+        `${table}.`,
+      );
+
+      // ANTI-VACUITY. `pg_get_expr` really does qualify correlated references that way — the
+      // tenancy binding in the SAME expression proves it, so the absence above is meaningful and
+      // not an artefact of how this deparses.
+      expect(expr, `${polname}: the tenancy binding is missing`).toContain(CORRELATED_ON[polname]);
+
+      // Its inputs are session authority context and a decision time, and nothing else.
+      expect(sub).toContain('SELECT app.current_tenant_id()');
+      expect(sub).toContain('SELECT app.current_user_id()');
+      expect(sub).toContain('now()');
+    }
+  });
+
+  it('keeps the grantor tenant binding SEPARATE from the permission check', async () => {
+    for (const { polname, expr } of await permissionPolicies()) {
+      const sub = permissionSubselect(expr);
+      // The tenancy test lives in an EXISTS over network_participants, conjoined with — never
+      // inside — the permission call. Folding them together would make one predicate whose failure
+      // mode nobody can read.
+      // The tenancy test resolves the grantor through `network_participants`, directly for a grant
+      // and through its grant for a revocation. Both shapes are an EXISTS, and both are outside the
+      // permission call.
+      expect(expr, `${polname} lost its participant EXISTS`).toMatch(/EXISTS \(\s*SELECT 1/);
+      expect(expr, `${polname} no longer resolves the grantor participant`).toContain(
+        'network_participants',
+      );
+      expect(sub, `${polname} folded the tenancy test into the permission call`).not.toContain(
+        'network_participants',
+      );
+    }
+  });
+
+  it('duplicates the authorization predicate nowhere — one canonical resolver', async () => {
+    // §2. `app.user_has_permission` resolves over memberships → membership_roles → roles →
+    // role_permissions → permissions → users. A policy that inlined it would have to name those
+    // tables. None may.
+    const identityTables = [
+      'memberships',
+      'membership_roles',
+      'role_permissions',
+      'permissions',
+      'users',
+    ];
+    for (const { polname, expr } of await permissionPolicies()) {
+      for (const table of identityTables) {
+        expect(
+          expr,
+          `${polname} appears to inline the authorization predicate (${table})`,
+        ).not.toMatch(new RegExp(`\\b(FROM|JOIN)\\s+${table}\\b`));
+      }
+      // Positive control: the resolver IS called, so "names no identity table" is not passing
+      // because the permission check vanished.
+      expect(expr).toContain('app.user_has_permission(');
+    }
+  });
+});
+
 describe('authority neutrality — a grant confers disclosure and nothing else', () => {
   it('changes no database privilege, role membership or participant authority', async () => {
     const snapshot = async () => ({
