@@ -1439,7 +1439,8 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       expect(scopeTop).toHaveLength(4);
       expect(await publicTemp(), '0019 did not revoke TEMPORARY from PUBLIC').toBe(false);
 
-      // Down SIX steps now — N3 / 0029 joined the stack above N1 / 0028 and 0027, SEC-01 / 0026 and 0025/0024.
+      // Down SEVEN steps now — N4 / 0030 joined the stack above N3 / 0029, N1 / 0028 and 0027,
+      // SEC-01 / 0026 and 0025/0024.
       // Reverting them removes only what they added: 0028's network participant registry, 0027's
       // catalog-derived qualification guard, 0026's authenticated-principal boundary, and
       // 0025/0024's schema-qualified bodies. None of them may re-grant TEMPORARY or unpin pg_temp —
@@ -1447,11 +1448,12 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       // silently reopen the CRITICAL 0019 closed.
       //
       // The list is enumerated rather than counted so that a migration joining or leaving this
-      // stack has to be acknowledged here; that is what caught 0026's arrival, 0027's, 0028's and 0029's.
-      // 0028 adds no definer and no pg_temp-sensitive function, so `atTop.length` is unchanged by
-      // it — which the definer-count assertion below states independently.
+      // stack has to be acknowledged here; that is what caught 0026's arrival, 0027's, 0028's,
+      // 0029's and now 0030's. Neither 0028 nor 0030 adds a definer or a pg_temp-sensitive
+      // function, so `atTop.length` is unchanged by either — which the definer-count assertion
+      // below states independently.
       expect((await migrateDown(client, migrations, 23)).reverted).toEqual([
-        29, 28, 27, 26, 25, 24,
+        30, 29, 28, 27, 26, 25, 24,
       ]);
       const at23 = await definers();
       expect(at23.length, 'the revert dropped definers it should only have altered').toBe(
@@ -1483,7 +1485,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       );
 
       // And back up. Everything matches where it started, field for field.
-      expect((await migrateUp(client, migrations)).applied).toEqual([24, 25, 26, 27, 28, 29]);
+      expect((await migrateUp(client, migrations)).applied).toEqual([24, 25, 26, 27, 28, 29, 30]);
       expect(await definers()).toEqual(atTop);
       expect(await scopeFns()).toEqual(scopeTop);
       expect(await publicTemp()).toBe(false);

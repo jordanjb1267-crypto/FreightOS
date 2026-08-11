@@ -713,9 +713,12 @@ describe('N3 is additive and exactly reversible', () => {
     }
   }, 300_000);
 
-  it('is migration 29, at the tip', () => {
+  it('is migration 29, with N4 the only migration after it', () => {
     expect(N3).toBe(29);
-    expect(TIP).toBe(N3);
+    // N3 was the tip when this file was written; N4 (transport intent, 0030) now follows it. The
+    // guard is kept rather than deleted, because it fires whenever a new migration lands — which is
+    // exactly the moment to ask whether this file's N2 → N3 round trip still isolates what it claims.
+    expect(TIP).toBe(30);
   });
 });
 

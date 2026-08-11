@@ -1160,15 +1160,25 @@ describe('journal RLS read matrix', () => {
       ]);
 
       for (const [statement, expected] of [
-        ['TRUNCATE network_events', /append-only/i],
-        // The projection alone is refused EARLIER, by the journal's inbound foreign key — PostgreSQL
-        // checks that before firing triggers. Refused either way, but by a different guard, and
-        // saying which one is the whole point of naming the expectation per statement.
+        // The journal alone is now refused EARLIER too, by N4's inbound foreign key from
+        // `network_transport_intents` — PostgreSQL checks that before firing triggers. This moved
+        // when N4 landed: before it, the trigger was the only thing standing here. Refused either
+        // way, and now by two independent guards rather than one.
+        ['TRUNCATE network_events', /cannot truncate a table referenced/i],
+        // The projection alone, refused by the journal's inbound foreign key. Unchanged by N4.
         ['TRUNCATE network_schema_versions', /cannot truncate a table referenced/i],
-        // Both together satisfies the foreign-key check — every referencing table is in the list —
-        // so the trigger is the only thing left, and it is exactly the sequence that would
-        // otherwise sidestep the FK guard.
-        ['TRUNCATE network_events, network_schema_versions', /append-only/i],
+        // Still short one referencing table — the transport intents — so still the FK.
+        ['TRUNCATE network_events, network_schema_versions', /cannot truncate a table referenced/i],
+        // ALL THREE together satisfies the foreign-key check, so the trigger is the only thing
+        // left, and this is exactly the sequence that would otherwise sidestep the FK guard.
+        [
+          'TRUNCATE network_events, network_schema_versions, network_transport_intents',
+          /append-only/i,
+        ],
+        // And CASCADE, the obvious way to dissolve the FK objection in one word. The trigger is
+        // what refuses it, which is the whole reason the trigger exists rather than relying on the
+        // foreign key that happens to be there today.
+        ['TRUNCATE network_events CASCADE', /append-only/i],
       ] as const) {
         await owner.query('BEGIN');
         await expect(owner.query(statement), statement).rejects.toThrow(expected);

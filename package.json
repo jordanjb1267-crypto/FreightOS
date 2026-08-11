@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "RIG FreightOS \u2014 governed freight operating system. Horizon 1 build scope.",
+  "description": "RIG FreightOS — governed freight operating system. Horizon 1 build scope.",
   "license": "UNLICENSED",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -29,8 +29,9 @@
     "validate:provenance": "node scripts/check-handoff-provenance.mjs",
     "validate:scope": "node scripts/validate-scope.mjs",
     "validate:network": "node scripts/check-network-governance.mjs",
-    "validate": "pnpm validate:handoff && pnpm validate:provenance && pnpm validate:network && pnpm validate:scope",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:coverage && pnpm validate"
+    "validate": "pnpm validate:handoff && pnpm validate:provenance && pnpm validate:network && pnpm validate:egress && pnpm validate:scope",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:coverage && pnpm validate",
+    "validate:egress": "node scripts/check-network-egress.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
