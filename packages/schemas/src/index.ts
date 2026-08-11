@@ -134,3 +134,5 @@ export function listSchemas(): readonly SchemaName[] {
  * a package upgrade.
  */
 export * from './network.ts';
+
+export * from './canonical-json.ts';

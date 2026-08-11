@@ -319,7 +319,17 @@ export class TestDatabase {
     // freightos_admin joins the list because R2-01 routes every authorization mutation through the
     // admin boundary, so the fixture needs that connection too. Without a password here it works
     // under local trust auth and fails only under the password auth CI uses.
-    for (const role of ['freightos_app', 'freightos_control_plane', 'freightos_admin']) {
+    for (const role of [
+      'freightos_app',
+      'freightos_control_plane',
+      'freightos_admin',
+      // N3's dedicated journal writer. Guarded below rather than assumed present: it is created by
+      // migration 0029, so a database built at any earlier version legitimately has no such role,
+      // and the parity harness reaches those versions on purpose.
+      'freightos_event_writer',
+    ]) {
+      const present = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
+      if (present.rowCount === 0) continue;
       await client.query(
         NEEDS_PASSWORD
           ? `ALTER ROLE ${role} LOGIN PASSWORD '${ROLE_PASSWORD}'`

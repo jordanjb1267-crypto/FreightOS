@@ -119,12 +119,27 @@ describe('the authoritative schemas are reachable the way the module reaches the
         network_id: 'obj-00000001', object_type: 'example-only',
       });
       const evt = m.validateV14NetworkEventEnvelope({});
+      // N3 adds a contract in a SECOND source directory — packages/schemas/schemas, not the
+      // protected handoff tree. Same probe, because the question is identical and the answer is
+      // no longer implied: does this resolve from the module's own URL, or from the caller's cwd?
+      const corr = m.validateN3EventCorrection({
+        corrected_event_id: '018f3a4b-0000-7000-8000-000000000001',
+        replacement_event_id: '018f3a4b-0000-7000-8000-000000000002',
+        reason: 'r',
+        effective_at: '2026-08-10T12:00:00Z',
+      });
+      const badCorr = m.validateN3EventCorrection({ reason: 'r' });
       process.stdout.write(JSON.stringify({
         cwd: process.cwd(),
         registered: registered.length,
         v14: registered.filter((s) => s.layer === 'v1.4').length,
+        n3: registered.filter((s) => s.layer === 'n3').length,
+        durableRefs: registered.filter((s) =>
+          s.durableRef.startsWith('https://schemas.rigreceipts.com/network/')).length,
         refValid: ref.valid,
         emptyEnvelopeValid: evt.valid,
+        correctionValid: corr.valid,
+        badCorrectionValid: badCorr.valid,
       }));
     `;
     const out = execFileSync(
@@ -135,12 +150,19 @@ describe('the authoritative schemas are reachable the way the module reaches the
     const result = JSON.parse(out) as Record<string, unknown>;
 
     expect(result['cwd'], 'the probe did not run outside the repository').toBe('/');
-    expect(result['registered']).toBe(9);
+    // 8 protected v1.4 contracts + the N3 correction contract + the v1.2 envelope.
+    expect(result['registered']).toBe(10);
     expect(result['v14']).toBe(8);
+    expect(result['n3']).toBe(1);
+    // Every contract a network event can reference resolves under the owner-controlled namespace.
+    // The tenth is the v1.2 envelope, which deliberately gets no production alias.
+    expect(result['durableRefs']).toBe(9);
     // Positive and negative in the same probe, so a module that threw or returned a constant
-    // could not produce this pair.
+    // could not produce these pairs.
     expect(result['refValid']).toBe(true);
     expect(result['emptyEnvelopeValid']).toBe(false);
+    expect(result['correctionValid']).toBe(true);
+    expect(result['badCorrectionValid']).toBe(false);
   }, 60_000);
 });
 

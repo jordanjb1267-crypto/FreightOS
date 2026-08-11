@@ -116,6 +116,12 @@ describe('the shape ADR-0020 requires', () => {
       // control-plane disjunct of the policies that survive.
       'freightos_binding_owner',
       'freightos_control_plane',
+      // N3 / 0029 §1. The network event journal writer: the one role here that LOGS IN and owns
+      // nothing. PostgreSQL cannot evaluate JSON Schema, so payload conformance can only be
+      // established in the acceptance component — and the journal is permanently immutable, which
+      // makes a schema-invalid row uncorrectable rather than fixable. So `freightos_app` holds no
+      // INSERT on it and this credential does, with NOBYPASSRLS and no membership anywhere.
+      'freightos_event_writer',
       // F-02. The hierarchy maintenance definer: NOLOGIN, owns the closure and re-depths nodes.
       'freightos_hierarchy_owner',
       // F-01. The self-elevation guards' definer owner: NOLOGIN, SELECT on three tables.
@@ -1186,6 +1192,8 @@ describe('the role graph, described accurately — R2-05', () => {
       // SR-2 / 0020 §1.
       'freightos_binding_owner',
       'freightos_control_plane',
+      // N3 / 0029 §1. The network event journal writer.
+      'freightos_event_writer',
       'freightos_hierarchy_owner',
       'freightos_identity_guard',
       'freightos_migrator',
@@ -1260,6 +1268,12 @@ describe('the role graph, described accurately — R2-05', () => {
       // transferred; INHERIT false so no ordinary migrator statement picks its rights up.
       'freightos_migrator -> freightos_binding_owner admin=true inherit=false set=true',
       'freightos_migrator -> freightos_control_plane admin=true inherit=false set=false',
+      // N3 / 0029 §1. SET FALSE, unlike every definer owner above — the writer owns nothing, so
+      // no `ALTER ... OWNER TO` ever needs to reach it and the migrator never needs to become it.
+      // ADMIN is present only because PostgreSQL grants the creator of a role admin over it, and
+      // it is what lets the revert drop the role. INHERIT FALSE is the load-bearing one: an
+      // inheriting migrator would silently hold INSERT on a permanently immutable journal.
+      'freightos_migrator -> freightos_event_writer admin=true inherit=false set=false',
       'freightos_migrator -> freightos_hierarchy_owner admin=true inherit=false set=true',
       'freightos_migrator -> freightos_identity_guard admin=true inherit=false set=true',
       // SEC-01 / 0026 §1. Same shape as every other definer owner: administered so the migrator

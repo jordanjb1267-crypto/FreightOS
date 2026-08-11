@@ -380,7 +380,11 @@ describe('N1 is additive and exactly reversible', () => {
     }
   }, 300_000);
 
-  it(`is the migration at the tip — ${TIP}`, () => {
-    expect(TIP).toBe(N1);
+  it('is migration 28, with later migrations stacked above it', () => {
+    // This used to assert N1 was the tip. N3 (0029) now sits above it, and the round trip above is
+    // deliberately scoped to 27 -> 28 -> 27 -> 28 regardless: what it grades is whether N1 is
+    // exactly reversible, not whether it happens to be the newest migration.
+    expect(N1).toBe(28);
+    expect(TIP).toBeGreaterThanOrEqual(N1);
   });
 });
