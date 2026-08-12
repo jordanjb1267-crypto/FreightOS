@@ -118,6 +118,21 @@ jobs:
           PGPASSWORD: postgres
         run: pnpm test:integration
 
+      # The BEHAVIOURAL half of the integration-runtime contract, and the only step that runs it.
+      #
+      # `scripts/test/vitest-config-contract.test.ts` already ships in the unit project and pins the
+      # topology, but a structural assertion is exactly what failed to catch the defect this gate
+      # exists for: the integration project declared `fileParallelism: false`, every static check
+      # agreed, and the runtime ran files concurrently regardless. These probes measure elapsed wall
+      # time instead — 6s past the 5000ms test default, 12s past the 10000ms hook default.
+      #
+      # A separate step rather than folded into `test:integration` because the deliberate sleeps
+      # would otherwise be paid by every full run, and separate from `test` because the probes need
+      # the integration runtime rather than the unit one. It needs no database, so it carries no
+      # PostgreSQL environment.
+      - name: Integration runtime configuration contract
+        run: pnpm test:config-contract
+
       # -- Secrets -----------------------------------------------------------
       # Constitution: no production secrets in source, prompts, logs, fixtures, or agent memory.
       #
