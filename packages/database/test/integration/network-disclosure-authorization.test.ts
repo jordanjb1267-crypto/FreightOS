@@ -840,6 +840,14 @@ describe('authority neutrality — a grant confers disclosure and nothing else',
     // roles — `provisionOperator`, `reset`, `bootstrapMigrator` — takes this same advisory lock, so
     // holding it here means no sibling can mint a role between `before` and `after`. Wrapped around
     // the three steps rather than taken for the whole file, so nothing else serialises behind it.
+    //
+    // THE EXPLICIT 60s TIMEOUT BELOW IS PART OF THAT, and it is about QUEUEING rather than about
+    // this test being slow — uncontended, the critical section is ~200ms. Waiting for a
+    // cluster-global primitive is the correct behaviour here, and measured waits on this lock reach
+    // 18.7s while every other suite holds it across its own migration run. The integration
+    // project's declared 60s budget is not effective at runtime (Vitest applies its 5s default —
+    // see INTEGRATION_PROJECT_CONFIG_RESOLUTION), so this one test states the intended budget
+    // explicitly. It is the repository's own number, not a new timing policy.
     const { before, after } = await withClusterRoleLock(async () => {
       const b = await snapshot();
       await asAdminOfA(async (c) => insertGrant(c, orgA, orgExternal));
@@ -851,7 +859,7 @@ describe('authority neutrality — a grant confers disclosure and nothing else',
     expect(after.memberships).toBe(before.memberships);
     expect(after.rolePermissions).toBe(before.rolePermissions);
     expect(after.participants).toEqual(before.participants);
-  });
+  }, 60_000);
 
   it('is not a vacuous oracle — it moves when real authority moves', async () => {
     // SYNTHETIC CONTROL. Without this, the comparison above would pass against a snapshot that
