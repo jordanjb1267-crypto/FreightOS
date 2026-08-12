@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -216,5 +216,200 @@ describe('every migration-driving integration file serialises cluster role mutat
     ]) {
       expect(mutatesClusterRoles(real), real).toBe(true);
     }
+  });
+});
+
+/**
+ * The gate above proves every role mutator TAKES the lock. This one proves they all take the SAME
+ * lock.
+ *
+ * They are different failures. A mutator and an observer that each faithfully call
+ * `pg_advisory_lock` on different keys both look correct in review, both pass the coverage rule
+ * above, and serialise against nothing — the observer reads a half-provisioned role set and fails
+ * somewhere unrelated, intermittently. PostgreSQL advisory locks are a bare integer namespace with
+ * no registry and no type, so nothing but a test can hold that namespace to one value.
+ *
+ * The key is restated here rather than imported. Importing it would make this gate agree with the
+ * harness by construction and assert nothing; a change now has to be made in two places, which is
+ * the point.
+ */
+const EXPECTED_ROLE_SETUP_LOCK = 8_140_267;
+const LOCK_OWNER = 'packages/database/test/integration/harness.ts';
+
+/**
+ * This file scans itself out of the corpus, and that is not a convenience.
+ *
+ * The detector self-test below contains, as string literals, exactly the shapes the rules forbid:
+ * a second `ROLE_SETUP_LOCK = 9_999_999`, an advisory call given `OTHER_LOCK`, a hard-coded key.
+ * They have to be here — anti-vacuity is the reason this gate can be trusted at all — and scanning
+ * them would make the gate report its own fixtures as violations, which is what happened on the
+ * first run.
+ *
+ * It is not a hiding place. This file contains no database connection and executes no SQL; a real
+ * advisory lock written here would take no lock. The exclusion is one exact path, asserted below.
+ */
+const SELF = 'scripts/test/cluster-role-lock-coverage.test.ts';
+
+/** Every TypeScript source in the repository, excluding dependencies and build output. */
+function repositorySources(): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules' || entry === 'dist' || entry.startsWith('.')) continue;
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (entry.endsWith('.ts') && relative(ROOT, full) !== SELF) found.push(full);
+    }
+  };
+  for (const top of ['packages', 'scripts']) walk(join(ROOT, top));
+  return found.sort();
+}
+
+/** Session-scoped advisory calls — the cluster-role mechanism. Comments stripped first. */
+function sessionAdvisoryCallSites(): { path: string; call: string }[] {
+  const sites: { path: string; call: string }[] = [];
+  for (const path of repositorySources()) {
+    const code = stripComments(readFileSync(path, 'utf8'));
+    for (const match of code.matchAll(/pg_advisory_(?:unlock|lock)\s*\(\s*\$\d+\s*\)/g)) {
+      sites.push({ path: relative(ROOT, path), call: match[0] });
+    }
+  }
+  return sites;
+}
+
+describe('the cluster-role advisory namespace has exactly one key', () => {
+  it('declares ROLE_SETUP_LOCK exactly once, in the harness, at the pinned value', () => {
+    const declarations: { path: string; value: number }[] = [];
+    for (const path of repositorySources()) {
+      const code = stripComments(readFileSync(path, 'utf8'));
+      for (const match of code.matchAll(/\bROLE_SETUP_LOCK\s*=\s*([\d_]+)/g)) {
+        declarations.push({
+          path: relative(ROOT, path),
+          value: Number(match[1]!.replaceAll('_', '')),
+        });
+      }
+    }
+
+    expect(
+      declarations.map((d) => d.path),
+      'the cluster-role lock key must be declared exactly once — two declarations are two ' +
+        'namespaces the moment one of them is edited',
+    ).toEqual([LOCK_OWNER]);
+
+    expect(declarations[0]!.value, 'ROLE_SETUP_LOCK changed value').toBe(EXPECTED_ROLE_SETUP_LOCK);
+  });
+
+  it('routes every session advisory lock in the repository through the harness', () => {
+    const sites = sessionAdvisoryCallSites();
+
+    // Non-vacuity: there are real call sites to check. A regex that matched nothing would make the
+    // assertion below pass over an empty set and report perfect coverage.
+    expect(sites.length, 'no session advisory-lock call sites found at all').toBeGreaterThanOrEqual(
+      4,
+    );
+
+    expect(
+      [...new Set(sites.filter((s) => s.path !== LOCK_OWNER).map((s) => s.path))],
+      'session advisory lock taken outside the harness — a second call site is a second ' +
+        'namespace unless it provably uses ROLE_SETUP_LOCK, and nothing enforces that but this',
+    ).toEqual([]);
+  });
+
+  it('passes ROLE_SETUP_LOCK, not a literal, at every harness call site', () => {
+    const code = stripComments(readFileSync(join(ROOT, LOCK_OWNER), 'utf8'));
+    const parameterised = [
+      ...code.matchAll(/pg_advisory_(?:unlock|lock)\s*\(\s*\$\d+\s*\)['"`]\s*,\s*\[([^\]]*)\]/g),
+    ].map((m) => m[1]!.trim());
+
+    expect(parameterised.length, 'no parameterised advisory calls found').toBeGreaterThanOrEqual(4);
+    expect(
+      [...new Set(parameterised)],
+      'a harness advisory call was given something other than ROLE_SETUP_LOCK',
+    ).toEqual(['ROLE_SETUP_LOCK']);
+  });
+
+  it('leaves no other advisory key in the test infrastructure', () => {
+    // A second integer used with an advisory function anywhere in test code is a second cluster
+    // namespace by definition. Migrations are handled separately below.
+    const offenders: string[] = [];
+    for (const path of repositorySources()) {
+      const code = stripComments(readFileSync(path, 'utf8'));
+      for (const match of code.matchAll(/pg_advisory_\w*lock\s*\(\s*([\d_]+)\s*\)/g)) {
+        offenders.push(`${relative(ROOT, path)}: ${match[0]}`);
+      }
+    }
+    expect(offenders, 'advisory lock taken on a hard-coded key in TypeScript').toEqual([]);
+  });
+
+  it('does not claim the cluster-role key for an unrelated migration lock', () => {
+    // Migration 0007 takes `pg_advisory_xact_lock` for hierarchy serialisation. That is a DIFFERENT
+    // domain and a different scope (transaction, not session), and prohibiting it would be
+    // prohibiting a legitimate control — §21. What must not happen is a migration reusing the
+    // cluster-role key, which would silently couple two unrelated serialisation domains.
+    const migrations = join(ROOT, 'packages/database/migrations');
+    const offenders: string[] = [];
+    for (const entry of readdirSync(migrations)) {
+      if (!entry.endsWith('.sql')) continue;
+      const sql = readFileSync(join(migrations, entry), 'utf8');
+      for (const match of sql.matchAll(/pg_advisory_\w*lock\s*\(\s*([\d_']+)/g)) {
+        if (Number(match[1]!.replaceAll('_', '')) === EXPECTED_ROLE_SETUP_LOCK) {
+          offenders.push(`${entry}: ${match[0]}`);
+        }
+      }
+    }
+    expect(offenders, 'a migration took the cluster-role advisory key').toEqual([]);
+  });
+
+  it('excludes exactly one file from the scan, and that file exists', () => {
+    // The exclusion is the one soft spot in the rules above, so it is pinned rather than trusted:
+    // exactly one path, spelled correctly, and present on disk.
+    expect(existsSync(join(ROOT, SELF)), 'the self-exclusion path does not exist').toBe(true);
+    expect(
+      repositorySources().filter((p) => relative(ROOT, p) === SELF),
+      'the self-exclusion matched more than its own file',
+    ).toEqual([]);
+    expect(repositorySources().length, 'the scan corpus collapsed').toBeGreaterThan(50);
+  });
+
+  it('detects a diverted key, a stray call site and a changed constant — detector self-test', () => {
+    // Anti-vacuity for all four rules above, independent of what the repository currently contains.
+    const declarationsIn = (source: string): number[] =>
+      [...stripComments(source).matchAll(/\bROLE_SETUP_LOCK\s*=\s*([\d_]+)/g)].map((m) =>
+        Number(m[1]!.replaceAll('_', '')),
+      );
+
+    // L-C shape: the constant changes value.
+    expect(declarationsIn('const ROLE_SETUP_LOCK = 9_999_999;')).toEqual([9999999]);
+    expect(declarationsIn('const ROLE_SETUP_LOCK = 8_140_267;')).toEqual([
+      EXPECTED_ROLE_SETUP_LOCK,
+    ]);
+
+    // L-A shape: a call given some other key.
+    const diverted = stripComments("await c.query('SELECT pg_advisory_lock($1)', [OTHER_LOCK]);");
+    const args = [
+      ...diverted.matchAll(
+        /pg_advisory_(?:unlock|lock)\s*\(\s*\$\d+\s*\)['"`]\s*,\s*\[([^\]]*)\]/g,
+      ),
+    ].map((m) => m[1]!.trim());
+    expect(args).toEqual(['OTHER_LOCK']);
+
+    // L-B shape: a raw call site, and a hard-coded key.
+    expect(
+      /pg_advisory_(?:unlock|lock)\s*\(\s*\$\d+\s*\)/.test(
+        stripComments("query('SELECT pg_advisory_lock($1)', [8140267])"),
+      ),
+    ).toBe(true);
+    expect(
+      /pg_advisory_\w*lock\s*\(\s*([\d_]+)\s*\)/.test(
+        stripComments('query(`SELECT pg_advisory_lock(8140267)`)'),
+      ),
+    ).toBe(true);
+
+    // And a comment naming the function must not count as a call site — the harness header does.
+    expect(
+      /pg_advisory_(?:unlock|lock)\s*\(\s*\$\d+\s*\)/.test(
+        stripComments('// a second pg_advisory_lock($1) would deadlock\n'),
+      ),
+    ).toBe(false);
   });
 });

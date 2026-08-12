@@ -20,6 +20,7 @@
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:all": "vitest run",
+    "test:config-contract": "vitest run --project config-contract",
     "test:coverage": "vitest run --project unit --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --coverage.all=false --coverage.include='packages/identity/src/**' --coverage.include='packages/context/src/capabilities.ts' --coverage.thresholds.lines=90 --coverage.thresholds.branches=85 --coverage.thresholds.functions=90 --coverage.thresholds.statements=90",
     "db:up": "node --experimental-strip-types packages/database/src/cli.ts up",
     "db:down": "node --experimental-strip-types packages/database/src/cli.ts down",
