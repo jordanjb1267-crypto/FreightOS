@@ -67,7 +67,11 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
-  packages/context: {}
+  packages/context:
+    dependencies:
+      '@freightos/schemas':
+        specifier: workspace:*
+        version: link:../schemas
 
   packages/database:
     dependencies:

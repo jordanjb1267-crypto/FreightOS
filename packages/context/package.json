@@ -5,9 +5,13 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./authentication-boundary": "./src/authentication-boundary.ts"
+    "./authentication-boundary": "./src/authentication-boundary.ts",
+    "./disclosure": "./src/disclosure.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@freightos/schemas": "workspace:*"
   }
 }

@@ -136,3 +136,20 @@ export function listSchemas(): readonly SchemaName[] {
 export * from './network.ts';
 
 export * from './canonical-json.ts';
+
+/**
+ * N5-A disclosure-projection pointers — the FreightOS projection syntax, its schema walker, and
+ * payload projection. Re-exported here because `@freightos/schemas` exposes a single entry point.
+ */
+export {
+  parseProjectionPointer,
+  validateProjectionPointer,
+  validateProjection,
+  projectPayload,
+  ProjectionPointerError,
+  type PointerToken,
+  type PointerValidationFailure,
+} from './projection-pointer.ts';
+
+/** Deterministic canonical JSON — N3's event fingerprint primitive, reused by the N5-A digest. */
+export { canonicalJson, canonicalSha256, CanonicalizationError, type CanonicalJsonValue } from './canonical-json.ts';

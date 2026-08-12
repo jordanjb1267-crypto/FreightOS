@@ -70,6 +70,59 @@ const MUST_BE_PROTECTED = [
 
 const PINNED = '{"search_path=pg_catalog, public, pg_temp"}';
 
+/**
+ * The ONE function identity approved to carry a proconfig while reachable from an RLS policy.
+ *
+ * An exact `regprocedure` rendering — schema, name and argument types together. Matching by
+ * `proname` would cover every overload, and matching by schema would cover everything in `app`;
+ * neither is what was approved. The contract this identity must keep is asserted separately, so
+ * the exception fails closed if the function itself changes.
+ */
+const APPROVED_EXCEPTION = 'app.user_has_permission(uuid,uuid,text,timestamp with time zone)';
+
+/**
+ * Every function an RLS policy actually depends on.
+ *
+ * From `pg_depend`, not from a regex over `pg_get_expr`. PostgreSQL records a policy's dependency
+ * on each function its expression calls, so overloads are distinguished by signature and a call
+ * cannot be hidden by how the expression happens to deparse — a schema-qualified name that the
+ * current `search_path` lets PostgreSQL print bare would have slipped straight past the old
+ * `app\.([a-z0-9_]+)\(` pattern.
+ */
+const POLICY_FUNCTIONS_SQL = `
+  SELECT DISTINCT p.oid::regprocedure::text AS signature, p.prosecdef, p.provolatile,
+         coalesce(p.proconfig::text, '(null)') AS config
+    FROM pg_depend d
+    JOIN pg_policy pol ON pol.oid = d.objid
+    JOIN pg_proc p ON p.oid = d.refobjid
+   WHERE d.classid = 'pg_policy'::regclass AND d.refclassid = 'pg_proc'::regclass
+   ORDER BY 1`;
+
+interface PolicyFunction {
+  signature: string;
+  prosecdef: boolean;
+  provolatile: string;
+  config: string;
+}
+
+const policyFunctions = async (client: Client): Promise<PolicyFunction[]> =>
+  (await client.query<PolicyFunction>(POLICY_FUNCTIONS_SQL)).rows;
+
+/**
+ * THE RULE, in one place so the gate and its narrowness proof cannot drift apart.
+ *
+ * proconfig IS NULL              → passes this dimension, whatever else it is.
+ * proconfig IS NOT NULL, invoker → must be exactly APPROVED_EXCEPTION.
+ * anything else                  → reported.
+ *
+ * No schema filter and no name filter: the comparison is against one full signature.
+ */
+const proconfigViolations = async (client: Client): Promise<string[]> =>
+  (await policyFunctions(client))
+    .filter((f) => f.config !== '(null)' && !f.prosecdef && f.signature !== APPROVED_EXCEPTION)
+    .map((f) => f.signature)
+    .sort();
+
 let su: Client;
 let a: IdentityFixture;
 let b: IdentityFixture;
@@ -325,19 +378,126 @@ describe('layer 3 — every authority relation is named with its schema', () => 
     expect(r.rows.map((x) => x.config)).toEqual([PINNED]);
   });
 
-  it('leaves no function called by an RLS policy carrying a proconfig', async () => {
-    const r = await su.query<{ proname: string }>(
-      `SELECT DISTINCT p.proname
-         FROM pg_policy pol,
-              LATERAL regexp_matches(
-                coalesce(pg_get_expr(pol.polqual, pol.polrelid), '') || ' ' ||
-                coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), ''),
-                'app\\.([a-z0-9_]+)\\(', 'g') AS m
-         JOIN pg_proc p ON p.proname = m[1]
-         JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'app'
-        WHERE NOT p.prosecdef AND p.proconfig IS NOT NULL`,
+  /**
+   * THE INVOKER-RIGHTS PROCONFIG RULE, WITH ONE EXACT-FUNCTION EXCEPTION.
+   *
+   * WAS: "no function called by an RLS policy carries a proconfig", matched by `proname` against a
+   * regex over the deparsed policy expression, filtered to `NOT prosecdef` and schema `app`.
+   *
+   * IS: for every function an RLS policy DEPENDS ON — resolved from `pg_depend`, so overloads are
+   * distinguished and deparse formatting cannot hide a call — an invoker-rights function may carry
+   * a proconfig only if it is EXACTLY `APPROVED_EXCEPTION`, and only while that function still
+   * satisfies the contract asserted in the next case. Any other invoker-rights function carrying a
+   * proconfig fails.
+   *
+   * WHY THE EXCEPTION EXISTS. P-01 forbids a proconfig on an invoker-rights function because it
+   * blocks SQL inlining. N5-A's four disclosure policies must resolve a permission, there is
+   * exactly one canonical permission resolver, and duplicating its body into four policies would
+   * create four security-critical implementations that can diverge. 0019's search-path hardening on
+   * that resolver is accepted defence-in-depth and is not being undone to satisfy an invariant
+   * written before any policy called it. The cost — no inlining for that one predicate — is paid
+   * back by the scalar-subselect call shape, which makes it an uncorrelated once-per-statement
+   * evaluation rather than a per-row call.
+   *
+   * WHAT THE EXCEPTION IS NOT: not an `app`-schema exemption (the query has no schema filter), not
+   * an RLS-function exemption, not a STABLE exemption, not a search_path exemption, not a
+   * SECURITY INVOKER exemption, and not a general proconfig allowlist. One signature.
+   *
+   * SCOPE, STATED PLAINLY. `NOT prosecdef` is the SAME scope the rule always had, and it is load
+   * bearing: `app.current_tenant_id()`, `app.current_legal_entity_id()`,
+   * `app.verified_binding_tenant_scope()` and `app.verified_binding_scope_node_ids()` are
+   * SECURITY DEFINER, carry the pinned path by design, and are reached by policies all over this
+   * schema. They are governed by layer 2 — `pg_temp` pinned LAST for every definer — which the
+   * "every definer carries the pinned path" case below asserts by exact equality. Widening this
+   * case to them would be a different invariant, not this one.
+   */
+  it('permits exactly one proconfig-bearing invoker function under an RLS policy', async () => {
+    // ANTI-VACUITY FIRST. If the approved function stops being reachable from a policy — because
+    // the permission gate was removed, or because it became SECURITY DEFINER and dropped out of
+    // this scope — the violation list is empty and the assertion below passes for the wrong
+    // reason. So its PRESENCE is required, not merely the absence of others.
+    const reachable = await policyFunctions(su);
+    expect(
+      reachable.map((f) => f.signature),
+      'the approved permission resolver is no longer reachable from any RLS policy',
+    ).toContain(APPROVED_EXCEPTION);
+
+    expect(
+      await proconfigViolations(su),
+      'an invoker-rights function other than the approved exception carries a proconfig under a policy',
+    ).toEqual([]);
+  });
+
+  it('holds the approved exception to its exact contract — §4', async () => {
+    // Selected BY SIGNATURE, never by name: `app.user_has_permission(uuid,uuid,text)` is a
+    // different function and is not approved. §11 — do not special-case by function name alone.
+    const r = await su.query<{
+      signature: string;
+      nspname: string;
+      proname: string;
+      prosecdef: boolean;
+      provolatile: string;
+      config: string;
+      owner: string;
+    }>(
+      `SELECT p.oid::regprocedure::text AS signature, n.nspname, p.proname, p.prosecdef,
+              p.provolatile, coalesce(p.proconfig::text, '(null)') AS config,
+              pg_get_userbyid(p.proowner) AS owner
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE p.oid::regprocedure::text = $1`,
+      [APPROVED_EXCEPTION],
     );
-    expect(r.rows.map((x) => x.proname)).toEqual([]);
+    expect(
+      r.rows,
+      'the approved exception no longer exists under that exact signature',
+    ).toHaveLength(1);
+    const fn = r.rows[0]!;
+
+    expect(fn.nspname).toBe('app');
+    expect(fn.proname).toBe('user_has_permission');
+    // SECURITY INVOKER. A definer here would run the permission lookup with the owner's rights
+    // inside a policy — the exception is granted to an invoker-rights function and to nothing else.
+    expect(fn.prosecdef, 'the approved exception became SECURITY DEFINER').toBe(false);
+    // STABLE. A VOLATILE function cannot be hoisted out of a per-row context at all, and an
+    // IMMUTABLE one would be claiming the permission graph never changes.
+    expect(fn.provolatile, 'the approved exception is no longer STABLE').toBe('s');
+    // The catalog value verbatim, not a normalised form — §4.
+    expect(fn.config, 'the accepted 0019 search-path configuration changed').toBe(PINNED);
+    expect(fn.owner).toBe('freightos_migrator');
+  });
+
+  it('scopes the exception to ONE signature — a second overload is not covered', async () => {
+    // THE NARROWNESS PROOF, and the detector for G-E. If the rule is ever broadened to match by
+    // name, by schema, or across overloads, this case stops failing the way it must.
+    //
+    // A three-argument overload of the same name, carrying the same accepted proconfig value, is
+    // wired into a policy on a scratch table. It is a different function identity, so it is a
+    // violation — the accepted VALUE of the path is not what grants the exception; the exact
+    // signature is.
+    await su.query(`CREATE TABLE IF NOT EXISTS public.zz_exception_scope (id int PRIMARY KEY)`);
+    try {
+      await su.query(
+        `CREATE OR REPLACE FUNCTION app.user_has_permission(uuid, uuid, text) RETURNS boolean
+         LANGUAGE sql STABLE SET search_path = pg_catalog, public, pg_temp
+         AS $fn$ SELECT false $fn$`,
+      );
+      await su.query(`ALTER TABLE public.zz_exception_scope ENABLE ROW LEVEL SECURITY`);
+      await su.query(
+        `CREATE POLICY zz_exception_scope_read ON public.zz_exception_scope FOR SELECT
+           USING ((SELECT app.user_has_permission(
+                            '00000000-0000-0000-0000-000000000000'::uuid,
+                            '00000000-0000-0000-0000-000000000000'::uuid,
+                            'zz.scope.probe')))`,
+      );
+
+      expect(await proconfigViolations(su)).toEqual(['app.user_has_permission(uuid,uuid,text)']);
+    } finally {
+      await su.query(`DROP TABLE IF EXISTS public.zz_exception_scope`);
+      await su.query(`DROP FUNCTION IF EXISTS app.user_has_permission(uuid, uuid, text)`);
+    }
+
+    // Restored, and asserted rather than assumed — the cases after this one read the same catalog.
+    expect(await proconfigViolations(su)).toEqual([]);
   });
 });
 

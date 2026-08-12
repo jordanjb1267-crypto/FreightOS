@@ -428,7 +428,10 @@ describe('missing context fails closed', () => {
     await app.query('BEGIN');
     const r = await app.query('SELECT 1 FROM permissions');
     await app.query('ROLLBACK');
-    expect(r.rowCount).toBe(22);
+    // 22 through 0031, plus N5-A's three disclosure keys (0032). The catalog is global vocabulary,
+    // so the count moves whenever a migration seeds one — the property under test is that a session
+    // with no tenant context still sees ALL of it, not that it has a particular size.
+    expect(r.rowCount).toBe(25);
   });
 
   it('shows no users when the caller administers no organization node', async () => {

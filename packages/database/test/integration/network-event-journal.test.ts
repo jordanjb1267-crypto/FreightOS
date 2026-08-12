@@ -1169,10 +1169,19 @@ describe('journal RLS read matrix', () => {
         ['TRUNCATE network_schema_versions', /cannot truncate a table referenced/i],
         // Still short one referencing table — the transport intents — so still the FK.
         ['TRUNCATE network_events, network_schema_versions', /cannot truncate a table referenced/i],
-        // ALL THREE together satisfies the foreign-key check, so the trigger is the only thing
-        // left, and this is exactly the sequence that would otherwise sidestep the FK guard.
+        // Naming the WHOLE referencing closure satisfies the foreign-key check, so the trigger is
+        // the only thing left, and this is exactly the sequence that would otherwise sidestep the
+        // FK guard.
+        //
+        // The list grew with N5-A: `network_disclosure_projections` references
+        // `network_schema_versions`, and three more N5-A tables hang off that, so the previous
+        // three-table statement now stops at the foreign key before it ever reaches the trigger.
+        // Extending it is the point of the case — a shrinking list would quietly stop testing the
+        // trigger at all.
         [
-          'TRUNCATE network_events, network_schema_versions, network_transport_intents',
+          'TRUNCATE network_events, network_schema_versions, network_transport_intents, ' +
+            'network_disclosure_projections, network_disclosure_projection_fields, ' +
+            'network_disclosure_grants, network_disclosure_grant_revocations',
           /append-only/i,
         ],
         // And CASCADE, the obvious way to dissolve the FK objection in one word. The trigger is
