@@ -205,6 +205,15 @@ CREATE UNIQUE INDEX network_disclosure_subscriptions_unique_interest
   ON network_disclosure_subscriptions
        (recipient_participant_id, purpose_code, durable_schema_ref, destination_kind);
 
+-- F-20: EVERY composite foreign key is indexed on the REFERENCING side, on the constraint's exact
+-- column list and in its order — the same rule 0032 §6 states for the grant table's two composite
+-- keys. The unique-interest index above starts with `recipient_participant_id` and does NOT satisfy
+-- it: the constraint is (recipient_participant_id, recipient_participant_type), and it is the
+-- REFERENCED side's DELETE and UPDATE that scan the referencing side. `recipient_participant_type`
+-- is GENERATED ALWAYS ... STORED, so this is an ordinary two-column btree over stored values.
+CREATE INDEX network_disclosure_subscriptions_recipient_idx
+  ON network_disclosure_subscriptions (recipient_participant_id, recipient_participant_type);
+
 COMMENT ON TABLE network_disclosure_subscriptions IS
   'N6 interest. Narrows routing; grants no field and no authority. Recipient-authored.';
 
