@@ -58,11 +58,15 @@ let fixtureB: IdentityFixture;
 let orgAsserter = '';
 let orgRecipient = '';
 let orgOtherTenant = '';
+/** `app.network_delivery_attempt_outcome`, in declaration order, read from the catalog. */
+let deliveryAttemptOutcomes: string[] = [];
 
 interface Outcome {
   readonly sqlstate: string | null;
   readonly message: string;
   readonly rowCount: number | null;
+  /** Which named rule refused, when one did. A SQLSTATE alone cannot say. */
+  readonly constraint: string | null;
 }
 
 async function attempt(c: Client, sql: string, params: unknown[] = []): Promise<Outcome> {
@@ -70,11 +74,16 @@ async function attempt(c: Client, sql: string, params: unknown[] = []): Promise<
   try {
     const r = await c.query(sql, params);
     await c.query('ROLLBACK');
-    return { sqlstate: null, message: '', rowCount: r.rowCount };
+    return { sqlstate: null, message: '', rowCount: r.rowCount, constraint: null };
   } catch (error) {
     await c.query('ROLLBACK');
-    const e = error as Error & { code?: string };
-    return { sqlstate: e.code ?? 'unknown', message: e.message.split('\n')[0]!, rowCount: null };
+    const e = error as Error & { code?: string; constraint?: string };
+    return {
+      sqlstate: e.code ?? 'unknown',
+      message: e.message.split('\n')[0]!,
+      rowCount: null,
+      constraint: e.constraint ?? null,
+    };
   }
 }
 
@@ -189,6 +198,16 @@ beforeAll(async () => {
   orgAsserter = await registerOrganization('asserter', TENANT_A);
   orgRecipient = await registerOrganization('recipient', TENANT_A);
   orgOtherTenant = await registerOrganization('other-tenant', TENANT_B);
+
+  deliveryAttemptOutcomes = (
+    await owner.query<{ v: string }>(
+      `SELECT e.enumlabel AS v FROM pg_enum e
+         JOIN pg_type t ON t.oid = e.enumtypid
+         JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = 'app' AND t.typname = 'network_delivery_attempt_outcome'
+        ORDER BY e.enumsortorder`,
+    )
+  ).rows.map((x) => x.v);
 
   await grantPermission('network.disclosure_subscription.create');
   await grantPermission('network.disclosure_subscription.revoke');
@@ -336,6 +355,75 @@ describe('the database surface N6 adds', () => {
     expect(names.some((n) => /pointer|field|projection/.test(n))).toBe(false);
     expect(names).toContain('purpose_code');
     expect(names).toContain('durable_schema_ref');
+  });
+
+  it('resolves each event exactly once — routing is prospective, not reopenable', async () => {
+    // D-R. `network_event_id` is the PRIMARY KEY of the resolution table, so an event is resolved
+    // once and the answer is final. A grant written after the resolution cannot reopen it: there
+    // is nowhere to record a second, different answer for the same event. Without this the table
+    // would accumulate revisions and "what was authorized at routing time" would stop being a fact.
+    const r = await owner.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+        WHERE conrelid = 'public.network_disclosure_routing_resolutions'::regclass
+          AND contype = 'p'`,
+    );
+    expect(r.rows.map((x) => x.def)).toEqual(['PRIMARY KEY (network_event_id)']);
+
+    // And it is behaviourally closed, not merely declared: a second resolution for the same event
+    // is refused by that key and no other.
+    const eventId = await acceptEvent(orgAsserter);
+    await worker.query(
+      `INSERT INTO network_disclosure_routing_resolutions
+         (network_event_id, matched_subscription_count, authorized_delivery_count, denied_count)
+       VALUES ($1, 0, 0, 0)`,
+      [eventId],
+    );
+    const second = await attempt(
+      worker,
+      `INSERT INTO network_disclosure_routing_resolutions
+         (network_event_id, matched_subscription_count, authorized_delivery_count, denied_count)
+       VALUES ($1, 1, 1, 0)`,
+      [eventId],
+    );
+    expectSqlstate(second, UNIQUE_VIOLATION, 'a second routing resolution for the same event');
+    expect(second.constraint).toBe('network_disclosure_routing_resolutions_pkey');
+  });
+
+  it('stores no payload on an attempt — a failure record is metadata only', async () => {
+    // D-S. An attempt row exists to say THAT a delivery was tried and how it went. Copying the
+    // artifact bytes into it — for debugging, for a dead-letter queue, for a retry cache — would
+    // create a second copy of disclosed content governed by nothing, outside the artifact whose
+    // digest and authorization the whole design binds together.
+    const r = await owner.query<{ a: string }>(
+      `SELECT attname AS a FROM pg_attribute
+        WHERE attrelid = 'public.network_delivery_attempts'::regclass
+          AND attnum > 0 AND NOT attisdropped ORDER BY attnum`,
+    );
+    const names = r.rows.map((x) => x.a);
+    expect(
+      names.filter((n) => /payload|canonical|body|content|data|response|raw/.test(n)),
+      'an attempt row must carry no disclosed content',
+    ).toEqual([]);
+    // Anti-vacuity: it does carry the metadata it is for, so the absences above are real.
+    expect(names).toContain('outcome');
+    expect(names).toContain('attempt_number');
+    expect(names).toContain('composite_decision_digest');
+  });
+
+  it('keeps the attempt taxonomy to TRANSPORT outcomes — an authorization denial is not one', () => {
+    // D-T. A pre-transport authorization denial must never be recorded as a delivery attempt: the
+    // four-way distinction depends on TRANSPORT OWED, DISCLOSURE AUTHORIZED, DELIVERY ATTEMPTED and
+    // DELIVERY SUCCEEDED staying separate, and an `unauthorized` attempt outcome would collapse the
+    // second into the third. A refusal terminates the delivery; it does not attempt it.
+    expect(deliveryAttemptOutcomes).toEqual([
+      'delivered',
+      'database_transient',
+      'database_conflict',
+      'internal_error',
+    ]);
+    expect(
+      deliveryAttemptOutcomes.filter((v) => /unauth|denied|forbidden|refus|permission/.test(v)),
+    ).toEqual([]);
   });
 });
 
@@ -653,13 +741,43 @@ describe('the delivery state machine is enforced by the database', () => {
               terminated_at = now(), record_version = record_version + 1 WHERE delivery_id = $1`,
       [delivery],
     );
+
+    // A SECOND, UNUSED ARTIFACT, so the constraint under test is the only one that can fire.
+    //
+    // Re-using the original artifact_id made this test pass for the wrong reason:
+    // `network_disclosure_deliveries_artifact_id_key` is violated first, and the event+subscription
+    // uniqueness was never exercised at all. Removing the constraint entirely — mutation D-L — left
+    // the test green, which is how the false green was found. The second artifact belongs to a
+    // different subscription, because `network_disclosure_artifacts` independently allows only one
+    // artifact per event and subscription; the delivery row then claims the ORIGINAL subscription,
+    // which is exactly the duplicate obligation this rule exists to refuse.
+    const otherOrg = await registerOrganization('sm-unique-other', TENANT_A);
+    const otherSub = await createSubscription(otherOrg);
+    const spare = (
+      await worker.query<{ id: string }>(
+        `INSERT INTO network_disclosure_artifacts
+           (network_event_id, subscription_id, recipient_participant_id, purpose_code,
+            durable_schema_ref, sensitivity_code, permitted_pointers, authorization_digest,
+            composite_decision_digest, payload_canonical, payload_digest)
+         VALUES ($1,$2,$3,$4,$5,'counterparty_identifying', ARRAY['/workflow_id'], $6,$6,'{}',$6)
+         RETURNING artifact_id AS id`,
+        [row.rows[0]!.e, otherSub, otherOrg, PURPOSE, WORKFLOW_STATE, 'd'.repeat(64)],
+      )
+    ).rows[0]!.id;
+
     const outcome = await attempt(
       worker,
       `INSERT INTO network_disclosure_deliveries (network_event_id, subscription_id, artifact_id)
        VALUES ($1,$2,$3)`,
-      [row.rows[0]!.e, row.rows[0]!.s, row.rows[0]!.a],
+      [row.rows[0]!.e, row.rows[0]!.s, spare],
     );
     expectSqlstate(outcome, UNIQUE_VIOLATION, 'duplicate obligation after termination');
+    // The CONSTRAINT NAME, not merely the SQLSTATE. Three unique constraints sit on this table and
+    // any of them yields 23505; naming the one that fired is what stops a future change from
+    // satisfying this assertion through a different rule.
+    expect(outcome.constraint, 'the event+subscription rule must be what refuses').toBe(
+      'network_disclosure_deliveries_one_per_event_subscription',
+    );
   });
 });
 
