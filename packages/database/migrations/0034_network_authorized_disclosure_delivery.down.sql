@@ -85,6 +85,10 @@ $$;
 
 DROP POLICY IF EXISTS network_disclosure_artifacts_recipient_read ON network_disclosure_artifacts;
 
+-- The N4 read policy 0034 added. Dropped explicitly here because the table itself survives the
+-- revert: N4 is not ours to drop, only the policy we put on it.
+DROP POLICY IF EXISTS network_transport_intents_delivery_worker_read ON network_transport_intents;
+
 DROP TABLE IF EXISTS network_disclosure_inbox;
 DROP TABLE IF EXISTS network_delivery_attempts;
 DROP TABLE IF EXISTS network_disclosure_deliveries;
@@ -242,11 +246,12 @@ BEGIN
     RAISE EXCEPTION 'N6 revert incomplete: % subscription permission keys remain', v_keys;
   END IF;
 
-  -- Bounded: exactly the nineteen N6 policies went, and exactly the seven FORCE-RLS tables.
+  -- Bounded: exactly the twenty policies 0034 created went — nineteen on the seven N6 tables plus
+  -- the N4 read policy., and exactly the seven FORCE-RLS tables.
   v_before := current_setting('freightos.n6_before_policies')::int;
   SELECT count(*) INTO v_now FROM pg_policies WHERE schemaname = 'public';
-  IF v_now <> v_before - 19 THEN
-    RAISE EXCEPTION 'N6 revert removed % policies, expected exactly 19', v_before - v_now;
+  IF v_now <> v_before - 20 THEN
+    RAISE EXCEPTION 'N6 revert removed % policies, expected exactly 20', v_before - v_now;
   END IF;
 
   v_before := current_setting('freightos.n6_before_force')::int;

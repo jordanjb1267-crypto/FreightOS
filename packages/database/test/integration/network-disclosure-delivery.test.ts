@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { acceptNetworkEvent } from '../../src/network-events.ts';
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
 import type { IdentityFixture } from './identity-harness.ts';
 import { connectAsFixtureAdministrator } from './identity-harness.ts';
@@ -121,36 +122,52 @@ async function createSubscription(recipient: string): Promise<string> {
   });
 }
 
-/** An accepted N3 event, which mints its N4 intent by trigger. */
+/**
+ * An accepted N3 event, through the REAL acceptance component.
+ *
+ * `acceptNetworkEvent` is the production path: it validates the organization, derives tenant scope,
+ * resolves the governed durable ref, validates `data` against that contract, builds and validates
+ * the envelope, and inserts — which is what mints the N4 intent by trigger. A hand-written INSERT
+ * here would have to reproduce every N3 constraint by hand and would drift the moment N3 adds one;
+ * more importantly, an N6 test whose setup bypassed acceptance would be proving disclosure
+ * behaviour over a row acceptance would have refused.
+ *
+ * The payload is schema-valid `workflow-state.v1` because that is the one contract N5-B classifies
+ * as disclosable under the only purpose that exists. `secret_rate` is NOT present: the contract
+ * sets `additionalProperties: false`, so the "unauthorized field" this suite checks for is a real
+ * governed field outside the projection rather than an invented one.
+ */
 async function acceptEvent(organizationId: string): Promise<string> {
-  // A REAL login, not `SET LOCAL ROLE`: the migrator administers `freightos_event_writer` without
-  // SET, exactly as it administers `freightos_app`, so a role switch is refused by design.
-  const c = db.connectAs('freightos_event_writer');
-  await c.connect();
+  const client = db.connectAs('freightos_event_writer');
+  await client.connect();
   try {
-    const r = await c.query<{ id: string }>(
-      `INSERT INTO network_events
-         (event_id, type, source, subject, occurred_at, organization_id, organization_type,
-          classification, schema_ref, envelope_schema_ref, data, event_class, accepted_by,
-          tenant_id, event_fingerprint)
-       VALUES ($6, 'rig.network.workflow_state.v1', '/freightos/test',
-               '[{"workflow_id":"wf-1"}]'::jsonb, now(), $1,
-               'organization', 'internal', $2,
-               'https://schemas.rigreceipts.com/network/event-envelope.v1.json',
-               $3::jsonb, 'asserted', 'test:n6', $4, $5)
-       RETURNING event_id AS id`,
-      [
-        organizationId,
-        WORKFLOW_STATE,
-        JSON.stringify({ workflow_id: 'wf-1', state: 'in_transit', secret_rate: 4200 }),
-        TENANT_A,
-        randomUUID().replace(/-/g, '').padEnd(64, '0').slice(0, 64),
-        randomUUID(),
-      ],
-    );
-    return r.rows[0]!.id;
+    await client.query('BEGIN');
+    try {
+      const result = await acceptNetworkEvent(client, {
+        type: 'com.rigreceipts.network.workflow.state.recorded.v1',
+        source: 'urn:freightos:test:n6',
+        subject: [{ network_id: 'obj-00000001', object_type: 'workflow' }],
+        time: new Date().toISOString(),
+        organization_id: organizationId,
+        classification: 'internal',
+        schema_ref: WORKFLOW_STATE,
+        data: {
+          workflow_id: 'wf-1',
+          workflow_type: 'shipment',
+          state: 'in_transit',
+          version: 1,
+          participants: ['org-a', 'org-b'],
+          updated_at: '2026-05-01T00:00:00.000Z',
+        },
+      });
+      await client.query('COMMIT');
+      return result.event_id;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
   } finally {
-    await c.end();
+    await client.end();
   }
 }
 
@@ -178,6 +195,44 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await Promise.all([owner?.end(), app?.end(), worker?.end(), adminA?.end()]);
+});
+
+describe('the event fixture produces exactly what N6 needs', () => {
+  /**
+   * Every security assertion below this point is built on an accepted event and its transport debt.
+   * If the fixture silently stopped producing either, the N6 negatives would keep passing — they
+   * would simply find nothing to route and conclude, correctly but uselessly, that nothing leaked.
+   * This contract is what stops a future N6 test from being credited for a setup that never worked.
+   */
+  it('produces an accepted N3 event with the exact identity N6 routes on', async () => {
+    const eventId = await acceptEvent(orgAsserter);
+
+    const r = await owner.query<{
+      id: string;
+      schema_ref: string;
+      organization_id: string;
+      data: Record<string, unknown>;
+    }>(
+      `SELECT event_id AS id, schema_ref, organization_id, data
+         FROM network_events WHERE event_id = $1`,
+      [eventId],
+    );
+    expect(r.rowCount).toBe(1);
+    expect(r.rows[0]!.id).toBe(eventId);
+    expect(r.rows[0]!.schema_ref).toBe(WORKFLOW_STATE);
+    expect(r.rows[0]!.organization_id).toBe(orgAsserter);
+    expect(r.rows[0]!.data).toMatchObject({ workflow_id: 'wf-1', state: 'in_transit' });
+  });
+
+  it('mints the N4 transport intent, which N6 consumes rather than infers', async () => {
+    const eventId = await acceptEvent(orgAsserter);
+    const intent = await owner.query(
+      'SELECT 1 FROM network_transport_intents WHERE network_event_id = $1',
+      [eventId],
+    );
+    // Load-bearing: N6 keys its routing resolution off this row, not off the event's existence.
+    expect(intent.rowCount).toBe(1);
+  });
 });
 
 describe('the database surface N6 adds', () => {
@@ -465,14 +520,30 @@ describe('the delivery state machine is enforced by the database', () => {
     expect(outcome.message).toContain('identity is immutable');
   });
 
-  it('refuses DELETE, so delivery history cannot be erased', async () => {
+  it('refuses DELETE to the worker by privilege, and to the owner by trigger', async () => {
+    // TWO different guards, asserted against the principal each actually binds. The worker holds no
+    // DELETE privilege, so it is stopped at 42501 before any trigger runs; asserting the trigger
+    // here would pass on a privilege error and would keep passing if the trigger were dropped. The
+    // superuser bypasses privilege and RLS, so it is the only principal that can reach the trigger
+    // — which is what makes the trigger's existence provable at all.
     const { delivery } = await seedDelivery('sm-delete');
-    const outcome = await attempt(
+
+    const byWorker = await attempt(
       worker,
       'DELETE FROM network_disclosure_deliveries WHERE delivery_id = $1',
       [delivery],
     );
-    expectSqlstate(outcome, APPEND_ONLY, 'delivery DELETE');
+    expectSqlstate(byWorker, INSUFFICIENT_PRIVILEGE, 'worker DELETE');
+
+    const bySuperuser = await attempt(
+      owner,
+      'DELETE FROM network_disclosure_deliveries WHERE delivery_id = $1',
+      [delivery],
+    );
+    expectSqlstate(bySuperuser, APPEND_ONLY, 'superuser DELETE');
+    expect(bySuperuser.message).toBe(
+      'network_disclosure_deliveries is append-only: DELETE is not permitted',
+    );
   });
 
   it('refuses a second delivery for the same event and subscription, terminal or not', async () => {
@@ -553,9 +624,11 @@ describe('an artifact is invisible until it has actually been delivered', () => 
     await worker.query('COMMIT');
 
     // AFTER: visible, and it is exactly the authorized bytes.
-    const after = await app.query<{ p: string }>(
-      'SELECT payload_canonical AS p FROM network_disclosure_artifacts WHERE artifact_id = $1',
-      [artifact],
+    const after = await asAdminOfA((c) =>
+      c.query<{ p: string }>(
+        'SELECT payload_canonical AS p FROM network_disclosure_artifacts WHERE artifact_id = $1',
+        [artifact],
+      ),
     );
     expect(after.rowCount).toBe(1);
     expect(after.rows[0]!.p).toBe('{"workflow_id":"wf-1"}');

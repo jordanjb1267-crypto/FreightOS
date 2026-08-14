@@ -601,6 +601,19 @@ ALTER TABLE network_disclosure_inbox                     FORCE  ROW LEVEL SECURI
 -- own tenant, so a caller cannot subscribe on behalf of an organization it does not hold — the
 -- recipient is derived from the authenticated principal's tenancy rather than accepted as an
 -- argument.
+-- --- N4: the worker must be able to READ the transport debt. -----------------
+--
+-- 0030 gave `network_transport_intents` FORCE RLS and exactly one policy: an INSERT for
+-- `freightos_event_writer`. There is no SELECT policy at all, because until now nothing needed to
+-- read it. A GRANT alone is therefore not enough — under FORCE RLS a SELECT with no admitting
+-- policy returns ZERO ROWS rather than an error, which is the worst possible failure shape: N6
+-- would silently route nothing and every downstream test would pass by finding nothing to do.
+--
+-- This adds a read policy and nothing else. No INSERT, no UPDATE, no DELETE: N4 stays immutable and
+-- the debt stays the event writer's to record. Reading a debt is not the same as owing one.
+CREATE POLICY network_transport_intents_delivery_worker_read ON network_transport_intents
+  FOR SELECT TO freightos_delivery_worker USING (true);
+
 CREATE POLICY network_disclosure_subscriptions_insert ON network_disclosure_subscriptions
   FOR INSERT TO freightos_app
   WITH CHECK (
