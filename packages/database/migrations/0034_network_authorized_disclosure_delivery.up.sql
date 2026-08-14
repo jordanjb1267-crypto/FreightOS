@@ -292,7 +292,14 @@ CREATE TABLE network_disclosure_artifacts (
   network_event_id uuid NOT NULL REFERENCES network_events (event_id),
   subscription_id  uuid NOT NULL REFERENCES network_disclosure_subscriptions (subscription_id),
 
-  recipient_participant_id uuid NOT NULL,
+  -- PARTICIPANT IDENTITY, NOT A BARE UUID. The recipient an artifact was authorized for is the
+  -- same kind of fact the grant and the subscription record, and it goes through the same registry:
+  -- participant identity is not tenant identity, and an unconstrained uuid here would let an
+  -- artifact name a recipient that does not exist, is not an organization, or was never registered.
+  recipient_participant_id   uuid NOT NULL,
+  recipient_participant_type app.network_participant_type
+    GENERATED ALWAYS AS ('organization'::app.network_participant_type) STORED,
+
   purpose_code             text NOT NULL REFERENCES network_disclosure_purposes (code),
   durable_schema_ref       text NOT NULL REFERENCES network_schema_versions (durable_schema_ref),
   sensitivity_code         text NOT NULL REFERENCES network_disclosure_sensitivities (code),
@@ -311,9 +318,17 @@ CREATE TABLE network_disclosure_artifacts (
   created_at timestamptz NOT NULL DEFAULT now(),
   created_by text NOT NULL DEFAULT current_user CHECK (length(btrim(created_by)) > 0),
 
+  CONSTRAINT network_disclosure_artifacts_recipient_is_organization
+    FOREIGN KEY (recipient_participant_id, recipient_participant_type)
+    REFERENCES network_participants (id, participant_type),
+
   CONSTRAINT network_disclosure_artifacts_one_per_event_subscription
     UNIQUE (network_event_id, subscription_id)
 );
+
+-- F-20 support for the composite participant key above.
+CREATE INDEX network_disclosure_artifacts_recipient_idx
+  ON network_disclosure_artifacts (recipient_participant_id, recipient_participant_type);
 
 -- ---------------------------------------------------------------------------
 -- §7. Deliveries — the ONLY mutable N6 business relation.
@@ -415,10 +430,24 @@ CREATE TABLE network_disclosure_inbox (
   delivery_id uuid NOT NULL UNIQUE REFERENCES network_disclosure_deliveries (delivery_id),
   artifact_id uuid NOT NULL REFERENCES network_disclosure_artifacts (artifact_id),
 
-  recipient_participant_id uuid NOT NULL,
+  -- The column the recipient-read policy JOINS on to decide visibility. An unconstrained uuid here
+  -- would let a delivery be addressed to a participant that was never registered, and the artifact
+  -- policy resolves through this row — so the registry binding is a security constraint, not
+  -- bookkeeping.
+  recipient_participant_id   uuid NOT NULL,
+  recipient_participant_type app.network_participant_type
+    GENERATED ALWAYS AS ('organization'::app.network_participant_type) STORED,
 
-  delivered_at timestamptz NOT NULL DEFAULT now()
+  delivered_at timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT network_disclosure_inbox_recipient_is_organization
+    FOREIGN KEY (recipient_participant_id, recipient_participant_type)
+    REFERENCES network_participants (id, participant_type)
 );
+
+-- F-20 support for the composite participant key above.
+CREATE INDEX network_disclosure_inbox_recipient_participant_idx
+  ON network_disclosure_inbox (recipient_participant_id, recipient_participant_type);
 
 CREATE INDEX network_disclosure_inbox_recipient
   ON network_disclosure_inbox (recipient_participant_id, delivered_at DESC);
