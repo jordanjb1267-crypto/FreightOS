@@ -181,8 +181,92 @@ All three tables are migration-authored and immutable: `SELECT` policies only, n
 any role, `FORCE` row-level security, and append-only guards. There is no runtime classification
 administration and no correction path — changing a classification is a reviewed migration.
 
-**NETWORK_N5B_COMPLETE does not authorize NETWORK_N6_PUBLICATION.** N5-B decides eligibility; N6 will
-own delivery and is not authorized. See ADR-N0016.
+**NETWORK_N5B_COMPLETE does not authorize NETWORK_N6_PUBLICATION.** N5-B decides eligibility; N6
+owns delivery. See ADR-N0016 and, for what delivery actually handles, the section below.
+
+## Network authorized disclosure delivery — N6, migration 0034
+
+N6 is where authorized content is first materialized as bytes and handed to a recipient. It is
+therefore the first network layer that HOLDS disclosed content rather than deciding about it, and
+this section records what it holds, who can read it, and what it deliberately does not keep.
+
+**N6 performs zero external egress.** Every store below is internal to the FreightOS database. No
+byte leaves it. See ADR-N0017.
+
+### Canonical artifact bytes — `network_disclosure_artifacts.payload_canonical`
+
+The projected, canonicalized payload of exactly the pointers N5-A authorized, frozen at routing
+time. Class follows the SOURCE CONTRACT: an artifact over `workflow-state.v1` is
+`counterparty_identifying` material, and the artifact row records `sensitivity_code` alongside the
+bytes so the class travels with them rather than being re-derived.
+
+This is the only place disclosed content is stored. It is append-only, `FORCE` row-level security,
+and readable by exactly two principals: the delivery worker, and the recipient — the latter only
+once an inbox row exists.
+
+### Payload digest — `payload_digest`, `authorization_digest`, `composite_decision_digest`
+
+SHA-256 over the canonical form, plus the N5-A and composite decision digests. Digests are not
+content and carry no class of their own, but they BIND content: `payload_digest` is what makes a
+retry provably byte-identical, and the composite digest is what an attempt row references instead of
+the payload.
+
+### Recipient identity — `recipient_participant_id` on subscriptions, artifacts and inbox
+
+A participant registry reference, always an organization by generated column and composite foreign
+key. **Participant identity is not tenant identity.** It is `PERSONAL` only where the underlying
+participant is a person; the N6 recipient binding is constrained to organizations, so in practice
+these columns carry organization identity.
+
+### Inbox access — `network_disclosure_inbox`
+
+The record that delivery SUCCEEDED. Readable by the delivery worker and by the recipient's own
+tenant; invisible to every other tenant. An inbox row is the only thing that makes the corresponding
+artifact visible to its recipient.
+
+### Pending artifact invisibility
+
+An artifact that has been authorized but not delivered is **invisible to its own recipient**. The
+artifact read policy resolves visibility through the inbox, so `AUTHORIZED` and `DELIVERED` cannot be
+confused by a reader. This is a data-handling property, not only an access-control one: an
+undelivered artifact must not be readable, discoverable or countable by the party it was prepared
+for.
+
+### Attempt metadata — `network_delivery_attempts`
+
+Attempt number, outcome, timestamps, failure category and the composite decision digest. **No
+payload, no canonical bytes, no response body.** A failure record is metadata only; copying disclosed
+content into it would create a second copy of that content governed by nothing and outside the
+artifact whose authorization and digest the design binds together. A test asserts no column of that
+table matches `payload|canonical|body|content|data|response|raw`.
+
+The attempt outcome vocabulary is transport-only — `delivered`, `database_transient`,
+`database_conflict`, `internal_error`. An authorization denial is not an attempt outcome: a refusal
+terminates the delivery rather than attempting it, so a denial never produces an attempt row and
+never contributes an error payload.
+
+### No raw payload in error or debug storage
+
+There is no dead-letter table, no replay store and no debug column anywhere in N6. Retry is bounded
+and exhaustion TERMINATES the obligation rather than parking its content somewhere for later
+re-emission.
+
+### Logging
+
+N6 emits no application log containing artifact content. The migration's own NOTICE output — the
+cluster-global role retention message — names databases and reference counts, never payloads or
+participants.
+
+### Retention actually implemented
+
+**None beyond the schema's own append-only guarantees**, and this is stated rather than implied.
+Artifacts, attempts, deliveries, inbox rows, subscriptions and revocations are all append-only and
+none is expired, pruned or archived by any implemented mechanism. The only implemented removal path
+is the 0034 revert, which destroys delivery history wholesale and refuses to run without an explicit
+operator acknowledgement when any exists.
+
+A retention schedule for disclosed artifact bytes is an owner deliverable and is named in the
+retention section below rather than assumed here.
 
 ## Retention
 
