@@ -224,6 +224,33 @@ The record that delivery SUCCEEDED. Readable by the delivery worker and by the r
 tenant; invisible to every other tenant. An inbox row is the only thing that makes the corresponding
 artifact visible to its recipient.
 
+**Read scope is the TENANT, not the participant.** `network_disclosure_artifacts_recipient_read`
+joins the inbox recipient to the reader's tenant, so a second organization of the same tenant can
+read an artifact delivered to its sibling. That is the boundary N5-A and N5-B already use, and it is
+stated here because "recipient read" invites the narrower reading; the cross-tenant case is the
+isolation claim, and it is asserted separately.
+
+**The inbox recipient is a disclosure-control column, not bookkeeping.** Because artifact visibility
+resolves through it, an inbox row naming an organization in another tenant would make that tenant's
+principals able to read the artifact — cross-tenant disclosure of authorized content, reachable
+without touching a grant, a policy or a privilege. It was reachable on the pre-remediation candidate
+and is now structurally impossible: `network_disclosure_inbox_artifact_recipient` binds the column to
+the artifact's own recipient, which `network_disclosure_artifacts_subscription_recipient` binds to
+the subscription's, which the subscription insert policy validates against the author's own tenant.
+
+### Delivery provenance — the four-key chain
+
+Subscription, artifact, delivery and inbox must all describe the _same_ disclosure. Independent
+single-column foreign keys made each reference individually valid while permitting a row set that
+contradicted itself — a delivery could carry an artifact minted for a different event and
+subscription, and an inbox row could publish an artifact its delivery never bound. Four composite
+foreign keys now make each of those unrepresentable, and migration assertion (n) pins them by full
+constraint definition rather than by count.
+
+The handling consequence: **there is exactly one authoritative answer to "who was this content
+disclosed to, under which authorization"**, and it can be read off any row in the chain without
+having to decide which row to believe.
+
 ### Pending artifact invisibility
 
 An artifact that has been authorized but not delivered is **invisible to its own recipient**. The

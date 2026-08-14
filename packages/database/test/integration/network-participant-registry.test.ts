@@ -1589,6 +1589,14 @@ describe('the structural authority-graph gate', () => {
     // `freightos_delivery_worker INSERT` / `UPDATE` lines — indistinguishable from that role
     // having gained write access to the participant registry itself. A gate whose failure cannot
     // tell you WHERE the privilege is cannot answer the question in its own title.
+    // EVERY relation kind that can CARRY an ACL, not just ordinary tables.
+    //
+    // This is a privilege gate, so its scope has to be the set of things a privilege can be granted
+    // on: tables, partitioned tables, views, materialised views, foreign tables and sequences.
+    // Narrowing it to `relkind = 'r'` costs nothing today — the only kinds present under
+    // `network_%` are 'r' and 'i', and an index carries no `relacl` — but it would let a future
+    // `network_*` VIEW be granted to any principal without this gate noticing, which is exactly the
+    // blind spot the gate exists to deny.
     const r = await client.query<{ line: string }>(
       `SELECT format('%s %s %s', c.relname, g.rolname,
                 string_agg(DISTINCT a.privilege_type, ',' ORDER BY a.privilege_type)) AS line
@@ -1596,7 +1604,8 @@ describe('the structural authority-graph gate', () => {
          JOIN pg_namespace n ON n.oid = c.relnamespace
          CROSS JOIN LATERAL aclexplode(c.relacl) a
          JOIN pg_roles g ON g.oid = a.grantee
-        WHERE n.nspname = 'public' AND c.relname LIKE 'network\\_%' AND c.relkind = 'r'
+        WHERE n.nspname = 'public' AND c.relname LIKE 'network\\_%'
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
           AND g.rolname <> 'freightos_migrator'
         GROUP BY c.relname, g.rolname
         ORDER BY c.relname, g.rolname`,

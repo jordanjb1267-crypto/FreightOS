@@ -34,8 +34,17 @@ BEGIN
   PERFORM set_config('freightos.n6_before_force',
     (SELECT count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relforcerowsecurity), true);
-  PERFORM set_config('freightos.n6_before_roles',
-    (SELECT count(*)::text FROM pg_roles WHERE rolname LIKE 'freightos%'), true);
+  -- THE EXACT NAMES, NOT A COUNT — and cluster-global, deliberately.
+  --
+  -- A count cannot tell "the worker went" from "the worker stayed and something else went": both
+  -- are a delta of one. `pg_roles` is a shared catalog, so this is the CLUSTER-GLOBAL role
+  -- inventory, and it is kept distinct from the PER-DATABASE dependency inventory §6 uses. The two
+  -- answer different questions — "does this cluster contain a role it should not" versus "does
+  -- this database still reference the worker" — and conflating them is how a teardown that leaves
+  -- cluster-global residue passes a per-database check.
+  PERFORM set_config('freightos.n6_before_role_names',
+    (SELECT coalesce(string_agg(rolname, ',' ORDER BY rolname), '')
+       FROM pg_roles WHERE rolname LIKE 'freightos%'), true);
   PERFORM set_config('freightos.n6_before_definers',
     (SELECT count(*)::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname IN ('app', 'admin', 'authn') AND p.prosecdef), true);
@@ -323,6 +332,7 @@ DROP POLICY permissions_n6_down_cleanup ON public.permissions;
 
 DO $$
 DECLARE v_left text; v_types text; v_role int; v_keys int; v_now int; v_before int;
+  v_names text; v_before_names text; v_removed text; v_added text;
 BEGIN
   SELECT string_agg(c.relname, ',' ORDER BY c.relname) INTO v_left
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -354,10 +364,18 @@ BEGIN
 
   -- The role may legitimately REMAIN when another database still references it — see §5 step D.
   -- What must always be true is that THIS database holds nothing for it any more.
+  --
+  -- BOTH ARMS, matching §5 step C exactly. A database-level grant is recorded with `dbid = 0` and
+  -- the database in `objid`, not with `dbid` set to the database it applies to. A predicate that
+  -- filtered on `s.dbid = <this database>` alone therefore could not see this database's own
+  -- CONNECT grant — the one arm step A has to revoke by name and step C has to special-case — so
+  -- the completeness check was blind to precisely the residue it exists to catch.
   SELECT count(*) INTO v_role
     FROM pg_shdepend s JOIN pg_roles r ON r.oid = s.refobjid
    WHERE r.rolname = 'freightos_delivery_worker'
-     AND s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database());
+     AND (s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+          OR (s.classid = 'pg_database'::regclass
+              AND s.objid = (SELECT oid FROM pg_database WHERE datname = current_database())));
   IF v_role <> 0 THEN
     RAISE EXCEPTION
       'N6 revert incomplete: % reference(s) to freightos_delivery_worker remain in this database',
@@ -386,18 +404,35 @@ BEGIN
     RAISE EXCEPTION 'N6 revert changed FORCE-RLS tables by %, expected exactly 7', v_before - v_now;
   END IF;
 
-  -- Exactly one role went, and it was ours.
+  -- Exactly one role went, and it was ours — BY NAME, not by count.
+  --
   -- Zero when the role was retained for a neighbouring database, one when this database was the
-  -- last holder. Never more than one, and never a role this migration did not create.
-  v_before := current_setting('freightos.n6_before_roles')::int;
-  SELECT count(*) INTO v_now FROM pg_roles WHERE rolname LIKE 'freightos%';
-  IF v_before - v_now NOT IN (0, 1) THEN
-    RAISE EXCEPTION 'N6 revert changed the freightos role count by %, expected 0 or 1',
-      v_before - v_now;
+  -- last holder. A count admitted both of those AND a third case it could not distinguish: one
+  -- role dropped while another appeared, which is also a delta of zero, and "some other freightos
+  -- role was dropped while the worker was retained", which is also a delta of one. The set
+  -- difference in each direction answers all of them.
+  SELECT coalesce(string_agg(rolname, ',' ORDER BY rolname), '') INTO v_names
+    FROM pg_roles WHERE rolname LIKE 'freightos%';
+  v_before_names := current_setting('freightos.n6_before_role_names');
+
+  SELECT coalesce(string_agg(x, ','), '') INTO v_removed
+    FROM (SELECT unnest(string_to_array(v_before_names, ',')) AS x
+          EXCEPT SELECT unnest(string_to_array(v_names, ','))) removed;
+  SELECT coalesce(string_agg(x, ','), '') INTO v_added
+    FROM (SELECT unnest(string_to_array(v_names, ',')) AS x
+          EXCEPT SELECT unnest(string_to_array(v_before_names, ','))) added;
+
+  IF v_added <> '' THEN
+    RAISE EXCEPTION 'N6 revert ADDED freightos role(s): %', v_added;
   END IF;
-  IF v_before - v_now = 1
+  IF v_removed NOT IN ('', 'freightos_delivery_worker') THEN
+    RAISE EXCEPTION
+      'N6 revert removed freightos role(s) it did not create: % (only freightos_delivery_worker may go)',
+      v_removed;
+  END IF;
+  IF v_removed = 'freightos_delivery_worker'
      AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'freightos_delivery_worker') THEN
-    RAISE EXCEPTION 'N6 revert dropped a role that was not freightos_delivery_worker';
+    RAISE EXCEPTION 'N6 revert reported dropping the worker while the worker still exists';
   END IF;
 
   -- Nothing else moved.

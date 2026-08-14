@@ -194,6 +194,13 @@ CREATE TABLE network_disclosure_subscriptions (
     FOREIGN KEY (recipient_participant_id, recipient_participant_type)
     REFERENCES network_participants (id, participant_type),
 
+  -- The first link of the PROVENANCE CHAIN (§7a). `subscription_id` is already the primary key, so
+  -- this adds no new uniqueness; it exists so that an artifact can name the pair
+  -- (subscription, recipient) as ONE referential fact rather than two independent ones. Exactly the
+  -- shape 0029 uses for `network_events_id_organization_key`.
+  CONSTRAINT network_disclosure_subscriptions_id_recipient_key
+    UNIQUE (subscription_id, recipient_participant_id),
+
   CONSTRAINT network_disclosure_subscriptions_window
     CHECK (effective_until IS NULL OR effective_until > effective_from)
 );
@@ -290,7 +297,11 @@ CREATE TABLE network_disclosure_artifacts (
   artifact_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
   network_event_id uuid NOT NULL REFERENCES network_events (event_id),
-  subscription_id  uuid NOT NULL REFERENCES network_disclosure_subscriptions (subscription_id),
+  -- No single-column foreign key to the subscription. The composite
+  -- `network_disclosure_artifacts_subscription_recipient` below carries `subscription_id` as its
+  -- leading column, so referential integrity for it is already total and a second key naming the
+  -- same parent could only ever agree — the shape 0029 uses for `corrects_event_id`.
+  subscription_id  uuid NOT NULL,
 
   -- PARTICIPANT IDENTITY, NOT A BARE UUID. The recipient an artifact was authorized for is the
   -- same kind of fact the grant and the subscription record, and it goes through the same registry:
@@ -322,13 +333,36 @@ CREATE TABLE network_disclosure_artifacts (
     FOREIGN KEY (recipient_participant_id, recipient_participant_type)
     REFERENCES network_participants (id, participant_type),
 
+  -- PROVENANCE CHAIN, LINK 1 (§7a). The artifact's recipient IS the subscription's recipient, as
+  -- one referential fact. Without this the two columns are independent: an artifact could name a
+  -- subscription belonging to one organization and a recipient belonging to another, and both would
+  -- pass every existing check because each is individually a real registered organization.
+  CONSTRAINT network_disclosure_artifacts_subscription_recipient
+    FOREIGN KEY (subscription_id, recipient_participant_id)
+    REFERENCES network_disclosure_subscriptions (subscription_id, recipient_participant_id),
+
   CONSTRAINT network_disclosure_artifacts_one_per_event_subscription
-    UNIQUE (network_event_id, subscription_id)
+    UNIQUE (network_event_id, subscription_id),
+
+  -- The two keys the chain's later links reference. `artifact_id` is already the primary key, so
+  -- neither adds uniqueness — each exists so a child can name the artifact AND one of its facts as
+  -- a single referential fact.
+  CONSTRAINT network_disclosure_artifacts_identity_key
+    UNIQUE (artifact_id, network_event_id, subscription_id),
+  CONSTRAINT network_disclosure_artifacts_id_recipient_key
+    UNIQUE (artifact_id, recipient_participant_id)
 );
 
 -- F-20 support for the composite participant key above.
 CREATE INDEX network_disclosure_artifacts_recipient_idx
   ON network_disclosure_artifacts (recipient_participant_id, recipient_participant_type);
+
+-- F-20 support for `network_disclosure_artifacts_subscription_recipient`, on the constraint's exact
+-- column list and in its order. The unique `(network_event_id, subscription_id)` above does not
+-- serve it: `subscription_id` is that index's SECOND column, and a foreign-key check looks up
+-- referencing rows by the key alone.
+CREATE INDEX network_disclosure_artifacts_subscription_recipient_idx
+  ON network_disclosure_artifacts (subscription_id, recipient_participant_id);
 
 -- ---------------------------------------------------------------------------
 -- §7. Deliveries — the ONLY mutable N6 business relation.
@@ -348,7 +382,10 @@ CREATE TABLE network_disclosure_deliveries (
   -- To the INTENT, again. A delivery cannot exist for an event that owes no transport.
   network_event_id uuid NOT NULL REFERENCES network_transport_intents (network_event_id),
   subscription_id  uuid NOT NULL REFERENCES network_disclosure_subscriptions (subscription_id),
-  artifact_id      uuid NOT NULL UNIQUE REFERENCES network_disclosure_artifacts (artifact_id),
+  -- UNIQUE, but no single-column foreign key: the composite
+  -- `network_disclosure_deliveries_artifact_binding` below leads with `artifact_id` and therefore
+  -- already carries its referential integrity in full.
+  artifact_id      uuid NOT NULL UNIQUE,
 
   state app.network_delivery_state NOT NULL DEFAULT 'pending',
 
@@ -370,6 +407,23 @@ CREATE TABLE network_disclosure_deliveries (
   CONSTRAINT network_disclosure_deliveries_one_per_event_subscription
     UNIQUE (network_event_id, subscription_id),
 
+  -- PROVENANCE CHAIN, LINK 2 (§7a) — the F-1 remediation.
+  --
+  -- The delivery's event and subscription ARE the artifact's, as one referential fact. Three
+  -- independent single-column keys made each column individually valid and said nothing about
+  -- whether they described the same disclosure: a delivery for (E2, S2) could bind an artifact
+  -- minted for (E1, S1), and every existing guard accepted it. The row then answered "who is this
+  -- delivery for" two different ways, and `reauthorizeDelivery` — which resolves the subscription
+  -- from the ARTIFACT — would evaluate against one while the delivery record asserted the other.
+  CONSTRAINT network_disclosure_deliveries_artifact_binding
+    FOREIGN KEY (artifact_id, network_event_id, subscription_id)
+    REFERENCES network_disclosure_artifacts (artifact_id, network_event_id, subscription_id),
+
+  -- The key link 3 references. `delivery_id` is already the primary key; this exists so the inbox
+  -- can name the delivery and its artifact as one referential fact.
+  CONSTRAINT network_disclosure_deliveries_id_artifact_key
+    UNIQUE (delivery_id, artifact_id),
+
   -- Terminal states carry their timestamp; non-terminal states must not claim one.
   CONSTRAINT network_disclosure_deliveries_delivered_shape
     CHECK ((state = 'delivered') = (delivered_at IS NOT NULL)),
@@ -380,6 +434,12 @@ CREATE TABLE network_disclosure_deliveries (
 CREATE INDEX network_disclosure_deliveries_eligible
   ON network_disclosure_deliveries (state, next_attempt_at)
   WHERE state IN ('pending', 'failed_retryable');
+
+-- F-20 support for `network_disclosure_deliveries_artifact_binding`, on the constraint's exact
+-- column list and in its order. The `artifact_id` unique index is a one-column PREFIX of the key
+-- and does not serve it.
+CREATE INDEX network_disclosure_deliveries_artifact_binding_idx
+  ON network_disclosure_deliveries (artifact_id, network_event_id, subscription_id);
 
 -- ---------------------------------------------------------------------------
 -- §8. Attempts — append-only journal.
@@ -427,8 +487,10 @@ CREATE TABLE network_delivery_attempts (
 CREATE TABLE network_disclosure_inbox (
   inbox_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  delivery_id uuid NOT NULL UNIQUE REFERENCES network_disclosure_deliveries (delivery_id),
-  artifact_id uuid NOT NULL REFERENCES network_disclosure_artifacts (artifact_id),
+  -- Neither column carries a single-column foreign key. The two composites below lead with
+  -- `delivery_id` and `artifact_id` respectively, so both are referentially total already.
+  delivery_id uuid NOT NULL UNIQUE,
+  artifact_id uuid NOT NULL,
 
   -- The column the recipient-read policy JOINS on to decide visibility. An unconstrained uuid here
   -- would let a delivery be addressed to a participant that was never registered, and the artifact
@@ -442,12 +504,42 @@ CREATE TABLE network_disclosure_inbox (
 
   CONSTRAINT network_disclosure_inbox_recipient_is_organization
     FOREIGN KEY (recipient_participant_id, recipient_participant_type)
-    REFERENCES network_participants (id, participant_type)
+    REFERENCES network_participants (id, participant_type),
+
+  -- PROVENANCE CHAIN, LINK 3 (§7a). The artifact this row exposes IS the artifact the delivery
+  -- bound. Independent keys let an inbox row cite delivery D and artifact A' where D bound A, which
+  -- publishes content that was never the subject of that delivery.
+  CONSTRAINT network_disclosure_inbox_delivery_artifact
+    FOREIGN KEY (delivery_id, artifact_id)
+    REFERENCES network_disclosure_deliveries (delivery_id, artifact_id),
+
+  -- PROVENANCE CHAIN, LINK 4 (§7a), AND A TENANT-ISOLATION CONSTRAINT.
+  --
+  -- `network_disclosure_artifacts_recipient_read` resolves artifact visibility by joining THIS
+  -- row's `recipient_participant_id` to the reader's tenant. While the column was bound only to the
+  -- participant registry, any registered organization could be named here — including one in
+  -- another tenant — and the artifact became readable by that tenant. That is cross-tenant
+  -- disclosure of authorized bytes, reachable without touching a grant, a policy or a privilege.
+  --
+  -- Binding it to the ARTIFACT's recipient closes it structurally: link 1 already binds the
+  -- artifact's recipient to the subscription's, and the subscription's recipient is validated
+  -- against the author's own tenant by `network_disclosure_subscriptions_insert`. The chain is
+  -- therefore anchored in an authenticated tenancy at every link.
+  CONSTRAINT network_disclosure_inbox_artifact_recipient
+    FOREIGN KEY (artifact_id, recipient_participant_id)
+    REFERENCES network_disclosure_artifacts (artifact_id, recipient_participant_id)
 );
 
 -- F-20 support for the composite participant key above.
 CREATE INDEX network_disclosure_inbox_recipient_participant_idx
   ON network_disclosure_inbox (recipient_participant_id, recipient_participant_type);
+
+-- F-20 support for links 3 and 4, each on its constraint's exact column list and in its order.
+-- The `delivery_id` unique index is a one-column prefix of link 3 and does not serve it.
+CREATE INDEX network_disclosure_inbox_delivery_artifact_idx
+  ON network_disclosure_inbox (delivery_id, artifact_id);
+CREATE INDEX network_disclosure_inbox_artifact_recipient_idx
+  ON network_disclosure_inbox (artifact_id, recipient_participant_id);
 
 CREATE INDEX network_disclosure_inbox_recipient
   ON network_disclosure_inbox (recipient_participant_id, delivered_at DESC);
@@ -970,10 +1062,36 @@ RESET ROLE;
 -- §16. Assert what was built, and what was not.
 -- ---------------------------------------------------------------------------
 
+-- ASSERTION (f) NEEDS TO SEE THE ROWS IT INSPECTS — the R-06 lesson, applied here too.
+--
+-- `role_permissions` and `service_account_permissions` are FORCE-RLS, and their read policies are
+-- predicated on `app.current_tenant_id()`, which a deployment session does not have. Counted bare
+-- by the migrator both come back ZERO whether or not an assignment exists, so "these keys are held
+-- by nobody" was true by blindness rather than by fact. Measured on this branch: the migrator saw
+-- 0 rows where the superuser saw 3.
+--
+-- This is the same temporary, exactly-scoped loan 0034's own revert already takes for the same two
+-- tables: it names the three N6 keys and nothing else, admits only the migration principal, and is
+-- dropped immediately after the assertion block. `permissions` itself needs no such policy — the
+-- migrator can read it, which the first half of (f) proves by succeeding rather than by assumption.
+CREATE POLICY role_permissions_n6_up_scan ON public.role_permissions
+  FOR SELECT TO freightos_migrator
+  USING (permission_id IN (SELECT id FROM public.permissions
+                            WHERE key IN ('network.disclosure_subscription.create',
+                                          'network.disclosure_subscription.revoke',
+                                          'network.disclosure_subscription.read')));
+CREATE POLICY service_account_permissions_n6_up_scan ON public.service_account_permissions
+  FOR SELECT TO freightos_migrator
+  USING (permission_id IN (SELECT id FROM public.permissions
+                            WHERE key IN ('network.disclosure_subscription.create',
+                                          'network.disclosure_subscription.revoke',
+                                          'network.disclosure_subscription.read')));
+
 DO $$
 DECLARE
   v_tables text; v_missing text; v_policies int; v_force int; v_definers int;
   v_keys text; v_worker_writes text; v_state text; v_dest text;
+  v_chain text; v_triggers text; v_assigned int;
 BEGIN
   -- (a) exactly seven N6 tables, named exactly.
   SELECT string_agg(c.relname, ',' ORDER BY c.relname) INTO v_tables
@@ -1055,11 +1173,25 @@ BEGIN
                              'network.disclosure_subscription.revoke' THEN
     RAISE EXCEPTION 'N6 subscription permission keys are wrong: %', v_keys;
   END IF;
-  IF EXISTS (
-    SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
-     WHERE p.key LIKE 'network.disclosure_subscription.%'
-  ) THEN
-    RAISE EXCEPTION 'N6 subscription permissions must be assigned to no role by this migration';
+  -- Read through the temporary scoped policies created just above this block. Both arms are
+  -- checked: a key handed to a service account is exactly as much of an assignment as one handed
+  -- to a role, and only the role arm was ever looked at.
+  SELECT count(*) INTO v_assigned
+    FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
+   WHERE p.key LIKE 'network.disclosure_subscription.%';
+  IF v_assigned <> 0 THEN
+    RAISE EXCEPTION
+      'N6 subscription permissions must be assigned to no role by this migration: % assignment(s)',
+      v_assigned;
+  END IF;
+
+  SELECT count(*) INTO v_assigned
+    FROM service_account_permissions sp JOIN permissions p ON p.id = sp.permission_id
+   WHERE p.key LIKE 'network.disclosure_subscription.%';
+  IF v_assigned <> 0 THEN
+    RAISE EXCEPTION
+      'N6 subscription permissions must be assigned to no service account by this migration: %',
+      v_assigned;
   END IF;
 
   -- (g) the worker holds no write anywhere in N3/N4/N5. This is the invariant that keeps delivery
@@ -1160,5 +1292,95 @@ BEGIN
       '% table(s) grant the delivery worker SELECT with no admitting policy — it would read zero rows',
       v_policies;
   END IF;
+
+  -- (n) THE PROVENANCE CHAIN (§7a), by exact constraint definition.
+  --
+  -- Four composite foreign keys carry it, and a count would not be enough: the defect they close
+  -- was four keys that each existed and each named only one column, so "four foreign keys are
+  -- present" was already TRUE while every binding was still independent. The full
+  -- `pg_get_constraintdef` text is compared instead, which pins the referencing columns, the
+  -- referenced table and the referenced columns together.
+  SELECT string_agg(format('%s: %s', c.conname, pg_get_constraintdef(c.oid)), E'\n' ORDER BY c.conname)
+    INTO v_chain
+    FROM pg_constraint c
+   WHERE c.contype = 'f'
+     AND c.conname IN ('network_disclosure_artifacts_subscription_recipient',
+                       'network_disclosure_deliveries_artifact_binding',
+                       'network_disclosure_inbox_delivery_artifact',
+                       'network_disclosure_inbox_artifact_recipient');
+  IF v_chain IS DISTINCT FROM
+       'network_disclosure_artifacts_subscription_recipient: FOREIGN KEY (subscription_id, recipient_participant_id) REFERENCES network_disclosure_subscriptions(subscription_id, recipient_participant_id)' || E'\n' ||
+       'network_disclosure_deliveries_artifact_binding: FOREIGN KEY (artifact_id, network_event_id, subscription_id) REFERENCES network_disclosure_artifacts(artifact_id, network_event_id, subscription_id)' || E'\n' ||
+       'network_disclosure_inbox_artifact_recipient: FOREIGN KEY (artifact_id, recipient_participant_id) REFERENCES network_disclosure_artifacts(artifact_id, recipient_participant_id)' || E'\n' ||
+       'network_disclosure_inbox_delivery_artifact: FOREIGN KEY (delivery_id, artifact_id) REFERENCES network_disclosure_deliveries(delivery_id, artifact_id)' THEN
+    RAISE EXCEPTION 'the N6 provenance chain is not the four keys it must be, found:%', E'\n' || coalesce(v_chain, '<none>');
+  END IF;
+
+  -- (o) THE TRIGGER SURFACE, by exact ordered inventory.
+  --
+  -- Every trigger 0034 owns, with its timing, its event, its row-or-statement level, its enabled
+  -- state, its WHEN clause and the function it calls. A count would pass while a BEFORE UPDATE
+  -- guard had become AFTER, been disabled, or acquired a WHEN clause that excused the rows it
+  -- exists to stop; 0032 and 0033 both pin their triggers this way and 0034 did not.
+  --
+  -- `tgenabled = 'O'` is PostgreSQL's "enabled, origin and local" default. A disabled trigger is
+  -- 'D', and it still appears in `pg_trigger` — which is exactly why presence is not the assertion.
+  SELECT string_agg(
+           format('%s.%s %s %s %s %s when=%s',
+                  cl.relname, t.tgname,
+                  CASE WHEN (t.tgtype & 2) <> 0 THEN 'BEFORE' ELSE 'AFTER' END,
+                  CASE WHEN (t.tgtype & 4) <> 0 THEN 'INSERT'
+                       WHEN (t.tgtype & 8) <> 0 THEN 'DELETE'
+                       WHEN (t.tgtype & 16) <> 0 THEN 'UPDATE'
+                       ELSE 'TRUNCATE' END,
+                  CASE WHEN (t.tgtype & 1) <> 0 THEN 'ROW' ELSE 'STATEMENT' END,
+                  -- `tgenabled` is `"char"`, not text. Concatenating it directly is ambiguous
+                  -- ("operator is not unique: text || \"char\""), so the cast is explicit.
+                  p.proname || '/' || t.tgenabled::text,
+                  CASE WHEN t.tgqual IS NULL THEN 'none' ELSE 'present' END),
+           E'\n' ORDER BY cl.relname, t.tgname)
+    INTO v_triggers
+    FROM pg_trigger t
+    JOIN pg_class cl ON cl.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = cl.relnamespace
+    JOIN pg_proc p ON p.oid = t.tgfoid
+   WHERE NOT t.tgisinternal
+     AND n.nspname = 'public'
+     AND cl.relname IN ('network_disclosure_subscriptions',
+                        'network_disclosure_subscription_revocations',
+                        'network_disclosure_routing_resolutions',
+                        'network_disclosure_artifacts',
+                        'network_disclosure_deliveries',
+                        'network_delivery_attempts',
+                        'network_disclosure_inbox');
+  IF v_triggers IS DISTINCT FROM
+       'network_delivery_attempts.network_delivery_attempts_no_delete BEFORE DELETE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_delivery_attempts.network_delivery_attempts_no_truncate BEFORE TRUNCATE STATEMENT reject_mutation/O when=none' || E'\n' ||
+       'network_delivery_attempts.network_delivery_attempts_no_update BEFORE UPDATE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_artifacts.network_disclosure_artifacts_no_delete BEFORE DELETE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_artifacts.network_disclosure_artifacts_no_truncate BEFORE TRUNCATE STATEMENT reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_artifacts.network_disclosure_artifacts_no_update BEFORE UPDATE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_deliveries.network_disclosure_deliveries_no_delete BEFORE DELETE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_deliveries.network_disclosure_deliveries_no_truncate BEFORE TRUNCATE STATEMENT reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_deliveries.network_disclosure_deliveries_transition BEFORE UPDATE ROW network_delivery_transition/O when=none' || E'\n' ||
+       'network_disclosure_inbox.network_disclosure_inbox_no_delete BEFORE DELETE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_inbox.network_disclosure_inbox_no_truncate BEFORE TRUNCATE STATEMENT reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_inbox.network_disclosure_inbox_no_update BEFORE UPDATE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_routing_resolutions.network_disclosure_routing_resolutions_no_delete BEFORE DELETE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_routing_resolutions.network_disclosure_routing_resolutions_no_truncate BEFORE TRUNCATE STATEMENT reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_routing_resolutions.network_disclosure_routing_resolutions_no_update BEFORE UPDATE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_subscription_revocations.network_disclosure_subscription_revocations_no_delete BEFORE DELETE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_subscription_revocations.network_disclosure_subscription_revocations_no_truncate BEFORE TRUNCATE STATEMENT reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_subscription_revocations.network_disclosure_subscription_revocations_no_update BEFORE UPDATE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_subscriptions.network_disclosure_subscriptions_no_delete BEFORE DELETE ROW reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_subscriptions.network_disclosure_subscriptions_no_truncate BEFORE TRUNCATE STATEMENT reject_mutation/O when=none' || E'\n' ||
+       'network_disclosure_subscriptions.network_disclosure_subscriptions_no_update BEFORE UPDATE ROW reject_mutation/O when=none' THEN
+    RAISE EXCEPTION 'the N6 trigger surface is not what 0034 built, found:%', E'\n' || coalesce(v_triggers, '<none>');
+  END IF;
 END
 $$;
+
+-- The loan is returned. Nothing 0034 did to `role_permissions` or `service_account_permissions`
+-- outlives this migration.
+DROP POLICY role_permissions_n6_up_scan ON public.role_permissions;
+DROP POLICY service_account_permissions_n6_up_scan ON public.service_account_permissions;

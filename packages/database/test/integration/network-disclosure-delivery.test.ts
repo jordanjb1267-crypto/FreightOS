@@ -47,6 +47,7 @@ const PROJECTION = 'com.rigreceipts.network.disclosure.projection.workflow_state
 const APPEND_ONLY = '23000';
 const INSUFFICIENT_PRIVILEGE = '42501';
 const UNIQUE_VIOLATION = '23505';
+const FOREIGN_KEY_VIOLATION = '23503';
 
 let owner: Client;
 let app: Client;
@@ -555,6 +556,39 @@ describe('interest is authored by the recipient and grants nothing', () => {
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it('derives the recipient from the caller’s own tenancy, in the policy itself — T-04', async () => {
+    // WHY THIS IS STRUCTURAL AND THE TEST BELOW IS NOT ENOUGH.
+    //
+    // The behavioural test refuses a cross-tenant subscription, and it passes — but not for the
+    // reason it names. `network_participants_read` is itself tenant-scoped, so the sub-select in
+    // this policy's WITH CHECK cannot SEE an organization of another tenant at all: the EXISTS
+    // fails on registry visibility before the tenant comparison here is ever consulted. Mutation
+    // D-O deletes `p.tenant_id = app.current_tenant_id()` from this policy and the behavioural
+    // test stays green.
+    //
+    // That is defence in depth working, and it is also a wrong oracle: the clause under test is
+    // never the clause that refuses. So the clause is pinned directly. The two protect different
+    // failure modes — the behavioural test would catch a registry policy that stopped filtering,
+    // this one catches the subscription policy that stopped comparing.
+    const withCheck = (
+      await owner.query<{ v: string }>(
+        `SELECT pg_get_expr(p.polwithcheck, p.polrelid) AS v
+           FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+          WHERE c.relname = 'network_disclosure_subscriptions'
+            AND p.polname = 'network_disclosure_subscriptions_insert'`,
+      )
+    ).rows[0]!.v;
+
+    expect(withCheck, 'the recipient must be constrained to the caller’s own tenant').toContain(
+      'tenant_id = ( SELECT app.current_tenant_id()',
+    );
+    // And the surrounding conditions the clause depends on, so a rewrite that keeps the comparison
+    // but drops the organization or activity requirement also fails here.
+    expect(withCheck).toContain("participant_type = 'organization'");
+    expect(withCheck).toContain("status = 'active'");
+    expect(withCheck).toContain('network.disclosure_subscription.create');
+  });
+
   it('refuses a subscription naming an organization in another tenant', async () => {
     await expect(
       asAdminOfA((c) =>
@@ -781,6 +815,414 @@ describe('the delivery state machine is enforced by the database', () => {
   });
 });
 
+/**
+ * R-07 … R-10 — the provenance chain, proven link by link.
+ *
+ * Every one of these rows was ACCEPTED by the shipped candidate. Each column involved was
+ * individually valid — a real event, a real subscription, a real registered organization — and
+ * nothing required them to describe the SAME disclosure, so a delivery could answer "who is this
+ * for" one way while the artifact it carried answered another.
+ *
+ * The negatives below are pinned to the constraint NAME, not merely to 23503. Six foreign keys sit
+ * on these three tables and any of them yields 23503; naming the one that must fire is what stops
+ * a future change from satisfying the assertion through an unrelated rule — the same standard the
+ * duplicate-obligation test learned from mutation D-L.
+ */
+/**
+ * F-2 — the trigger surface, pinned structurally.
+ *
+ * The behavioural tests above prove the transition guard REFUSES what it should; mutation D-M was
+ * caught by them. What they cannot distinguish is a guard that stopped running from one that never
+ * had to: a trigger recreated as AFTER, disabled with `ALTER TABLE … DISABLE TRIGGER`, or given a
+ * `WHEN` clause that excuses exactly the rows it exists to stop would leave most behavioural
+ * assertions intact while the mechanism was gone.
+ *
+ * 0032 and 0033 both pin their triggers this way. 0034 shipped with zero `pg_trigger` assertions,
+ * which is an assertion-coverage regression against its own predecessors rather than an unguarded
+ * hole — and this is what closes it. Enabled state and WHEN presence are included because a
+ * disabled trigger is still IN `pg_trigger`, so an inventory keyed on presence proves nothing.
+ */
+describe('the N6 trigger surface is exactly what 0034 built — F-2', () => {
+  const INVENTORY = `
+    SELECT format('%s.%s %s %s %s %s/%s when=%s',
+             cl.relname, t.tgname,
+             CASE WHEN (t.tgtype & 2) <> 0 THEN 'BEFORE' ELSE 'AFTER' END,
+             CASE WHEN (t.tgtype & 4) <> 0 THEN 'INSERT'
+                  WHEN (t.tgtype & 8) <> 0 THEN 'DELETE'
+                  WHEN (t.tgtype & 16) <> 0 THEN 'UPDATE'
+                  ELSE 'TRUNCATE' END,
+             CASE WHEN (t.tgtype & 1) <> 0 THEN 'ROW' ELSE 'STATEMENT' END,
+             ns.nspname || '.' || p.proname, t.tgenabled::text,
+             CASE WHEN t.tgqual IS NULL THEN 'none' ELSE 'present' END) AS line
+      FROM pg_trigger t
+      JOIN pg_class cl ON cl.oid = t.tgrelid
+      JOIN pg_namespace n ON n.oid = cl.relnamespace
+      JOIN pg_proc p ON p.oid = t.tgfoid
+      JOIN pg_namespace ns ON ns.oid = p.pronamespace
+     WHERE NOT t.tgisinternal AND n.nspname = 'public'
+       AND cl.relname = ANY ($1::text[])
+     ORDER BY cl.relname, t.tgname`;
+
+  const inventory = async (c: Client): Promise<string[]> =>
+    (await c.query<{ line: string }>(INVENTORY, [[...N6_TABLES]])).rows.map((x) => x.line);
+
+  /** Every 0034-owned trigger, in full: timing, event, level, function, enabled state, WHEN. */
+  const EXPECTED = [
+    'network_delivery_attempts.network_delivery_attempts_no_delete BEFORE DELETE ROW app.reject_mutation/O when=none',
+    'network_delivery_attempts.network_delivery_attempts_no_truncate BEFORE TRUNCATE STATEMENT app.reject_mutation/O when=none',
+    'network_delivery_attempts.network_delivery_attempts_no_update BEFORE UPDATE ROW app.reject_mutation/O when=none',
+    'network_disclosure_artifacts.network_disclosure_artifacts_no_delete BEFORE DELETE ROW app.reject_mutation/O when=none',
+    'network_disclosure_artifacts.network_disclosure_artifacts_no_truncate BEFORE TRUNCATE STATEMENT app.reject_mutation/O when=none',
+    'network_disclosure_artifacts.network_disclosure_artifacts_no_update BEFORE UPDATE ROW app.reject_mutation/O when=none',
+    'network_disclosure_deliveries.network_disclosure_deliveries_no_delete BEFORE DELETE ROW app.reject_mutation/O when=none',
+    'network_disclosure_deliveries.network_disclosure_deliveries_no_truncate BEFORE TRUNCATE STATEMENT app.reject_mutation/O when=none',
+    'network_disclosure_deliveries.network_disclosure_deliveries_transition BEFORE UPDATE ROW app.network_delivery_transition/O when=none',
+    'network_disclosure_inbox.network_disclosure_inbox_no_delete BEFORE DELETE ROW app.reject_mutation/O when=none',
+    'network_disclosure_inbox.network_disclosure_inbox_no_truncate BEFORE TRUNCATE STATEMENT app.reject_mutation/O when=none',
+    'network_disclosure_inbox.network_disclosure_inbox_no_update BEFORE UPDATE ROW app.reject_mutation/O when=none',
+    'network_disclosure_routing_resolutions.network_disclosure_routing_resolutions_no_delete BEFORE DELETE ROW app.reject_mutation/O when=none',
+    'network_disclosure_routing_resolutions.network_disclosure_routing_resolutions_no_truncate BEFORE TRUNCATE STATEMENT app.reject_mutation/O when=none',
+    'network_disclosure_routing_resolutions.network_disclosure_routing_resolutions_no_update BEFORE UPDATE ROW app.reject_mutation/O when=none',
+    'network_disclosure_subscription_revocations.network_disclosure_subscription_revocations_no_delete BEFORE DELETE ROW app.reject_mutation/O when=none',
+    'network_disclosure_subscription_revocations.network_disclosure_subscription_revocations_no_truncate BEFORE TRUNCATE STATEMENT app.reject_mutation/O when=none',
+    'network_disclosure_subscription_revocations.network_disclosure_subscription_revocations_no_update BEFORE UPDATE ROW app.reject_mutation/O when=none',
+    'network_disclosure_subscriptions.network_disclosure_subscriptions_no_delete BEFORE DELETE ROW app.reject_mutation/O when=none',
+    'network_disclosure_subscriptions.network_disclosure_subscriptions_no_truncate BEFORE TRUNCATE STATEMENT app.reject_mutation/O when=none',
+    'network_disclosure_subscriptions.network_disclosure_subscriptions_no_update BEFORE UPDATE ROW app.reject_mutation/O when=none',
+  ];
+
+  it('matches the declared inventory exactly, name for name and attribute for attribute', async () => {
+    expect(await inventory(owner)).toEqual(EXPECTED);
+  });
+
+  it('gives the delivery transition guard the one shape that can stop a bad UPDATE', async () => {
+    // Called out separately from the list because this is the only trigger on an N6 table that is
+    // not `app.reject_mutation`, and the only one whose timing is load-bearing rather than
+    // conventional: AFTER UPDATE cannot refuse a transition, it can only observe one.
+    const line = (await inventory(owner)).filter((l) => l.includes('_transition'));
+    expect(line).toEqual([
+      'network_disclosure_deliveries.network_disclosure_deliveries_transition BEFORE UPDATE ROW app.network_delivery_transition/O when=none',
+    ]);
+  });
+
+  it('detects a DROPPED guard — F2-A', async () => {
+    await owner.query('BEGIN');
+    try {
+      await owner.query(
+        'DROP TRIGGER network_disclosure_deliveries_transition ON network_disclosure_deliveries',
+      );
+      expect(await inventory(owner)).not.toEqual(EXPECTED);
+      expect((await inventory(owner)).filter((l) => l.includes('_transition'))).toEqual([]);
+    } finally {
+      await owner.query('ROLLBACK');
+    }
+    expect(await inventory(owner)).toEqual(EXPECTED);
+  });
+
+  it('detects a guard recreated with the wrong TIMING — F2-B', async () => {
+    await owner.query('BEGIN');
+    try {
+      await owner.query(
+        'DROP TRIGGER network_disclosure_deliveries_transition ON network_disclosure_deliveries',
+      );
+      await owner.query(
+        `CREATE TRIGGER network_disclosure_deliveries_transition
+           AFTER UPDATE ON network_disclosure_deliveries
+           FOR EACH ROW EXECUTE FUNCTION app.network_delivery_transition()`,
+      );
+      const line = (await inventory(owner)).filter((l) => l.includes('_transition'));
+      expect(line[0]).toContain('AFTER UPDATE ROW');
+      expect(await inventory(owner)).not.toEqual(EXPECTED);
+    } finally {
+      await owner.query('ROLLBACK');
+    }
+    expect(await inventory(owner)).toEqual(EXPECTED);
+  });
+
+  it('detects a DISABLED guard, which presence alone cannot — F2-C', async () => {
+    await owner.query('BEGIN');
+    try {
+      await owner.query(
+        `ALTER TABLE network_disclosure_deliveries
+           DISABLE TRIGGER network_disclosure_deliveries_transition`,
+      );
+      const line = (await inventory(owner)).filter((l) => l.includes('_transition'));
+      // Still present, still BEFORE UPDATE ROW, still the right function — and inert.
+      expect(line[0]).toContain('BEFORE UPDATE ROW app.network_delivery_transition/D');
+      expect(await inventory(owner)).not.toEqual(EXPECTED);
+    } finally {
+      await owner.query('ROLLBACK');
+    }
+    expect(await inventory(owner)).toEqual(EXPECTED);
+  });
+
+  it('detects a guard given a WHEN clause that excuses the rows it exists to stop — F2-D', async () => {
+    await owner.query('BEGIN');
+    try {
+      await owner.query(
+        'DROP TRIGGER network_disclosure_deliveries_transition ON network_disclosure_deliveries',
+      );
+      await owner.query(
+        `CREATE TRIGGER network_disclosure_deliveries_transition
+           BEFORE UPDATE ON network_disclosure_deliveries
+           FOR EACH ROW WHEN (OLD.state = 'pending')
+           EXECUTE FUNCTION app.network_delivery_transition()`,
+      );
+      const line = (await inventory(owner)).filter((l) => l.includes('_transition'));
+      expect(line[0]).toContain('when=present');
+      expect(await inventory(owner)).not.toEqual(EXPECTED);
+    } finally {
+      await owner.query('ROLLBACK');
+    }
+    expect(await inventory(owner)).toEqual(EXPECTED);
+  });
+});
+
+describe('the provenance chain cannot be made to contradict itself', () => {
+  interface Chain {
+    readonly event: string;
+    readonly subscription: string;
+    readonly recipient: string;
+    readonly artifact: string;
+  }
+
+  /** One consistent (event, subscription, recipient, artifact) tuple. */
+  async function mintChain(label: string): Promise<Chain> {
+    const recipient = await registerOrganization(label, TENANT_A);
+    const subscription = await createSubscription(recipient);
+    const event = await acceptEvent(orgAsserter);
+    const artifact = (
+      await worker.query<{ id: string }>(
+        `INSERT INTO network_disclosure_artifacts
+           (network_event_id, subscription_id, recipient_participant_id, purpose_code,
+            durable_schema_ref, sensitivity_code, permitted_pointers, authorization_digest,
+            composite_decision_digest, payload_canonical, payload_digest)
+         VALUES ($1,$2,$3,$4,$5,'counterparty_identifying', ARRAY['/workflow_id'], $6,$6,'{}',$6)
+         RETURNING artifact_id AS id`,
+        [event, subscription, recipient, PURPOSE, WORKFLOW_STATE, 'c'.repeat(64)],
+      )
+    ).rows[0]!.id;
+    return { event, subscription, recipient, artifact };
+  }
+
+  const INSERT_DELIVERY = `INSERT INTO network_disclosure_deliveries
+      (network_event_id, subscription_id, artifact_id) VALUES ($1,$2,$3)`;
+  const INSERT_INBOX = `INSERT INTO network_disclosure_inbox
+      (delivery_id, artifact_id, recipient_participant_id) VALUES ($1,$2,$3)`;
+
+  it('resolves each delivery to exactly one routing resolution — U-01', async () => {
+    // WHY THERE IS NO delivery -> routing_resolution FOREIGN KEY, stated as a property rather than
+    // as an omission.
+    //
+    // `network_disclosure_routing_resolutions` is keyed BY the N4 intent — `network_event_id` is
+    // its PRIMARY KEY — and a delivery carries that same intent key. So the lineage is total and
+    // unambiguous by construction: there is exactly one resolution per event, which means a
+    // delivery cannot be attached to a DIFFERENT resolution context. There is no second candidate
+    // to attach to, so there is no contradiction of the F-1 kind available here, and a direct
+    // foreign key would add no fact — it would only impose a write ORDER on a worker that does not
+    // exist yet.
+    //
+    // What the resolution proves that the delivery does not is the count triple: how many
+    // subscriptions matched, how many were authorized, how many denied. That is a separate fact
+    // about enumeration, not a property of any one delivery.
+    const c = await mintChain('lineage');
+    await worker.query(
+      `INSERT INTO network_disclosure_routing_resolutions
+         (network_event_id, matched_subscription_count, authorized_delivery_count, denied_count)
+       VALUES ($1, 1, 1, 0)`,
+      [c.event],
+    );
+    await worker.query(INSERT_DELIVERY, [c.event, c.subscription, c.artifact]);
+
+    const joined = await worker.query<{ n: string }>(
+      `SELECT count(*)::text AS n
+         FROM network_disclosure_deliveries d
+         JOIN network_disclosure_routing_resolutions r ON r.network_event_id = d.network_event_id
+        WHERE d.network_event_id = $1`,
+      [c.event],
+    );
+    expect(Number(joined.rows[0]!.n), 'exactly one resolution per delivery').toBe(1);
+
+    // And a second resolution for the same event is impossible, which is what makes "exactly one"
+    // a rule rather than an observation.
+    const second = await attempt(
+      worker,
+      `INSERT INTO network_disclosure_routing_resolutions
+         (network_event_id, matched_subscription_count, authorized_delivery_count, denied_count)
+       VALUES ($1, 2, 2, 0)`,
+      [c.event],
+    );
+    expectSqlstate(second, UNIQUE_VIOLATION, 'second routing resolution');
+    expect(second.constraint).toBe('network_disclosure_routing_resolutions_pkey');
+  });
+
+  it('accepts the consistent delivery — the positive control', async () => {
+    const c = await mintChain('chain-ok');
+    const outcome = await attempt(worker, INSERT_DELIVERY, [c.event, c.subscription, c.artifact]);
+    expect(outcome.sqlstate, `positive control refused: ${outcome.message}`).toBeNull();
+    expect(outcome.rowCount).toBe(1);
+  });
+
+  it('refuses a delivery whose EVENT is not the artifact’s — R-07', async () => {
+    const c = await mintChain('chain-event');
+    const otherEvent = await acceptEvent(orgAsserter);
+    const outcome = await attempt(worker, INSERT_DELIVERY, [
+      otherEvent,
+      c.subscription,
+      c.artifact,
+    ]);
+    expectSqlstate(outcome, FOREIGN_KEY_VIOLATION, 'event mismatch');
+    expect(outcome.constraint).toBe('network_disclosure_deliveries_artifact_binding');
+  });
+
+  it('refuses a delivery whose SUBSCRIPTION is not the artifact’s — R-07', async () => {
+    const c = await mintChain('chain-sub');
+    const other = await mintChain('chain-sub-other');
+    const outcome = await attempt(worker, INSERT_DELIVERY, [
+      c.event,
+      other.subscription,
+      c.artifact,
+    ]);
+    expectSqlstate(outcome, FOREIGN_KEY_VIOLATION, 'subscription mismatch');
+    expect(outcome.constraint).toBe('network_disclosure_deliveries_artifact_binding');
+  });
+
+  it('refuses a delivery whose event AND subscription are both another’s — R-07', async () => {
+    const c = await mintChain('chain-both');
+    const other = await mintChain('chain-both-other');
+    const outcome = await attempt(worker, INSERT_DELIVERY, [
+      other.event,
+      other.subscription,
+      c.artifact,
+    ]);
+    expectSqlstate(outcome, FOREIGN_KEY_VIOLATION, 'event and subscription mismatch');
+    expect(outcome.constraint).toBe('network_disclosure_deliveries_artifact_binding');
+  });
+
+  it('refuses an artifact whose recipient is not its subscription’s — R-10', async () => {
+    const c = await mintChain('chain-artifact-recipient');
+    const stranger = await registerOrganization('chain-stranger', TENANT_A);
+    const outcome = await attempt(
+      worker,
+      `INSERT INTO network_disclosure_artifacts
+         (network_event_id, subscription_id, recipient_participant_id, purpose_code,
+          durable_schema_ref, sensitivity_code, permitted_pointers, authorization_digest,
+          composite_decision_digest, payload_canonical, payload_digest)
+       VALUES ($1,$2,$3,$4,$5,'counterparty_identifying', ARRAY['/workflow_id'], $6,$6,'{}',$6)`,
+      [
+        await acceptEvent(orgAsserter),
+        c.subscription,
+        stranger,
+        PURPOSE,
+        WORKFLOW_STATE,
+        'e'.repeat(64),
+      ],
+    );
+    expectSqlstate(outcome, FOREIGN_KEY_VIOLATION, 'artifact recipient mismatch');
+    expect(outcome.constraint).toBe('network_disclosure_artifacts_subscription_recipient');
+  });
+
+  it('refuses an inbox row citing an artifact the delivery did not bind — R-09', async () => {
+    const c = await mintChain('chain-inbox-artifact');
+    const other = await mintChain('chain-inbox-artifact-other');
+    const delivery = (
+      await worker.query<{ id: string }>(`${INSERT_DELIVERY} RETURNING delivery_id AS id`, [
+        c.event,
+        c.subscription,
+        c.artifact,
+      ])
+    ).rows[0]!.id;
+
+    const outcome = await attempt(worker, INSERT_INBOX, [delivery, other.artifact, c.recipient]);
+    expectSqlstate(outcome, FOREIGN_KEY_VIOLATION, 'inbox artifact mismatch');
+    expect(outcome.constraint).toBe('network_disclosure_inbox_delivery_artifact');
+  });
+
+  it('refuses an inbox row naming a recipient the artifact was not authorized for — R-08', async () => {
+    const c = await mintChain('chain-inbox-recipient');
+    const stranger = await registerOrganization('chain-inbox-stranger', TENANT_A);
+    const delivery = (
+      await worker.query<{ id: string }>(`${INSERT_DELIVERY} RETURNING delivery_id AS id`, [
+        c.event,
+        c.subscription,
+        c.artifact,
+      ])
+    ).rows[0]!.id;
+
+    const outcome = await attempt(worker, INSERT_INBOX, [delivery, c.artifact, stranger]);
+    expectSqlstate(outcome, FOREIGN_KEY_VIOLATION, 'inbox recipient mismatch');
+    expect(outcome.constraint).toBe('network_disclosure_inbox_artifact_recipient');
+  });
+
+  it('refuses an inbox row addressed to ANOTHER TENANT — the cross-tenant disclosure path', async () => {
+    // WHY THIS IS ITS OWN TEST. `network_disclosure_artifacts_recipient_read` decides artifact
+    // visibility by joining the INBOX row's recipient to the reader's tenant. While that column was
+    // bound only to the participant registry, naming any registered organization was enough — so an
+    // inbox row citing a tenant-B organization made a tenant-A artifact readable by tenant B, with
+    // no grant, policy or privilege touched. Reproduced on the shipped candidate: one row visible.
+    const c = await mintChain('chain-xtenant');
+    const delivery = (
+      await worker.query<{ id: string }>(`${INSERT_DELIVERY} RETURNING delivery_id AS id`, [
+        c.event,
+        c.subscription,
+        c.artifact,
+      ])
+    ).rows[0]!.id;
+
+    const outcome = await attempt(worker, INSERT_INBOX, [delivery, c.artifact, orgOtherTenant]);
+    expectSqlstate(outcome, FOREIGN_KEY_VIOLATION, 'cross-tenant inbox recipient');
+    expect(outcome.constraint).toBe('network_disclosure_inbox_artifact_recipient');
+
+    // And the disclosure the constraint prevents does not happen: tenant B sees nothing.
+    const seen = await withAuthenticatedTestPrincipal(
+      db,
+      fixtureOperator(fixtureB),
+      async (con) => {
+        const r = await con.query(
+          'SELECT artifact_id FROM network_disclosure_artifacts WHERE artifact_id = $1',
+          [c.artifact],
+        );
+        return r.rows.length;
+      },
+    );
+    expect(seen, 'a tenant-A artifact must be invisible to tenant B').toBe(0);
+  });
+
+  it('becomes reachable again when the binding is dropped — the detector is live', async () => {
+    // ANTI-VACUITY, AND THE ANSWER TO "WHICH RULE ACTUALLY REFUSED".
+    //
+    // The mismatch above could in principle be refused by the artifact_id uniqueness, by the
+    // event+subscription uniqueness, or by an unrelated key. This drops ONLY the new composite,
+    // inside a transaction that is rolled back, and requires the same insert to succeed. If it
+    // still failed, the negatives above would be passing for a reason other than the constraint
+    // they name — which is exactly the false green mutation D-L found on the duplicate-obligation
+    // test.
+    const c = await mintChain('chain-mutation');
+    const other = await mintChain('chain-mutation-other');
+
+    await owner.query('BEGIN');
+    try {
+      await owner.query(
+        `ALTER TABLE network_disclosure_deliveries
+           DROP CONSTRAINT network_disclosure_deliveries_artifact_binding`,
+      );
+      const r = await owner.query(INSERT_DELIVERY, [other.event, other.subscription, c.artifact]);
+      expect(r.rowCount, 'with the binding dropped the mismatch must be accepted').toBe(1);
+    } finally {
+      await owner.query('ROLLBACK');
+    }
+
+    // Restored by the rollback, and the mismatch is refused again by the named rule.
+    const after = await attempt(worker, INSERT_DELIVERY, [
+      other.event,
+      other.subscription,
+      c.artifact,
+    ]);
+    expectSqlstate(after, FOREIGN_KEY_VIOLATION, 'after restoration');
+    expect(after.constraint).toBe('network_disclosure_deliveries_artifact_binding');
+  });
+});
+
 describe('an artifact is invisible until it has actually been delivered', () => {
   it('hides a pending artifact from its own recipient, then reveals it on inbox commit', async () => {
     const org = await registerOrganization('visibility', TENANT_A);
@@ -866,6 +1308,269 @@ describe('an artifact is invisible until it has actually been delivered', () => 
       c.query('SELECT count(*)::text AS n FROM network_disclosure_inbox'),
     );
     expect(Number((seen.rows[0] as { n: string }).n)).toBe(0);
+  });
+
+  it('hides an artifact whose delivery TERMINATED without delivering — U-12', async () => {
+    // The fourth state the visibility chain has to get right, and the one nothing covered.
+    // "Pending" and "delivered" were both tested; "authorized, attempted, refused" was not, and it
+    // is the state a revoked grant produces. The artifact exists and is terminal-unauthorized, so
+    // an inbox row must never appear and the bytes must never become readable.
+    const org = await registerOrganization('terminated-vis', TENANT_A);
+    const sub = await createSubscription(org);
+    const eventId = await acceptEvent(orgAsserter);
+    const digest = 'f'.repeat(64);
+    const artifact = (
+      await worker.query<{ id: string }>(
+        `INSERT INTO network_disclosure_artifacts
+           (network_event_id, subscription_id, recipient_participant_id, purpose_code,
+            durable_schema_ref, sensitivity_code, permitted_pointers, authorization_digest,
+            composite_decision_digest, payload_canonical, payload_digest)
+         VALUES ($1,$2,$3,$4,$5,'counterparty_identifying', ARRAY['/workflow_id'], $6,$6,
+                 '{"workflow_id":"wf-terminated"}',$6)
+         RETURNING artifact_id AS id`,
+        [eventId, sub, org, PURPOSE, WORKFLOW_STATE, digest],
+      )
+    ).rows[0]!.id;
+    const delivery = (
+      await worker.query<{ id: string }>(
+        `INSERT INTO network_disclosure_deliveries (network_event_id, subscription_id, artifact_id)
+         VALUES ($1,$2,$3) RETURNING delivery_id AS id`,
+        [eventId, sub, artifact],
+      )
+    ).rows[0]!.id;
+    await worker.query(
+      `UPDATE network_disclosure_deliveries
+          SET state = 'terminated_unauthorized', terminated_at = now(),
+              terminal_reason = 'authorization withdrawn before transmission',
+              record_version = record_version + 1
+        WHERE delivery_id = $1`,
+      [delivery],
+    );
+
+    const visible = await asAdminOfA(async (c) => {
+      const r = await c.query(
+        'SELECT artifact_id FROM network_disclosure_artifacts WHERE artifact_id = $1',
+        [artifact],
+      );
+      return r.rows.length;
+    });
+    expect(visible, 'a terminated-unauthorized artifact must never become readable').toBe(0);
+
+    // THE ORACLE. The same principal, the same query, one committed inbox row later — so the zero
+    // above is the delivery state and not a broken identity, a missing grant or an absent ACL.
+    await worker.query(
+      `INSERT INTO network_disclosure_inbox (delivery_id, artifact_id, recipient_participant_id)
+       VALUES ($1,$2,$3)`,
+      [delivery, artifact, org],
+    );
+    const afterInbox = await asAdminOfA(async (c) => {
+      const r = await c.query(
+        'SELECT artifact_id FROM network_disclosure_artifacts WHERE artifact_id = $1',
+        [artifact],
+      );
+      return r.rows.length;
+    });
+    expect(afterInbox, 'the identity used above can see a delivered artifact').toBe(1);
+  });
+
+  it('scopes recipient reads by TENANT, not by participant — U-12, stated exactly', async () => {
+    // WHAT THE POLICY ACTUALLY SAYS, pinned so nobody has to infer it from the predicate.
+    //
+    // `network_disclosure_artifacts_recipient_read` joins the inbox recipient to the reader's
+    // TENANT. A second organization of the same tenant therefore sees an artifact delivered to its
+    // sibling — which is the boundary N5-A and N5-B already use, and is why the cross-tenant test
+    // above is the isolation claim and this one is not. Asserted rather than assumed: a future
+    // reading of "recipient" as participant-level isolation would be wrong about the shipped
+    // policy, and this is where that misreading fails.
+    const first = await registerOrganization('tenant-scope-1', TENANT_A);
+    const sub = await createSubscription(first);
+    const eventId = await acceptEvent(orgAsserter);
+    const digest = '9'.repeat(64);
+    const artifact = (
+      await worker.query<{ id: string }>(
+        `INSERT INTO network_disclosure_artifacts
+           (network_event_id, subscription_id, recipient_participant_id, purpose_code,
+            durable_schema_ref, sensitivity_code, permitted_pointers, authorization_digest,
+            composite_decision_digest, payload_canonical, payload_digest)
+         VALUES ($1,$2,$3,$4,$5,'counterparty_identifying', ARRAY['/workflow_id'], $6,$6,
+                 '{"workflow_id":"wf-scope"}',$6)
+         RETURNING artifact_id AS id`,
+        [eventId, sub, first, PURPOSE, WORKFLOW_STATE, digest],
+      )
+    ).rows[0]!.id;
+    const delivery = (
+      await worker.query<{ id: string }>(
+        `INSERT INTO network_disclosure_deliveries (network_event_id, subscription_id, artifact_id)
+         VALUES ($1,$2,$3) RETURNING delivery_id AS id`,
+        [eventId, sub, artifact],
+      )
+    ).rows[0]!.id;
+    await worker.query(
+      `INSERT INTO network_disclosure_inbox (delivery_id, artifact_id, recipient_participant_id)
+       VALUES ($1,$2,$3)`,
+      [delivery, artifact, first],
+    );
+
+    const sameTenant = await asAdminOfA(async (c) => {
+      const r = await c.query(
+        'SELECT artifact_id FROM network_disclosure_artifacts WHERE artifact_id = $1',
+        [artifact],
+      );
+      return r.rows.length;
+    });
+    expect(sameTenant, 'tenant A can read what was delivered to a tenant-A organization').toBe(1);
+
+    const otherTenant = await withAuthenticatedTestPrincipal(
+      db,
+      fixtureOperator(fixtureB),
+      async (c) => {
+        const r = await c.query(
+          'SELECT artifact_id FROM network_disclosure_artifacts WHERE artifact_id = $1',
+          [artifact],
+        );
+        return r.rows.length;
+      },
+    );
+    expect(otherTenant, 'and tenant B cannot').toBe(0);
+  });
+
+  it('lets migration assertion (f) see the rows it inspects — U-10', async () => {
+    // THE R-06 PATTERN, ON THE UP SIDE OF 0034.
+    //
+    // Assertion (f) claims the three N6 keys are held by nobody. It reads `role_permissions` as the
+    // migrator, and that table is FORCE-RLS with policies predicated on `app.current_tenant_id()`,
+    // which a deployment session does not have. Bare, the query returns zero rows whether or not an
+    // assignment exists — measured on this branch: migrator 0, superuser 3 — so the claim held by
+    // blindness. 0034 now takes the same temporary, exactly-scoped policy its own revert takes.
+    //
+    // This test measures BOTH numbers against the SAME rows. A guard that cannot tell them apart is
+    // not evidence of anything.
+    const truth = Number(
+      (
+        await owner.query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM role_permissions rp
+             JOIN permissions p ON p.id = rp.permission_id
+            WHERE p.key LIKE 'network.disclosure_subscription.%'`,
+        )
+      ).rows[0]!.n,
+    );
+    // Non-vacuity: without rows, "blind" and "sighted" are the same number.
+    expect(truth, 'the fixture assigns the three N6 subscription keys').toBeGreaterThan(0);
+
+    const migrator = db.connectAsMigrator();
+    await migrator.connect();
+    try {
+      const count = async (): Promise<number> =>
+        Number(
+          (
+            await migrator.query<{ n: string }>(
+              `SELECT count(*)::text AS n FROM role_permissions rp
+                 JOIN permissions p ON p.id = rp.permission_id
+                WHERE p.key LIKE 'network.disclosure_subscription.%'`,
+            )
+          ).rows[0]!.n,
+        );
+
+      expect(await count(), 'bare, the migrator is blind to role_permissions').toBe(0);
+
+      await owner.query(
+        `CREATE POLICY role_permissions_u10_probe ON public.role_permissions
+           FOR SELECT TO freightos_migrator
+           USING (permission_id IN (SELECT id FROM public.permissions
+                                     WHERE key IN ('network.disclosure_subscription.create',
+                                                   'network.disclosure_subscription.revoke',
+                                                   'network.disclosure_subscription.read')))`,
+      );
+      try {
+        expect(await count(), '0034’s scoped policy makes the guard sighted').toBe(truth);
+      } finally {
+        await owner.query('DROP POLICY role_permissions_u10_probe ON public.role_permissions');
+      }
+      expect(await count(), 'and the loan is returned').toBe(0);
+    } finally {
+      await migrator.end();
+    }
+  });
+
+  it('constrains destination_kind to exactly one legal value — U-02', async () => {
+    // The column is stored and read by no code path, which is correct for v1: there is exactly one
+    // destination and the behaviour is deliberately invariant to it. What makes that safe is that
+    // the DATABASE, not a convention, refuses any other value — so a second destination cannot be
+    // introduced by writing a string, only by a migration that adds an enum label and the routing
+    // to go with it.
+    const labels = (
+      await owner.query<{ v: string }>(
+        `SELECT e.enumlabel AS v FROM pg_enum e
+           JOIN pg_type t ON t.oid = e.enumtypid
+           JOIN pg_namespace n ON n.oid = t.typnamespace
+          WHERE n.nspname = 'app' AND t.typname = 'network_delivery_destination_kind'
+          ORDER BY e.enumsortorder`,
+      )
+    ).rows.map((x) => x.v);
+    expect(labels).toEqual(['freightos_inbox']);
+
+    const outcome = await attempt(
+      owner,
+      `INSERT INTO network_disclosure_subscriptions
+         (recipient_participant_id, purpose_code, durable_schema_ref, destination_kind,
+          effective_from)
+       VALUES ($1, $2, $3, 'webhook', now())`,
+      [orgRecipient, PURPOSE, WORKFLOW_STATE],
+    );
+    // 22P02 — invalid text representation. The value is not a member of the enum, so it cannot be
+    // stored at all; there is no CHECK to forget and no application branch to bypass.
+    expectSqlstate(outcome, '22P02', 'a second destination kind');
+  });
+
+  it('binds every N6 participant reference to the registry, by type — U-14', async () => {
+    // Not "a foreign key exists": WHICH key, to WHICH table, on WHICH columns. The generated
+    // `recipient_participant_type` column is what makes the reference type-correct, and a bare
+    // `uuid REFERENCES network_participants (id)` would satisfy "there is an FK" while allowing a
+    // recipient that is not an organization. Compared as full constraint definitions so a future
+    // narrowing to a single column fails here.
+    const r = await owner.query<{ line: string }>(
+      `SELECT format('%s: %s', c.conname, pg_get_constraintdef(c.oid)) AS line
+         FROM pg_constraint c
+        WHERE c.contype = 'f'
+          AND c.confrelid = 'public.network_participants'::regclass
+          AND c.conrelid::regclass::text = ANY($1)
+        ORDER BY c.conname`,
+      [[...N6_TABLES]],
+    );
+    expect(r.rows.map((x) => x.line)).toEqual([
+      'network_disclosure_artifacts_recipient_is_organization: FOREIGN KEY (recipient_participant_id, recipient_participant_type) REFERENCES network_participants(id, participant_type)',
+      'network_disclosure_inbox_recipient_is_organization: FOREIGN KEY (recipient_participant_id, recipient_participant_type) REFERENCES network_participants(id, participant_type)',
+      'network_disclosure_subscriptions_recipient_is_organization: FOREIGN KEY (recipient_participant_id, recipient_participant_type) REFERENCES network_participants(id, participant_type)',
+    ]);
+
+    // The type column cannot drift, on any of the three: it is GENERATED ALWAYS ... STORED, so no
+    // writer supplies it and no writer can change it.
+    const generated = await owner.query<{ line: string }>(
+      `SELECT format('%s.%s=%s', c.relname, a.attname, a.attgenerated) AS line
+         FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND a.attname = 'recipient_participant_type'
+          AND c.relname = ANY($1)
+        ORDER BY c.relname`,
+      [[...N6_TABLES]],
+    );
+    expect(generated.rows.map((x) => x.line)).toEqual([
+      'network_disclosure_artifacts.recipient_participant_type=s',
+      'network_disclosure_inbox.recipient_participant_type=s',
+      'network_disclosure_subscriptions.recipient_participant_type=s',
+    ]);
+
+    // And no N6 table carries a tenant column at all, so tenant can never be substituted for
+    // participant identity in any of these references.
+    const tenantColumns = await owner.query<{ line: string }>(
+      `SELECT format('%s.%s', c.relname, a.attname) AS line
+         FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = ANY($1)
+          AND a.attnum > 0 AND NOT a.attisdropped AND a.attname LIKE '%tenant%'`,
+      [[...N6_TABLES]],
+    );
+    expect(tenantColumns.rows.map((x) => x.line)).toEqual([]);
   });
 
   it('keeps operational delivery state out of the product surface entirely', async () => {

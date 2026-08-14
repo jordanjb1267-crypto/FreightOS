@@ -308,6 +308,32 @@ describe('re-authorization decides every attempt afresh', () => {
     expect(outcome.authorized).toBe(true);
   });
 
+  it('takes the subscription from the ARTIFACT, never from a caller argument — U-04 / U-05', () => {
+    // WHICH ROW IS THE SOURCE OF TRUTH, pinned rather than inferred.
+    //
+    // The signature is (artifact, input, metadata). The recipient and purpose that go into the N5
+    // evaluation are read off the subscription the ARTIFACT names — `input.subscriptions` is a
+    // lookup table, not an authority. So a caller cannot steer re-authorization at a different
+    // recipient by passing one: the only way to change the answer is to change the artifact, and
+    // migration 0034 now binds the artifact to the delivery by composite key, so the delivery row
+    // and the artifact cannot name different subscriptions in the first place.
+    //
+    // The refusal below is what proves the direction of the read. If the evaluator took the
+    // subscription from the input list rather than from the artifact, an artifact naming an
+    // unlisted subscription would still evaluate — and it does not.
+    const orphan = { ...artifact(), subscriptionId: 'subscription-that-is-not-listed' };
+    const outcome = reauthorizeDelivery(orphan, input(), METADATA);
+    expect(outcome).toMatchObject({
+      authorized: false,
+      reason: 'subscription_no_longer_effective',
+      compositeDecisionDigest: null,
+    });
+
+    // And no N5 evaluation was performed at all: there is no governed recipient or purpose to
+    // evaluate against, and inventing one from the artifact would be the worker choosing them.
+    expect((outcome as { detail: string | null }).detail).toBe('subscription absent');
+  });
+
   it('refuses once the grant is revoked', () => {
     const outcome = reauthorizeDelivery(
       artifact(),

@@ -239,6 +239,103 @@ index in constraint column order — F-20 — and the schema-wide detector repor
 enforces this structurally: `DisclosureParticipant` carries no tenant field at all, so a same-tenant
 shortcut around N5 is unwriteable (mutation D-H).
 
+### The provenance chain — one authoritative tuple, four composite keys
+
+Registry binding proves each recipient reference names a real organization. It says nothing about
+whether two rows describing the same disclosure describe the _same_ disclosure — and they did not
+have to. Every relationship between subscription, artifact, delivery and inbox was carried by an
+independent single-column foreign key, so each column was individually valid while the row as a
+whole could be self-contradictory. Four defects followed from that one shape, all reproduced against
+the shipped candidate before any schema changed:
+
+- **R-07** — a delivery for `(E2, S2)` could bind an artifact minted for `(E1, S1)`. The row then
+  answered "who is this delivery for" two ways, and `reauthorizeDelivery` — which resolves the
+  subscription from the **artifact** — would evaluate against one while the delivery record asserted
+  the other.
+- **R-08** — an inbox row could name any registered organization as recipient. Because
+  `network_disclosure_artifacts_recipient_read` decides artifact visibility by joining _that_ column
+  to the reader's tenant, an inbox row citing a tenant-B organization made a tenant-A artifact
+  readable by tenant B. Cross-tenant disclosure of authorized bytes, reachable without touching a
+  grant, a policy or a privilege. Reproduced: one row visible.
+- **R-09** — an inbox row could cite delivery `D` and artifact `A'` where `D` bound `A`, publishing
+  content that was never the subject of that delivery.
+- **R-10** — an artifact could name a subscription belonging to one organization and a recipient
+  belonging to another.
+
+The invariant, stated once: **every row in the chain names the same disclosure, and the database
+makes any other arrangement unrepresentable.** Four composite foreign keys carry it, each in the
+shape 0029 established for `network_events_corrects_same_organization` — a named
+`UNIQUE (identity, attribute)` on the referenced side, the composite key on the referencing side,
+and the subsumed single-column foreign key removed rather than left to agree by luck:
+
+```
+subscriptions (subscription_id, recipient_participant_id)
+  ← artifacts.network_disclosure_artifacts_subscription_recipient
+artifacts (artifact_id, network_event_id, subscription_id)
+  ← deliveries.network_disclosure_deliveries_artifact_binding
+deliveries (delivery_id, artifact_id)
+  ← inbox.network_disclosure_inbox_delivery_artifact
+artifacts (artifact_id, recipient_participant_id)
+  ← inbox.network_disclosure_inbox_artifact_recipient
+```
+
+The chain is anchored in an authenticated tenancy at its head: a subscription's recipient is
+validated against the author's own tenant by `network_disclosure_subscriptions_insert`, and every
+later link inherits that. Each new key has an exact supporting index in constraint column order, so
+the schema-wide F-20 detector still reports zero offenders. Migration assertion **(n)** pins all four
+by full `pg_get_constraintdef` text rather than by count — four keys were _already_ present when
+every binding was independent, so a count could never have caught this.
+
+**No delivery → routing-resolution foreign key.** `network_disclosure_routing_resolutions` is keyed
+by the N4 intent as its PRIMARY KEY, and a delivery carries that same key, so the lineage is total
+and there is exactly one resolution a delivery could belong to. Unlike the four keys above there is
+no second candidate and therefore no contradiction available; a direct key would add no fact and
+would impose a write order on a worker N6 does not ship. What the resolution proves that a delivery
+cannot — matched, authorized and denied counts — is a fact about enumeration, not about any one
+delivery.
+
+### The trigger surface is pinned structurally
+
+Behaviour proves the transition guard refuses what it should. It cannot distinguish a guard that
+stopped running from one that never had to: recreated as `AFTER`, disabled with
+`ALTER TABLE … DISABLE TRIGGER`, or given a `WHEN` clause excusing exactly the rows it exists to
+stop, most behavioural assertions would survive while the mechanism was gone. A disabled trigger is
+still in `pg_trigger`, so presence proves nothing.
+
+0032 and 0033 pin their triggers this way; 0034 shipped with zero `pg_trigger` assertions. Migration
+assertion **(o)** and a standing integration inventory now compare all twenty-one 0034-owned triggers
+by table, name, timing, event, row-or-statement level, function identity, enabled state and `WHEN`
+presence. Four controls — drop, wrong timing, disabled, planted `WHEN` — each make the inventory
+fail and are rolled back. This closed an assertion-coverage gap, not an unguarded hole: no
+production trigger was missing or misconfigured.
+
+### A guard must see the rows it inspects — on the way up, too
+
+Migration assertion **(f)** claims the three N6 permission keys are held by nobody. It read
+`role_permissions` as the migration principal, and that table is FORCE-RLS with policies predicated
+on `app.current_tenant_id()` — which a deployment session does not have. Measured on this branch:
+the migrator saw **0** rows where the superuser saw **3**. The claim was true by blindness.
+
+This is the R-06 hazard on the _up_ side, in a migration whose own revert had already been fixed for
+it. 0034 now takes the same temporary, exactly-scoped policy its revert takes — the three keys and
+nothing else, the migration principal and nobody else, dropped before the migration ends — and
+checks the service-account arm as well as the role arm. An integration test measures both numbers
+against the same rows, because a guard that cannot tell 0 from 3 is not evidence of anything.
+
+### Two role inventories, kept apart
+
+The revert's completeness check asks whether **this database** still references the worker; its
+boundedness check asks whether **the cluster** gained or lost a `freightos%` role. Those are
+different questions and conflating them is how cluster-global residue passes a per-database check.
+
+Both were weaker than their claims. The per-database check filtered on `pg_shdepend.dbid` alone,
+which cannot see a database-level grant — recorded with `dbid = 0` and the database in `objid`, the
+one arm the teardown has to revoke by name and special-case — so it was blind to exactly the residue
+it exists to catch. The cluster-global check compared a _count_, which cannot tell "the worker went"
+from "the worker stayed and something else went". The first now matches both arms; the second
+compares exact sorted role names in both directions, admitting only `freightos_delivery_worker` as
+removable and nothing at all as added.
+
 ### Producer classification is inert
 
 `network_events.classification` is producer-supplied and carries no authority in N6 routing or
@@ -268,8 +365,17 @@ obligation rather than parking it somewhere for later re-emission.
 
 - N6 can prove what would be disclosed, to whom, and on what authority, without disclosing anything.
 - A recipient's inbox is the only destination, so nothing external depends on N6's shape yet.
-- Six real defects were found and fixed during implementation, five of them in security-relevant
-  surfaces; two were instances of the same FORCE-RLS hazard with opposite consequences.
+- Ten real defects were found and fixed, nine of them in security-relevant surfaces. Two were the
+  same FORCE-RLS hazard with opposite consequences (R-05 failed closed, R-06 failed open). Four —
+  R-07 through R-10 — were one shape: independent single-column keys where the invariant was that
+  several rows describe the same disclosure. Only R-08 was reachable as a disclosure to a party that
+  should not have received it, and it was reachable without touching a grant, a policy or a
+  privilege.
+- The residual on `reauthorizeDelivery` is recorded rather than closed: the schema now guarantees a
+  persisted delivery and its artifact cannot disagree, but the function still takes an artifact and
+  an event as separate arguments and does not require them to match. No production caller exists —
+  the worker is N7 — and refusing the pair at runtime would mean a new refusal reason, which is new
+  N6 semantics rather than a repair. It is N7's to settle when it writes the caller.
 - N7 inherits a settled decision surface and a worker role that already has exactly the reads it
   needs and no writes it does not.
 
