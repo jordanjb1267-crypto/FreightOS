@@ -988,10 +988,10 @@ describe('N3 and N4 are untouched by N5-A', () => {
     const roles = await owner.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM pg_roles WHERE rolname LIKE 'freightos%'`,
     );
-    // Twelve since 0034 added freightos_delivery_worker. The invariant is that N5-A ITSELF adds
-    // none — asserted by name below so a future migration adding a role cannot be absorbed by a
-    // count that merely moved.
-    expect(roles.rows[0]!.count).toBe('12');
+    // Thirteen: twelve since 0034 added freightos_delivery_worker, and one more since 0035 added
+    // freightos_transport_worker. The invariant is that N5-A ITSELF adds none — asserted by name
+    // below so a later migration adding a role cannot be absorbed by a count that merely moved.
+    expect(roles.rows[0]!.count).toBe('13');
     const named = await owner.query<{ r: string }>(
       `SELECT string_agg(rolname, ',' ORDER BY rolname) AS r FROM pg_roles WHERE rolname LIKE 'freightos%'`,
     );
@@ -999,7 +999,7 @@ describe('N3 and N4 are untouched by N5-A', () => {
       'freightos_admin,freightos_admin_owner,freightos_app,freightos_audit_writer,' +
         'freightos_binding_owner,freightos_control_plane,freightos_delivery_worker,' +
         'freightos_event_writer,freightos_hierarchy_owner,freightos_identity_guard,' +
-        'freightos_migrator,freightos_operator_registry_owner',
+        'freightos_migrator,freightos_operator_registry_owner,freightos_transport_worker',
     );
   });
 });

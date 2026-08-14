@@ -123,9 +123,23 @@ async function holders(): Promise<string[]> {
   return r.rows.map((x) => x.datname).filter((x): x is string => x !== null);
 }
 
+/**
+ * N6's tip is 34, and this file is about N6's worker role.
+ *
+ * `null` means "up to N6's tip", not "up to whatever the newest migration happens to be". Once N7-A
+ * added 0035 — which creates a SECOND cluster-global role — an unbounded `migrateUp` would drag a
+ * later phase's role into a proof about this one, and the role-count assertions would be measuring
+ * two lifecycles at once. Pinning the ceiling keeps this test's subject exactly what its title says.
+ */
+const N6_TIP = 34;
+
 async function driveTo(database: string, version: number | null): Promise<string[]> {
   return withClient(database, async (client, notices) => {
-    if (version === null) await migrateUp(client, migrations);
+    if (version === null)
+      await migrateUp(
+        client,
+        migrations.filter((m) => m.version <= N6_TIP),
+      );
     else await migrateDown(client, migrations, version);
     return notices;
   });

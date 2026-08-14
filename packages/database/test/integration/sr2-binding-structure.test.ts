@@ -1469,8 +1469,16 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       // state-machine guard — and that function is INVOKER rights with no proconfig, so like N5-A's
       // four trigger functions it contributes nothing to `definers()` and nothing to the pg_temp
       // pin. The role it creates is a LOGIN service credential, never a definer owner.
+      //
+      // 0035 is N7-A. Same shape as 0034 and for the same reason: exactly one function,
+      // app.network_external_transport_transition(), INVOKER rights with no proconfig, and the
+      // role it creates (freightos_transport_worker) is a LOGIN service credential that owns
+      // nothing. N7-A's whole point is that it adds an egress-capable IDENTITY without adding an
+      // egress-capable CAPABILITY, and the definer surface is one place that shows: an external
+      // transport foundation that had needed a new SECURITY DEFINER would have been smuggling
+      // privilege in through the one door this gate watches. §52 states the same delta as zero.
       expect((await migrateDown(client, migrations, 23)).reverted).toEqual([
-        34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24,
+        35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24,
       ]);
       const at23 = await definers();
       expect(at23.length, 'the revert dropped definers it should only have altered').toBe(
@@ -1503,7 +1511,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
 
       // And back up. Everything matches where it started, field for field.
       expect((await migrateUp(client, migrations)).applied).toEqual([
-        24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+        24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
       ]);
       expect(await definers()).toEqual(atTop);
       expect(await scopeFns()).toEqual(scopeTop);

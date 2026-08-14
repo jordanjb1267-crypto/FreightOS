@@ -525,12 +525,19 @@ describe('the intent is immutable', () => {
       // CASE B — the whole referencing closure named at once, so PostgreSQL gets past the FK
       // objection and the statement-level trigger is genuinely reached.
       const closure = await truncateClosure(client);
+      // N7-A extends this closure: an external transport obligation references the N6 inbox, and
+      // its permits and attempts reference the obligation, so all three land in the transitive
+      // referencing set. The list is DERIVED from the catalog and then pinned, which is what makes
+      // a new referencing relation fail loudly here instead of being absorbed silently.
       expect(closure).toEqual([
         'network_transport_intents',
         'network_delivery_attempts',
         'network_disclosure_deliveries',
         'network_disclosure_inbox',
         'network_disclosure_routing_resolutions',
+        'network_external_transport_attempts',
+        'network_external_transport_permits',
+        'network_external_transports',
       ]);
       const reached = await client.query(`TRUNCATE ${closure.join(', ')}`).then(
         () => null,

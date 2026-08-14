@@ -68,6 +68,22 @@ export const N6_DELIVERY_RELATIONS = [
   'network_disclosure_subscriptions',
 ] as const;
 
+/**
+ * N7-A — external transport foundation. WHERE an already-authorized artifact may be sent, that it
+ * is owed, that the authorization side permitted one attempt, and how that attempt went.
+ *
+ * N7-A implements no external transport. These relations are the control plane for a capability
+ * that does not exist yet, which is deliberate: the boundary is reviewable before anything can
+ * cross it.
+ */
+export const N7_TRANSPORT_RELATIONS = [
+  'network_external_transport_attempts',
+  'network_external_transport_permits',
+  'network_external_transports',
+  'network_transport_destination_revocations',
+  'network_transport_destinations',
+] as const;
+
 /** Every relation in the `network_*` family, by declaration. Sorted to match `ORDER BY relname`. */
 export const ALL_NETWORK_RELATIONS: readonly string[] = [
   ...N1_PARTICIPANT_RELATIONS,
@@ -77,6 +93,7 @@ export const ALL_NETWORK_RELATIONS: readonly string[] = [
   ...N5A_DISCLOSURE_RELATIONS,
   ...N5B_SENSITIVITY_RELATIONS,
   ...N6_DELIVERY_RELATIONS,
+  ...N7_TRANSPORT_RELATIONS,
 ].sort();
 
 /**
@@ -91,6 +108,7 @@ export const NETWORK_RELATION_LAYER: ReadonlyMap<string, string> = new Map([
   ...N5A_DISCLOSURE_RELATIONS.map((r) => [r, 'N5-A'] as const),
   ...N5B_SENSITIVITY_RELATIONS.map((r) => [r, 'N5-B'] as const),
   ...N6_DELIVERY_RELATIONS.map((r) => [r, 'N6'] as const),
+  ...N7_TRANSPORT_RELATIONS.map((r) => [r, 'N7'] as const),
 ]);
 
 /** Every relation whose name lands in the disclosure/delivery family, whatever layer owns it. */

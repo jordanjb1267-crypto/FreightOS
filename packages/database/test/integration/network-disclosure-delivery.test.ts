@@ -308,6 +308,15 @@ describe('the database surface N6 adds', () => {
           AND (c.relname LIKE '%destination%' OR c.relname LIKE '%webhook%'
                OR c.relname LIKE '%dead_letter%' OR c.relname LIKE '%replay%'
                OR c.relname LIKE '%subscriber%')
+          -- N7-A LEGITIMATELY OWNS A DESTINATION REGISTRY, and this test is about what N6 builds.
+          --
+          -- The claim being made is "N6 creates no destination/webhook/dead-letter/replay/subscriber
+          -- relation", and it stays exactly that: the two N7 relations are named individually, so a
+          -- THIRD such relation appearing under any name still fails here. Excluding by an
+          -- N7-shaped pattern instead would have quietly widened the hole the gate exists to keep
+          -- shut.
+          AND c.relname NOT IN ('network_transport_destinations',
+                                'network_transport_destination_revocations')
         ORDER BY c.relname`,
     );
     expect(r.rows.map((x) => x.n)).toEqual([]);
@@ -321,7 +330,9 @@ describe('the database surface N6 adds', () => {
         `SELECT format('%s/%s', c.relname, c.relkind) AS n
            FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
           WHERE ns.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
-            AND c.relname LIKE '%destination%'`,
+            AND c.relname LIKE '%destination%'
+            AND c.relname NOT IN ('network_transport_destinations',
+                                  'network_transport_destination_revocations')`,
       );
       expect(planted.rows.map((x) => x.n)).toEqual(['network_delivery_destination_probe/v']);
     } finally {

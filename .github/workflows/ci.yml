@@ -100,6 +100,18 @@ jobs:
       - name: Anti-overbuilding and autonomy ceiling
         run: node scripts/validate-scope.mjs
 
+      # NAMED, so the egress posture is visible in the checks list rather than only in a log.
+      #
+      # `validate:egress` has always passed, and has always run inside an aggregate step where no
+      # reader could see it — which is why NETWORK_EGRESS_CI_OBSERVABILITY stayed open through
+      # N5-B, N6 and the N7 architecture phase. Both gates now run under names that state the
+      # property: zero egress anywhere, and zero egress outside the governed manifest.
+      - name: External egress — zero capability
+        run: pnpm validate:egress
+
+      - name: External egress — bounded allowlist
+        run: pnpm validate:egress-allowlist
+
       # -- Tests -------------------------------------------------------------
       - name: Unit tests
         run: pnpm test

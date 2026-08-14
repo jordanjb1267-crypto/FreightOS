@@ -1188,8 +1188,13 @@ describe('journal RLS read matrix', () => {
         'network_disclosure_routing_resolutions',
         'network_disclosure_subscription_revocations',
         'network_disclosure_subscriptions',
+        'network_external_transport_attempts',
+        'network_external_transport_permits',
+        'network_external_transports',
         'network_schema_disclosure_sensitivity',
         'network_schema_versions',
+        'network_transport_destination_revocations',
+        'network_transport_destinations',
         'network_transport_intents',
       ]);
       const truncateClosureStatement = `TRUNCATE ${closureNames.join(', ')}`;

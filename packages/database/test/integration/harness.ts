@@ -335,6 +335,12 @@ export class TestDatabase {
       // legitimate runtime LOGIN identity like the four above it; nothing about its database
       // authority is involved.
       'freightos_delivery_worker',
+      // N7-A's egress-capable identity, created by migration 0035, under the same guard for the
+      // same reason. It holds no egress capability today and no N5 authority ever; here it is
+      // simply a fifth runtime LOGIN that integration files must be able to open in order to prove
+      // what it CANNOT reach — a role the harness could not connect as would make every one of
+      // those negatives vacuous.
+      'freightos_transport_worker',
     ]) {
       const present = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
       if (present.rowCount === 0) continue;
