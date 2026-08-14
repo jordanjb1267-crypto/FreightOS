@@ -118,14 +118,26 @@ export function stripSql(source) {
   return out;
 }
 
+// Every Node core module is listed in BOTH forms because `isDenied` is an exact `Set.has` — there
+// is no specifier normalization, deliberately, since normalizing is where a scanner acquires the
+// bug of deciding two different strings are the same thing. The cost is that a new core module
+// must be added twice, and V-01 is what that cost looks like when it is paid only once.
 export const NETWORK_MODULES = new Set([
   'http',
   'https',
+  // V-01. `http2` was absent while `http` and `https` were present, so a runtime module could
+  // `import { connect } from 'node:http2'` and open a full HTTP/2 client with both egress gates
+  // reporting PASS — no dependency required, since it is core. The omission is instructive: the
+  // inventory had been built by listing the modules one thinks of as "the HTTP client", and http2
+  // is the same capability under a name that did not come to mind. Found by asking what the list
+  // enumerates rather than how long it is.
+  'http2',
   'net',
   'tls',
   'dgram',
   'node:http',
   'node:https',
+  'node:http2',
   'node:net',
   'node:tls',
   'node:dgram',

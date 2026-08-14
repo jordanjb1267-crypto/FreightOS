@@ -124,6 +124,64 @@ describe('negative controls — the gate names what is wrong', () => {
     }
   });
 
+  // V-01 — the Node core HTTP/2 client, in both specifier forms.
+  //
+  // `http2` was absent from the inventory while `http` and `https` were present, so a runtime
+  // module could `import { connect } from 'node:http2'` and open a full HTTP/2 client with BOTH
+  // gates reporting PASS. No dependency was needed: it is core, and available in every Node this
+  // repository runs on.
+  //
+  // The omission is worth stating because it is the shape the next one will take. The inventory was
+  // built by listing the modules one thinks of as "the HTTP client"; `http2` is the same capability
+  // under a name that did not come to mind. It was found by asking what the list ENUMERATES rather
+  // than how long it is — and these two controls exist so the answer stays checked rather than
+  // remembered.
+  //
+  // Both forms are asserted because `isDenied` is an exact `Set.has` with no specifier
+  // normalization: `node:http2` and `http2` are two distinct strings, and a fix that added only one
+  // of them would leave the bypass open under the other.
+  for (const [label, specifier] of [
+    ['V01-A', 'node:http2'],
+    ['V01-B', 'http2'],
+  ] as const) {
+    it(`${label} — fails on the Node core HTTP/2 client imported as '${specifier}'`, () => {
+      mkdirSync(PLANT_DIR, { recursive: true });
+      writeFileSync(PLANT, `import { connect } from '${specifier}';\nexport const p = connect;\n`);
+      try {
+        const r = run(GATE);
+        expect(r.code, `'${specifier}' did not fail the bounded-allowlist gate`).toBe(1);
+        expect(r.stderr).toContain('NETWORK_EGRESS_ALLOWLIST=FAIL');
+        expect(r.stderr).toContain('EGRESS_VIOLATION');
+        // NAMED, in both dimensions: which file, and which primitive.
+        expect(r.stderr).toContain('packages/context/src/zz-egress-gate-probe.ts');
+        expect(r.stderr).toContain('network-capable module');
+        expect(r.stderr).toContain(specifier);
+      } finally {
+        rmSync(PLANT, { force: true });
+      }
+      expect(run(GATE).code, 'restored').toBe(0);
+    });
+  }
+
+  it('V01 — the legacy zero-capability gate catches http2 too, in both forms', () => {
+    // The two gates share one inventory, so this ought to follow — but "ought to follow" is what
+    // the shared-inventory contract asserts structurally, and this asserts it behaviourally. If
+    // they ever diverged, the gate that kept the older list would keep reporting PASS.
+    mkdirSync(PLANT_DIR, { recursive: true });
+    for (const specifier of ['node:http2', 'http2'] as const) {
+      writeFileSync(PLANT, `import { connect } from '${specifier}';\nexport const p = connect;\n`);
+      try {
+        const r = run(LEGACY);
+        expect(r.code, `'${specifier}' did not fail the zero-capability gate`).toBe(1);
+        expect(r.stderr).toContain('NETWORK_EGRESS=FAIL');
+        expect(r.stderr).toContain(specifier);
+      } finally {
+        rmSync(PLANT, { force: true });
+      }
+    }
+    expect(run(LEGACY).code, 'restored').toBe(0);
+  });
+
   it('fails on a stale manifest entry that contains no primitive', () => {
     copyFileSync(MANIFEST, MANIFEST_BACKUP);
     const m = JSON.parse(readFileSync(MANIFEST, 'utf8')) as Record<string, unknown>;
