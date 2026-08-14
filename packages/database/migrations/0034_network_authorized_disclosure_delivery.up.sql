@@ -652,6 +652,39 @@ ALTER TABLE network_disclosure_inbox                     FORCE  ROW LEVEL SECURI
 CREATE POLICY network_transport_intents_delivery_worker_read ON network_transport_intents
   FOR SELECT TO freightos_delivery_worker USING (true);
 
+-- --- N3, N1 and N5-A: the same hazard, on the rest of what the worker reads. -
+--
+-- The paragraph above is true of four further tables, and stating it once was not enough. §14
+-- grants the worker SELECT on the journal, the participant registry, the grants and the
+-- revocations; every one of those tables carries FORCE RLS and admitting policies scoped to
+-- OTHER principals — `freightos_app` by tenant, `freightos_event_writer` by role. None of them
+-- admitted the worker, so all four GRANTs resolved to zero rows: the worker could see that a
+-- transport debt existed and could not see the event it was owed for, who the participants were,
+-- or whether the authorization had since been revoked. Silently, and fail-closed, which is why no
+-- test caught it — every downstream assertion passed by finding nothing to do.
+--
+-- The shapes below are not new. Each mirrors the policy N3 already grants its own background
+-- identity: `network_events_writer_identity_read` is `USING (true)`, and
+-- `network_participants_event_writer_read` narrows to organizations rather than opening the whole
+-- registry. The worker's every participant reference is an `organization` by generated column, so
+-- the narrower predicate is exactly right and the wider one would grant more than N6 uses.
+--
+-- SELECT only, in all four cases. The worker executes authority and never creates it: it may read
+-- that a grant was revoked, and may not revoke one.
+CREATE POLICY network_events_delivery_worker_read ON network_events
+  FOR SELECT TO freightos_delivery_worker USING (true);
+
+CREATE POLICY network_participants_delivery_worker_read ON network_participants
+  FOR SELECT TO freightos_delivery_worker
+  USING (participant_type = 'organization');
+
+CREATE POLICY network_disclosure_grants_delivery_worker_read ON network_disclosure_grants
+  FOR SELECT TO freightos_delivery_worker USING (true);
+
+CREATE POLICY network_disclosure_grant_revocations_delivery_worker_read
+  ON network_disclosure_grant_revocations
+  FOR SELECT TO freightos_delivery_worker USING (true);
+
 CREATE POLICY network_disclosure_subscriptions_insert ON network_disclosure_subscriptions
   FOR INSERT TO freightos_app
   WITH CHECK (
@@ -1094,6 +1127,38 @@ BEGIN
                        'network_disclosure_inbox');
   IF v_policies <> 19 THEN
     RAISE EXCEPTION 'expected 19 N6 policies, found %', v_policies;
+  END IF;
+
+  -- (l) the five read policies 0034 places on tables it does NOT own. These are the ones a later
+  -- change is most likely to lose, precisely because they live on somebody else's table: a GRANT
+  -- would remain and the worker would silently read zero rows. Asserted by name, not by count.
+  SELECT count(*) INTO v_policies FROM pg_policies
+   WHERE schemaname = 'public'
+     AND policyname IN ('network_transport_intents_delivery_worker_read',
+                        'network_events_delivery_worker_read',
+                        'network_participants_delivery_worker_read',
+                        'network_disclosure_grants_delivery_worker_read',
+                        'network_disclosure_grant_revocations_delivery_worker_read');
+  IF v_policies <> 5 THEN
+    RAISE EXCEPTION 'expected 5 delivery-worker read policies on foreign tables, found %',
+      v_policies;
+  END IF;
+
+  -- (m) and the pairing rule that (l) exists to enforce: every table the worker holds SELECT on
+  -- must also admit it through a policy. A GRANT without an admitting policy is not a privilege
+  -- under FORCE RLS — it is an invisible, permanently empty read.
+  SELECT count(*) INTO v_policies
+    FROM information_schema.role_table_grants g
+   WHERE g.grantee = 'freightos_delivery_worker' AND g.privilege_type = 'SELECT'
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_policies p
+        WHERE p.schemaname = 'public' AND p.tablename = g.table_name
+          AND p.cmd IN ('SELECT', 'ALL')
+          AND ('freightos_delivery_worker' = ANY (p.roles) OR 'public' = ANY (p.roles)));
+  IF v_policies <> 0 THEN
+    RAISE EXCEPTION
+      '% table(s) grant the delivery worker SELECT with no admitting policy — it would read zero rows',
+      v_policies;
   END IF;
 END
 $$;

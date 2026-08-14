@@ -85,9 +85,15 @@ $$;
 
 DROP POLICY IF EXISTS network_disclosure_artifacts_recipient_read ON network_disclosure_artifacts;
 
--- The N4 read policy 0034 added. Dropped explicitly here because the table itself survives the
--- revert: N4 is not ours to drop, only the policy we put on it.
+-- The read policies 0034 added to tables it does not own. Dropped explicitly here because those
+-- tables survive the revert: N4, N3, N1 and N5-A are not ours to drop, only the policies we put on
+-- them. Every one is named — a CASCADE would take whatever else happened to point at the table.
 DROP POLICY IF EXISTS network_transport_intents_delivery_worker_read ON network_transport_intents;
+DROP POLICY IF EXISTS network_events_delivery_worker_read ON network_events;
+DROP POLICY IF EXISTS network_participants_delivery_worker_read ON network_participants;
+DROP POLICY IF EXISTS network_disclosure_grants_delivery_worker_read ON network_disclosure_grants;
+DROP POLICY IF EXISTS network_disclosure_grant_revocations_delivery_worker_read
+  ON network_disclosure_grant_revocations;
 
 DROP TABLE IF EXISTS network_disclosure_inbox;
 DROP TABLE IF EXISTS network_delivery_attempts;
@@ -313,12 +319,13 @@ BEGIN
     RAISE EXCEPTION 'N6 revert incomplete: % subscription permission keys remain', v_keys;
   END IF;
 
-  -- Bounded: exactly the twenty policies 0034 created went — nineteen on the seven N6 tables plus
-  -- the N4 read policy., and exactly the seven FORCE-RLS tables.
+  -- Bounded: exactly the twenty-four policies 0034 created went — nineteen on the seven N6 tables,
+  -- plus the five read policies it placed on tables it does not own (N4, N3, N1 and N5-A's grants
+  -- and revocations) — and exactly the seven FORCE-RLS tables.
   v_before := current_setting('freightos.n6_before_policies')::int;
   SELECT count(*) INTO v_now FROM pg_policies WHERE schemaname = 'public';
-  IF v_now <> v_before - 20 THEN
-    RAISE EXCEPTION 'N6 revert removed % policies, expected exactly 20', v_before - v_now;
+  IF v_now <> v_before - 24 THEN
+    RAISE EXCEPTION 'N6 revert removed % policies, expected exactly 24', v_before - v_now;
   END IF;
 
   v_before := current_setting('freightos.n6_before_force')::int;

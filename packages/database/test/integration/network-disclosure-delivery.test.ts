@@ -40,6 +40,8 @@ const N6_TABLES = [
 
 const WORKFLOW_STATE = 'https://schemas.rigreceipts.com/network/workflow-state.v1.json';
 const PURPOSE = 'shipment_execution';
+/** The projection 0032 shipped — the only one that exists, and the one N5-A grants point at. */
+const PROJECTION = 'com.rigreceipts.network.disclosure.projection.workflow_state_minimal.v1';
 
 /** `app.reject_mutation()` and the delivery transition guard both raise this. */
 const APPEND_ONLY = '23000';
@@ -191,6 +193,33 @@ beforeAll(async () => {
   await grantPermission('network.disclosure_subscription.create');
   await grantPermission('network.disclosure_subscription.revoke');
   await grantPermission('network.disclosure_subscription.read');
+
+  // A REAL N5-A grant and its revocation, written through the governed N5-A path — permission
+  // gate, RLS policy and all. Delivery-time re-authorization is the whole reason the worker holds
+  // SELECT on these two tables, so a fixture with neither would make "the worker can read them"
+  // vacuously true. The revocation is here for the same reason: a worker that cannot see a
+  // revocation would deliver on authority that no longer exists.
+  await grantPermission('network.disclosure_grant.create');
+  await grantPermission('network.disclosure_grant.read');
+  await grantPermission('network.disclosure_grant.revoke');
+  const grantId = await asAdminOfA(async (c) => {
+    const r = await c.query<{ id: string }>(
+      `INSERT INTO network_disclosure_grants
+         (grantor_participant_id, recipient_participant_id, purpose_code, projection_ref,
+          authority_basis_code, effective_from, effective_until)
+       VALUES ($1, $2, $3, $4, 'bilateral_grant', now() - interval '1 day', NULL)
+       RETURNING grant_id AS id`,
+      [orgAsserter, orgRecipient, PURPOSE, PROJECTION],
+    );
+    return r.rows[0]!.id;
+  });
+  await asAdminOfA(async (c) => {
+    await c.query(
+      `INSERT INTO network_disclosure_grant_revocations (grant_id, reason)
+       VALUES ($1, 'n6 fixture: proves a revocation is visible to the delivery worker')`,
+      [grantId],
+    );
+  });
 }, 60_000);
 
 afterAll(async () => {
@@ -352,6 +381,70 @@ describe('the delivery worker executes authority and cannot create it', () => {
        VALUES ('${orgRecipient}','${PURPOSE}','${WORKFLOW_STATE}','freightos_inbox', now())`,
     ]) {
       expectSqlstate(await attempt(worker, sql), INSUFFICIENT_PRIVILEGE, sql.slice(0, 48));
+    }
+  });
+
+  it('can actually READ every table it holds SELECT on — grant, policy and rows', async () => {
+    // REGRESSION #5. 0034 granted the worker SELECT on twenty tables and gave four of them no
+    // admitting policy: the journal, the participant registry, the disclosure grants and the
+    // revocations. Under FORCE RLS that is not a privilege — it is a permanently empty read, with
+    // no error to notice. The worker could see that a transport debt existed and could not see the
+    // event it was owed for, who the participants were, or whether the authorization had since
+    // been revoked. It failed CLOSED, which is why nothing caught it: every downstream assertion
+    // passed by finding nothing to do.
+    //
+    // The gate is the PAIRING, not the four names. Any future GRANT to this role that arrives
+    // without a policy fails here regardless of which table it is on.
+    const unreadable = await owner.query<{ t: string }>(
+      `SELECT g.table_name AS t
+         FROM information_schema.role_table_grants g
+        WHERE g.grantee = 'freightos_delivery_worker' AND g.privilege_type = 'SELECT'
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_policies p
+             WHERE p.schemaname = 'public' AND p.tablename = g.table_name
+               AND p.cmd IN ('SELECT', 'ALL')
+               AND ('freightos_delivery_worker' = ANY (p.roles) OR 'public' = ANY (p.roles)))
+        ORDER BY 1`,
+    );
+    expect(
+      unreadable.rows.map((x) => x.t),
+      'a SELECT grant with no admitting policy returns zero rows, not an error',
+    ).toEqual([]);
+
+    // Layer three. The structural check above would still pass if a policy existed but excluded
+    // every row, so compare what the worker sees against what is actually there. Read as the
+    // superuser, which bypasses RLS, and require the counts to agree on the four that were broken.
+    for (const table of [
+      'network_events',
+      'network_participants',
+      'network_disclosure_grants',
+      'network_disclosure_grant_revocations',
+    ]) {
+      const actual = Number(
+        (await owner.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`)).rows[0]!.n,
+      );
+      const visible = Number(
+        (await worker.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`)).rows[0]!.n,
+      );
+      // `network_participants` is narrowed to organizations, mirroring the policy N3 already gives
+      // its own background identity — so it is compared against the organizations, not the total.
+      const expected =
+        table === 'network_participants'
+          ? Number(
+              (
+                await owner.query<{ n: string }>(
+                  `SELECT count(*)::text AS n FROM network_participants
+                    WHERE participant_type = 'organization'`,
+                )
+              ).rows[0]!.n,
+            )
+          : actual;
+      expect(visible, `${table}: the worker must see the rows it was granted`).toBe(expected);
+      // Anti-vacuity: a table with no rows proves nothing about visibility.
+      expect(
+        expected,
+        `${table}: fixture must contain rows for this to mean anything`,
+      ).toBeGreaterThan(0);
     }
   });
 
