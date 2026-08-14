@@ -46,7 +46,7 @@ const BEFORE_HOTFIX = HOTFIX - 1;
  * "the migration set is complete" the same assertion, and only the second one moves when a
  * migration lands.
  */
-const TIP = 32;
+const TIP = 33;
 
 const FN = 'app.record_audit_event(text,text,text,uuid,uuid,text,jsonb)';
 
