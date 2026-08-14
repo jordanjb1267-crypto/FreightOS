@@ -55,6 +55,25 @@ $$;
 -- §2. Refuse to silently destroy delivery history.
 -- ---------------------------------------------------------------------------
 
+-- The guard has to be able to SEE the history it is protecting.
+--
+-- `network_disclosure_inbox` and `network_disclosure_deliveries` are FORCE ROW LEVEL SECURITY, and
+-- FORCE binds the table OWNER too — which is the migration authority running this file. Their read
+-- policies name the delivery worker and the recipient application; neither names the migrator. So
+-- a bare `count(*)` here returns ZERO however much history exists, and returns it without error:
+-- the guard would wave every downgrade through and destroy exactly what it was written to protect.
+-- That is the same FORCE-RLS hazard N6 already met on the read path, arriving here with the
+-- opposite polarity — there it failed closed, here it would fail OPEN.
+--
+-- The remedy is the one 0032's revert established and §5 below reuses for `permissions`: a
+-- temporary, exactly-scoped policy that exists only for the statement that needs it and is dropped
+-- before anything else runs. It is not a permanent widening — the migrator does not gain the
+-- ability to read delivery history, it gains it for the length of one count.
+CREATE POLICY network_disclosure_inbox_n6_down_count ON public.network_disclosure_inbox
+  FOR SELECT TO freightos_migrator USING (true);
+CREATE POLICY network_disclosure_deliveries_n6_down_count ON public.network_disclosure_deliveries
+  FOR SELECT TO freightos_migrator USING (true);
+
 DO $$
 DECLARE v_inbox bigint; v_deliveries bigint; v_ack text;
 BEGIN
@@ -69,6 +88,9 @@ BEGIN
   END IF;
 END
 $$;
+
+DROP POLICY network_disclosure_inbox_n6_down_count ON public.network_disclosure_inbox;
+DROP POLICY network_disclosure_deliveries_n6_down_count ON public.network_disclosure_deliveries;
 
 -- ---------------------------------------------------------------------------
 -- §3. Drop N6 tables, child before parent. No CASCADE.
@@ -212,6 +234,31 @@ $$;
 --
 -- First refuse to strand a reference: a key still assigned to a role or a service account must fail
 -- loudly rather than be deleted out from under it.
+-- Same FORCE-RLS problem, same remedy, narrower scope.
+--
+-- `role_permissions` and `service_account_permissions` are FORCE-RLS and their read policies are
+-- predicated on `app.current_tenant_id()`, which a deployment session does not have. Counted bare,
+-- both come back zero and the two guards below never fire. Their failure is less severe than the
+-- history guard's — `permission_id` carries ON DELETE NO ACTION, so a stranded reference still
+-- stops the DELETE with a foreign-key violation — but the difference between "this revert refuses
+-- and tells you which rows are in the way" and "this revert dies on a constraint" is the whole
+-- reason the guards were written.
+--
+-- Scoped to the three N6 keys and nothing else: a temporary policy admitting the migrator to the
+-- whole identity surface would be a far larger loan than the one this needs.
+CREATE POLICY role_permissions_n6_down_scan ON public.role_permissions
+  FOR SELECT TO freightos_migrator
+  USING (permission_id IN (SELECT id FROM public.permissions
+                            WHERE key IN ('network.disclosure_subscription.create',
+                                          'network.disclosure_subscription.revoke',
+                                          'network.disclosure_subscription.read')));
+CREATE POLICY service_account_permissions_n6_down_scan ON public.service_account_permissions
+  FOR SELECT TO freightos_migrator
+  USING (permission_id IN (SELECT id FROM public.permissions
+                            WHERE key IN ('network.disclosure_subscription.create',
+                                          'network.disclosure_subscription.revoke',
+                                          'network.disclosure_subscription.read')));
+
 DO $$
 DECLARE v_role integer; v_svc integer;
 BEGIN
@@ -231,6 +278,9 @@ BEGIN
   END IF;
 END
 $$;
+
+DROP POLICY role_permissions_n6_down_scan ON public.role_permissions;
+DROP POLICY service_account_permissions_n6_down_scan ON public.service_account_permissions;
 
 CREATE POLICY permissions_n6_down_cleanup ON public.permissions
   FOR DELETE TO freightos_migrator
