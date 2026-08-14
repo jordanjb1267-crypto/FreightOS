@@ -1159,6 +1159,41 @@ describe('journal RLS read matrix', () => {
         'network_schema_versions owner=freightos_migrator',
       ]);
 
+      // Every relation that transitively references either root, discovered from the catalog.
+      // `network_events` is forced to the FRONT: PostgreSQL fires BEFORE TRUNCATE triggers in
+      // statement order, so a different order would raise from whichever relation came first and
+      // the assertion would be pinning some other table's append-only message.
+      const closure = await owner.query<{ relname: string }>(
+        `WITH RECURSIVE closure(oid) AS (
+           SELECT 'public.network_events'::regclass
+           UNION SELECT 'public.network_schema_versions'::regclass
+           UNION SELECT con.conrelid FROM pg_constraint con JOIN closure cl ON con.confrelid = cl.oid
+            WHERE con.contype = 'f')
+         SELECT c.relname FROM closure JOIN pg_class c ON c.oid = closure.oid
+          ORDER BY (c.relname <> 'network_events'), c.relname`,
+      );
+      const closureNames = closure.rows.map((x) => x.relname);
+      // Derived, then checked: the discovery is what keeps this current, and the explicit set is
+      // what makes an unexpected new referencing relation fail loudly instead of being absorbed.
+      expect(closureNames).toEqual([
+        'network_events',
+        'network_delivery_attempts',
+        'network_disclosure_artifacts',
+        'network_disclosure_deliveries',
+        'network_disclosure_grant_revocations',
+        'network_disclosure_grants',
+        'network_disclosure_inbox',
+        'network_disclosure_projection_fields',
+        'network_disclosure_projections',
+        'network_disclosure_routing_resolutions',
+        'network_disclosure_subscription_revocations',
+        'network_disclosure_subscriptions',
+        'network_schema_disclosure_sensitivity',
+        'network_schema_versions',
+        'network_transport_intents',
+      ]);
+      const truncateClosureStatement = `TRUNCATE ${closureNames.join(', ')}`;
+
       for (const [statement, expected] of [
         // The journal alone is now refused EARLIER too, by N4's inbound foreign key from
         // `network_transport_intents` — PostgreSQL checks that before firing triggers. This moved
@@ -1184,13 +1219,14 @@ describe('journal RLS read matrix', () => {
         // foreign key, and this case would silently degrade into a duplicate of the two above it —
         // still passing, while no longer proving that the append-only trigger refuses a TRUNCATE
         // the foreign keys have already been satisfied for.
-        [
-          'TRUNCATE network_events, network_schema_versions, network_transport_intents, ' +
-            'network_disclosure_projections, network_disclosure_projection_fields, ' +
-            'network_disclosure_grants, network_disclosure_grant_revocations, ' +
-            'network_schema_disclosure_sensitivity',
-          /append-only/i,
-        ],
+        //
+        // And it grew a third time with N6, at which point maintaining it by hand stopped being
+        // defensible: 0034 added seven relations, six of which land in this closure. The statement
+        // is now DERIVED from `pg_constraint` and checked against the expected set below, so the
+        // next layer extends it by existing rather than by somebody remembering. A hand-written
+        // list does not fail when it goes stale — it silently degrades into the FK case above,
+        // still green, no longer testing the trigger.
+        [truncateClosureStatement, /append-only/i],
         // And CASCADE, the obvious way to dissolve the FK objection in one word. The trigger is
         // what refuses it, which is the whole reason the trigger exists rather than relying on the
         // foreign key that happens to be there today.
