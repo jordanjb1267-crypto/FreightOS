@@ -115,26 +115,86 @@ DROP TYPE IF EXISTS app.network_delivery_destination_kind;
 -- that would turn a bounded revert into an error whose cause is a list of object names.
 -- ---------------------------------------------------------------------------
 
+-- THE ROLE IS CLUSTER-GLOBAL, AND THIS FOLLOWS 0029's DOCTRINE EXACTLY.
+--
+-- `DROP ROLE` consults `pg_shdepend` across EVERY database, and PostgreSQL offers no way to revoke
+-- a privilege in a database you are not connected to. An unconditional drop here is therefore not a
+-- clean revert — it is a revert that fails on any cluster holding a staging copy, a clone or a
+-- parallel test database. 0029 measured that failure mode and recorded it: nine unrelated gates
+-- went down at once. This migration reproduced it exactly before the doctrine was applied.
+--
+-- So: revoke everything IN THIS DATABASE, then ask whether anything anywhere else still references
+-- the role. If it does, RETAIN the role and say so — this database is fully reverted either way,
+-- and a database must not be held hostage by its neighbours. The role is dropped by whichever
+-- database releases it last. `DROP OWNED` and `CASCADE` appear nowhere: either would reach into
+-- another database and strip privileges its running system depends on.
+--
+-- The migrator's implicit ADMIN edge is never revoked by hand — it is what authorises the drop, and
+-- 0020 records that a plain REVOKE of it leaves a later re-apply unable to grant the role at all.
 DO $$
+DECLARE v_elsewhere integer; v_holders text; v_owned integer;
+  v_self oid := (SELECT oid FROM pg_database WHERE datname = current_database());
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'freightos_delivery_worker') THEN
-    REVOKE ALL PRIVILEGES ON network_transport_intents            FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_events                       FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_participants                 FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_schema_versions              FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_disclosure_purposes          FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_disclosure_authority_bases   FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_disclosure_projections       FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_disclosure_projection_fields FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_disclosure_grants            FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_disclosure_grant_revocations FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_disclosure_sensitivities     FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_schema_disclosure_sensitivity FROM freightos_delivery_worker;
-    REVOKE ALL PRIVILEGES ON network_disclosure_purpose_ceilings  FROM freightos_delivery_worker;
-    REVOKE USAGE ON SCHEMA public FROM freightos_delivery_worker;
-    REVOKE USAGE ON SCHEMA app    FROM freightos_delivery_worker;
-    DROP ROLE freightos_delivery_worker;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'freightos_delivery_worker') THEN
+    RETURN;
   END IF;
+
+  -- STEP A. Release everything this database granted.
+  REVOKE ALL PRIVILEGES ON network_transport_intents            FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_events                       FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_participants                 FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_schema_versions              FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_disclosure_purposes          FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_disclosure_authority_bases   FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_disclosure_projections       FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_disclosure_projection_fields FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_disclosure_grants            FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_disclosure_grant_revocations FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_disclosure_sensitivities     FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_schema_disclosure_sensitivity FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON network_disclosure_purpose_ceilings  FROM freightos_delivery_worker;
+  REVOKE ALL PRIVILEGES ON SCHEMA public, app                   FROM freightos_delivery_worker;
+  EXECUTE format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM freightos_delivery_worker',
+                 current_database());
+
+  -- STEP B. Owned relations are a deliberate stop: reassigning them silently would move objects
+  -- this migration never created.
+  SELECT count(*) INTO v_owned
+    FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+   WHERE r.rolname = 'freightos_delivery_worker';
+  IF v_owned <> 0 THEN
+    RAISE EXCEPTION
+      '0034 down: freightos_delivery_worker owns % relation(s). Reassign or drop them deliberately.',
+      v_owned;
+  END IF;
+
+  -- STEP C. Ask PostgreSQL the same question DROP ROLE will ask, excluding this database — whose
+  -- rows step A has already removed. Database-level grants carry `dbid = 0` with the database in
+  -- `objid`, so that arm is matched separately or a lingering CONNECT here counts as somebody else's.
+  SELECT count(*),
+         coalesce(string_agg(DISTINCT coalesce(
+           d.datname,
+           (SELECT dd.datname FROM pg_database dd
+             WHERE dd.oid = s.objid AND s.classid = 'pg_database'::regclass),
+           '(cluster-wide)'), ', '), '')
+    INTO v_elsewhere, v_holders
+    FROM pg_shdepend s
+    LEFT JOIN pg_database d ON d.oid = s.dbid
+    JOIN pg_roles r ON r.oid = s.refobjid
+   WHERE r.rolname = 'freightos_delivery_worker'
+     AND NOT (s.dbid = v_self
+              OR (s.classid = 'pg_database'::regclass AND s.objid = v_self));
+
+  -- STEP D. Retained, and said out loud. This is not a partial revert: this database is done.
+  IF v_elsewhere <> 0 THEN
+    RAISE NOTICE
+      '0034 down: database % is fully reverted. freightos_delivery_worker is RETAINED because % '
+      'reference(s) remain in: %. The role is dropped by whichever database releases it last.',
+      current_database(), v_elsewhere, v_holders;
+    RETURN;
+  END IF;
+
+  EXECUTE 'DROP ROLE freightos_delivery_worker';
 END
 $$;
 
@@ -236,9 +296,16 @@ BEGIN
     RAISE EXCEPTION 'N6 revert incomplete: app.network_delivery_transition() remains';
   END IF;
 
-  SELECT count(*) INTO v_role FROM pg_roles WHERE rolname = 'freightos_delivery_worker';
+  -- The role may legitimately REMAIN when another database still references it — see §5 step D.
+  -- What must always be true is that THIS database holds nothing for it any more.
+  SELECT count(*) INTO v_role
+    FROM pg_shdepend s JOIN pg_roles r ON r.oid = s.refobjid
+   WHERE r.rolname = 'freightos_delivery_worker'
+     AND s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database());
   IF v_role <> 0 THEN
-    RAISE EXCEPTION 'N6 revert incomplete: freightos_delivery_worker remains';
+    RAISE EXCEPTION
+      'N6 revert incomplete: % reference(s) to freightos_delivery_worker remain in this database',
+      v_role;
   END IF;
 
   SELECT count(*) INTO v_keys FROM permissions WHERE key LIKE 'network.disclosure_subscription.%';
@@ -263,11 +330,17 @@ BEGIN
   END IF;
 
   -- Exactly one role went, and it was ours.
+  -- Zero when the role was retained for a neighbouring database, one when this database was the
+  -- last holder. Never more than one, and never a role this migration did not create.
   v_before := current_setting('freightos.n6_before_roles')::int;
   SELECT count(*) INTO v_now FROM pg_roles WHERE rolname LIKE 'freightos%';
-  IF v_now <> v_before - 1 THEN
-    RAISE EXCEPTION 'N6 revert changed the freightos role count by %, expected exactly 1',
+  IF v_before - v_now NOT IN (0, 1) THEN
+    RAISE EXCEPTION 'N6 revert changed the freightos role count by %, expected 0 or 1',
       v_before - v_now;
+  END IF;
+  IF v_before - v_now = 1
+     AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'freightos_delivery_worker') THEN
+    RAISE EXCEPTION 'N6 revert dropped a role that was not freightos_delivery_worker';
   END IF;
 
   -- Nothing else moved.
