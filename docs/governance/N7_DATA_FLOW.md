@@ -1,7 +1,9 @@
 # N7 External Transport — Data Flow and Proposed Model
 
-Architecture phase. **Nothing here is implemented.** No migration, no table, no adapter. Column and
-constraint names are proposals for owner review, not a frozen schema.
+> **Status: the table model shipped in migration 0035** — five relations, not the four proposed
+> here, because `OR-05` Option C was ruled and the brokered permit became a table. Column and
+> constraint names below were proposals; where the migration differs, the migration is current.
+> No adapter exists and no byte leaves the process.
 
 Companion to ADR-N0018 and `N7_THREAT_MODEL.md`.
 
@@ -37,8 +39,10 @@ without an inbox row was authorized but not internally delivered, and N7 has no 
 
 ## 2. Proposed tables
 
-Four. Each is challenged below rather than assumed — state proliferation is its own risk, and three
-of the four earn their place by holding a fact nothing else can hold.
+Four were proposed. **Five shipped** — `OR-05` Option C added `network_external_transport_permits`,
+documented in `N7_OWNER_RULINGS.md` and in migration 0035 §7. Each is challenged below rather than
+assumed: state proliferation is its own risk, and each earns its place by holding a fact nothing
+else can hold.
 
 ### 2.1 `network_transport_destinations`
 
@@ -126,14 +130,14 @@ is metadata, and a payload copy here would be a second governed-by-nothing copy 
 
 ### 2.5 Tables deliberately NOT proposed
 
-| Rejected                                                   | Why                                                                                                                    |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `network_transport_endpoints` (separate from destinations) | Splits one immutable identity across two rows and invites them to disagree. The R-07 shape.                            |
-| `network_transport_queue`                                  | The obligation table with a `next_attempt_at` index **is** the queue. A second one would need to agree with the first. |
-| `network_transport_replay`                                 | Replay is deferred. No table for an unauthorized capability.                                                           |
-| `network_transport_secrets`                                | Secrets are referenced, never stored.                                                                                  |
-| A `destinations.enabled` column                            | Revocation is a row.                                                                                                   |
-| An `egress_permit` table                                   | Only if `OR-05` Option C is chosen — proposed there, not here.                                                         |
+| Rejected                                                   | Why                                                                                                                                                                                            |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `network_transport_endpoints` (separate from destinations) | Splits one immutable identity across two rows and invites them to disagree. The R-07 shape.                                                                                                    |
+| `network_transport_queue`                                  | The obligation table with a `next_attempt_at` index **is** the queue. A second one would need to agree with the first.                                                                         |
+| `network_transport_replay`                                 | Replay is deferred. No table for an unauthorized capability.                                                                                                                                   |
+| `network_transport_secrets`                                | Secrets are referenced, never stored.                                                                                                                                                          |
+| A `destinations.enabled` column                            | Revocation is a row.                                                                                                                                                                           |
+| An `egress_permit` table                                   | Only if `OR-05` Option C is chosen — proposed there, not here. **Option C was ruled, so this table SHIPPED** as `network_external_transport_permits`; the N7 surface is five tables, not four. |
 
 ## 3. Duplicated-identity review
 

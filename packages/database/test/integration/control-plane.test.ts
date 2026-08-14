@@ -139,6 +139,18 @@ describe('the shape ADR-0020 requires', () => {
       // who the administrative definers believe they are talking to, so owning it with the same
       // role that owns those definers would put the answer inside the authority it constrains.
       'freightos_operator_registry_owner',
+      // N7-A / 0035 §2. The external transport runtime, and a SECOND worker on purpose.
+      //
+      //     authorization role  !=  egress role
+      //
+      // `freightos_delivery_worker` can read every authorized artifact and the whole governed
+      // authorization state; this one will one day open sockets. Holding both in one identity would
+      // let a single process compromise cross both trust boundaries, so they are separated by
+      // privilege rather than convention — and 0035 asserts at deploy time that no membership edge
+      // exists between them in either direction. N7-A implements NO network primitive: this role
+      // reads a narrow artifact path, writes only its own attempt journal, and cannot mint the
+      // permit that would authorize a send.
+      'freightos_transport_worker',
     ]);
     for (const role of r.rows) {
       expect(role.rolbypassrls, `${role.rolname} BYPASSRLS`).toBe(false);
@@ -1207,6 +1219,18 @@ describe('the role graph, described accurately — R2-05', () => {
       'freightos_migrator',
       // SEC-01 / 0026 §1.
       'freightos_operator_registry_owner',
+      // N7-A / 0035 §2. The external transport runtime, and a SECOND worker on purpose.
+      //
+      //     authorization role  !=  egress role
+      //
+      // `freightos_delivery_worker` can read every authorized artifact and the whole governed
+      // authorization state; this one will one day open sockets. Holding both in one identity would
+      // let a single process compromise cross both trust boundaries, so they are separated by
+      // privilege rather than convention — and 0035 asserts at deploy time that no membership edge
+      // exists between them in either direction. N7-A implements NO network primitive: this role
+      // reads a narrow artifact path, writes only its own attempt journal, and cannot mint the
+      // permit that would authorize a send.
+      'freightos_transport_worker',
     ]);
 
     // No FreightOS role holds either attribute that would make every RLS proof in the suite vacuous.
@@ -1293,6 +1317,12 @@ describe('the role graph, described accurately — R2-05', () => {
       // can provision operators, SET so it can create and own schema authn, INHERIT FALSE so no
       // ordinary migrator statement picks up the ability to read or write the binding table.
       'freightos_migrator -> freightos_operator_registry_owner admin=true inherit=false set=true',
+      // N7-A / 0035 §2. Identical terms to N6's delivery worker, and for the identical reason: the
+      // transport worker owns nothing, so SET FALSE, and INHERIT FALSE keeps an ordinary migrator
+      // statement from silently acquiring external-transport capability. ADMIN is present only
+      // because PostgreSQL grants a role's creator admin over it, which is what lets 0035's revert
+      // drop it under the cluster-global doctrine.
+      'freightos_migrator -> freightos_transport_worker admin=true inherit=false set=false',
     ]);
 
     // And what the list does NOT contain, said out loud: the audit writer is not a control-plane

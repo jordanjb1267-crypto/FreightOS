@@ -49,7 +49,7 @@ const BEFORE_HOTFIX = HOTFIX - 1;
 // The repository's CURRENT migration tip, not a claim that 0033 is final. This file drives every
 // migration and asserts 0031's ACL is unchanged at the tip, so the number moves whenever a
 // migration lands; what it pins is "we reached the top", stated exactly rather than as >=.
-const TIP = 34;
+const TIP = 35;
 
 const FN = 'app.record_audit_event(text,text,text,uuid,uuid,text,jsonb)';
 

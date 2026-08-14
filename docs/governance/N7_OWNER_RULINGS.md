@@ -1,10 +1,14 @@
 # N7 External Transport — Owner Rulings Required
 
-Architecture phase. Twelve decisions the architecture deliberately does **not** make. Each has a
-recommendation and a stated consequence, so a ruling is a choice between named options rather than an
-open question.
+Twelve decisions the architecture deliberately did **not** make. Each has a recommendation and a
+stated consequence, so a ruling was a choice between named options rather than an open question.
 
-Nothing below is implemented. Companion to ADR-N0018.
+> **Status: all twelve were ruled, and the summary table below records the rulings.** N7-A
+> implements the non-egress consequences of every one of them. `OR-05` (Option C, brokered permit)
+> and `OR-02` (dedicated egress role) are the two that shaped the schema; `OR-06`'s endpoint-storage
+> half remains open and `endpoint_ref` holds a reference until it is ruled.
+
+Companion to ADR-N0018.
 
 ---
 

@@ -428,14 +428,12 @@ describe('missing context fails closed', () => {
     await app.query('BEGIN');
     const r = await app.query('SELECT 1 FROM permissions');
     await app.query('ROLLBACK');
-    // 22 through 0031, plus N5-A's three disclosure keys (0032). The catalog is global vocabulary,
-    // so the count moves whenever a migration seeds one — the property under test is that a session
-    // with no tenant context still sees ALL of it, not that it has a particular size.
-    // 22 through 0031, plus N5-A's three disclosure keys (0032), plus N6's three subscription
-    // keys (0034). The property under test is that a session with NO tenant context still sees the
-    // whole global vocabulary — not that it has a particular size — so the count moves with every
-    // seeding migration and the assertion stays exact rather than becoming >=.
-    expect(r.rowCount).toBe(28);
+    // 22 through 0031, plus N5-A's three disclosure keys (0032), plus N6's three subscription keys
+    // (0034), plus N7-A's three transport-destination keys (0035). The property under test is that
+    // a session with NO tenant context still sees the whole global vocabulary — not that it has a
+    // particular size — so the count moves with every seeding migration, and the assertion stays
+    // exact rather than becoming `>=` so that an unexpected seed is loud.
+    expect(r.rowCount).toBe(31);
   });
 
   it('shows no users when the caller administers no organization node', async () => {

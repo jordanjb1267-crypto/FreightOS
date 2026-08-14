@@ -3,9 +3,11 @@
 - **ADR ID:** N0018
 - **Title:** Carrying an authorized artifact out of the database, without acquiring the right to decide
   what it contains
-- **Status:** Proposed — ARCHITECTURE ONLY, awaiting owner rulings. No executable egress.
+- **Status:** Accepted. All twelve owner rulings made; the non-egress half implemented as N7-A.
+  **Still no executable egress** — see the implementation-status section.
 - **Date:** 2026-08-14
-- **Migration:** none. This ADR proposes no migration and adds no table.
+- **Migration:** `0035_network_external_transport_foundation`. The ADR as first written proposed no
+  migration; the rulings it asked for produced one.
 - **Base:** `b6fb791a17ac554a92373a465a0cf23f6abd879a` (N6 merged)
 - **Related:** ADR-N0013 (N3 journal), ADR-N0014 (N4 transport intent), ADR-N0015 (N5-A authorization
   core), ADR-N0016 (N5-B sensitivity ceiling), ADR-N0017 (N6 authorized disclosure delivery),
@@ -326,6 +328,54 @@ There is a third shape worth ruling on, because it gets both properties:
 
 Recommendation and full comparison in `N7_OWNER_RULINGS.md` (`OR-05`). **Not chosen here.**
 
+## Implementation status — what N7-A actually shipped
+
+This ADR was written before implementation, and the sections above are preserved as the argument
+that was put to the owner, conditionals and all. This section records what was ruled and built. Where
+the two disagree, this section is current and the text above is the reasoning that produced it.
+
+**Ruled: `OR-05` Option C, the brokered permit.** The consequences ran through the whole design:
+
+- **Five N7 tables, not four.** The permit relation
+  (`network_external_transport_permits`) is the fourth-plus-one: destinations, destination
+  revocations, obligations, permits, attempts. Every document in this set that says "four" predates
+  the ruling.
+- **Two runtime roles, and the separation is the primary security invariant.**
+  `freightos_delivery_worker` re-runs reauthorization and MINTS permits; it holds no egress.
+  `freightos_transport_worker` will one day execute transport; it holds no N5 read of any kind and
+  **cannot insert a permit at all** — there is no INSERT grant for it to widen, not merely a policy
+  that refuses. Neither role is a member of the other, in either direction, and migration 0035
+  asserts that at deploy time.
+
+      authorization role  !=  egress role
+
+- **Migration 0035**, `0035_network_external_transport_foundation`. Additive over a populated 0034,
+  with exactly one change to an N6 relation: `network_disclosure_artifacts_id_digest_key`, a
+  `UNIQUE (artifact_id, payload_digest)` the permit's digest foreign key binds against. The revert
+  removes it again.
+- **Zero egress capability, unchanged.** `NETWORK_EGRESS=PASS` and
+  `NETWORK_EGRESS_ALLOWLIST=PASS` (zero approved modules) both hold after 0035. No HTTP client, no
+  socket, no DNS, no credential resolution, no adapter, no replay. The CI gate that will govern
+  egress was built **before** the first primitive exists, so its first exercise is not the change
+  that needs it.
+- **`SECURITY DEFINER` delta = 0.** N7-A adds exactly one function,
+  `app.network_external_transport_transition()`, and it is INVOKER rights. A transport foundation
+  that had needed a definer would have been smuggling privilege through the one door SR-2's gates
+  watch.
+
+**Still open, and deliberately not decided in N7-A:**
+
+- **The external envelope's field set and its N2 registration.** The section above marks the fields
+  "not frozen, pending owner ruling", and that is still true. Registering a wire contract as a
+  governed durable schema freezes bytes before any adapter has had to produce them; the version
+  and the field list are better ruled alongside the adapter that emits them. N7-A therefore ships
+  the _routing_ half — a destination declares the payload `durable_schema_ref` it accepts, by exact
+  reference — and leaves envelope registration to N7-B. Envelope version and payload schema version
+  remain separate dimensions; nothing in 0035 collapses them.
+- **`OR-06`'s open half** — whether endpoints are ultimately stored inline or resolved from a
+  reference. Until it is ruled, `endpoint_ref` holds a reference and a CHECK constraint refuses
+  anything with a URL scheme.
+
 ## Consequences
 
 - N7 is the first phase whose failures are not recoverable by migration. The architecture therefore
@@ -336,7 +386,9 @@ Recommendation and full comparison in `N7_OWNER_RULINGS.md` (`OR-05`). **Not cho
   surface — which is a weaker property honestly stated, not the same property.
 - N6 gains no new authority and loses none. This ADR proposes no change to migration 0034, to any N6
   table, policy, role or test.
-- Twelve owner rulings are required before implementation. They are tabulated, not buried.
+- Twelve owner rulings are required before implementation. They are tabulated, not buried. All
+  twelve were subsequently ruled; see the implementation-status section above for the two whose
+  consequences changed this document's own table count.
 
 ## Out of scope for this phase
 

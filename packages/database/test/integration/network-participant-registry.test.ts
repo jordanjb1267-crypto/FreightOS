@@ -901,9 +901,9 @@ describe('the read model a nullable tenant forces N1 to state — ADR-N0011', ()
     // which is the whole point of recording both.
     expect(state).toEqual(ALL_NETWORK_RELATIONS.map((t) => `${t} delete=false truncate=false`));
     // Anti-vacuity: the generated expectation above would also be satisfied by an empty scan
-    // matching an empty inventory. Twenty-four relations across seven layers, none of them zero.
-    expect(state).toHaveLength(24);
-    expect(new Set(ALL_NETWORK_RELATIONS.map((t) => NETWORK_RELATION_LAYER.get(t))).size).toBe(7);
+    // matching an empty inventory. Twenty-nine relations across eight layers, none of them zero.
+    expect(state).toHaveLength(29);
+    expect(new Set(ALL_NETWORK_RELATIONS.map((t) => NETWORK_RELATION_LAYER.get(t))).size).toBe(8);
   });
 });
 
@@ -1624,6 +1624,7 @@ describe('the structural authority-graph gate', () => {
       'network_delivery_attempts freightos_delivery_worker INSERT,SELECT',
       'network_disclosure_artifacts freightos_app SELECT',
       'network_disclosure_artifacts freightos_delivery_worker INSERT,SELECT',
+      'network_disclosure_artifacts freightos_transport_worker SELECT',
       'network_disclosure_authority_bases freightos_app SELECT',
       'network_disclosure_authority_bases freightos_delivery_worker SELECT',
       'network_disclosure_deliveries freightos_delivery_worker INSERT,SELECT,UPDATE',
@@ -1633,6 +1634,7 @@ describe('the structural authority-graph gate', () => {
       'network_disclosure_grants freightos_delivery_worker SELECT',
       'network_disclosure_inbox freightos_app SELECT',
       'network_disclosure_inbox freightos_delivery_worker INSERT,SELECT',
+      'network_disclosure_inbox freightos_transport_worker SELECT',
       'network_disclosure_projection_fields freightos_app SELECT',
       'network_disclosure_projection_fields freightos_delivery_worker SELECT',
       'network_disclosure_projections freightos_app SELECT',
@@ -1652,6 +1654,11 @@ describe('the structural authority-graph gate', () => {
       'network_events freightos_control_plane SELECT',
       'network_events freightos_delivery_worker SELECT',
       'network_events freightos_event_writer INSERT',
+      'network_external_transport_attempts freightos_transport_worker INSERT,SELECT',
+      'network_external_transport_permits freightos_delivery_worker INSERT,SELECT',
+      'network_external_transport_permits freightos_transport_worker SELECT',
+      'network_external_transports freightos_delivery_worker INSERT,SELECT',
+      'network_external_transports freightos_transport_worker SELECT,UPDATE',
       'network_participant_aliases freightos_app INSERT,SELECT,UPDATE',
       'network_participant_aliases freightos_control_plane INSERT,SELECT,UPDATE',
       'network_participant_relationships freightos_app INSERT,SELECT,UPDATE',
@@ -1659,6 +1666,7 @@ describe('the structural authority-graph gate', () => {
       'network_participants freightos_app INSERT,SELECT,UPDATE',
       'network_participants freightos_control_plane INSERT,SELECT,UPDATE',
       'network_participants freightos_delivery_worker SELECT',
+      'network_participants freightos_transport_worker SELECT',
       'network_relationship_types freightos_app SELECT',
       'network_relationship_types freightos_control_plane INSERT,SELECT',
       'network_schema_disclosure_sensitivity freightos_app SELECT',
@@ -1666,18 +1674,71 @@ describe('the structural authority-graph gate', () => {
       'network_schema_versions freightos_app SELECT',
       'network_schema_versions freightos_control_plane SELECT',
       'network_schema_versions freightos_delivery_worker SELECT',
+      'network_transport_destination_revocations freightos_app INSERT,SELECT',
+      'network_transport_destination_revocations freightos_delivery_worker SELECT',
+      'network_transport_destination_revocations freightos_transport_worker SELECT',
+      'network_transport_destinations freightos_app INSERT,SELECT',
+      'network_transport_destinations freightos_delivery_worker SELECT',
+      'network_transport_destinations freightos_transport_worker SELECT',
       'network_transport_intents freightos_delivery_worker SELECT',
       'network_transport_intents freightos_event_writer INSERT',
     ]);
 
     // Restated as the invariant itself, so it survives any future reshuffle of the list above:
-    // outside N6's own seven tables, the delivery worker holds READ and nothing else.
-    const workerWritesOutsideN6 = r.rows
+    // outside the tables it is the author of record for, the delivery worker holds READ and
+    // nothing else.
+    //
+    // N7-A extends that authorship by exactly two relations, and the extension is enumerated here
+    // rather than expressed as "N6 or N7" on purpose. Under OR-05 Option C the delivery worker is
+    // the broker: it creates the transport obligation and it mints the attempt-scoped permit,
+    // because those are the two acts that require the N5 authority it holds and the transport
+    // worker does not. `network_external_transport_attempts` is NOT in that set and must never
+    // join it — an authorization-side identity that could write an attempt row could record an
+    // outcome no attempt produced, which is the one thing the attempt ledger exists to prevent.
+    // A wildcard over N7 would have admitted that silently; a list cannot.
+    const N7_DELIVERY_WORKER_AUTHORED = [
+      'network_external_transport_permits',
+      'network_external_transports',
+    ] as const;
+    const deliveryWorkerAuthored = [...N6_DELIVERY_RELATIONS, ...N7_DELIVERY_WORKER_AUTHORED];
+    const workerWritesOutsideAuthorship = r.rows
       .map((x) => x.line)
       .filter((line) => line.includes(' freightos_delivery_worker '))
-      .filter((line) => !N6_DELIVERY_RELATIONS.some((t) => line.startsWith(`${t} `)))
+      .filter((line) => !deliveryWorkerAuthored.some((t) => line.startsWith(`${t} `)))
       .filter((line) => /INSERT|UPDATE|DELETE|TRUNCATE/.test(line));
-    expect(workerWritesOutsideN6).toEqual([]);
+    expect(workerWritesOutsideAuthorship).toEqual([]);
+
+    // On the two N7 relations it authors, the delivery worker CREATES and never revises. A permit
+    // it could UPDATE would not be attempt-scoped — freshness, attempt number and expiry would all
+    // be re-writable after issue — and a transport row it could UPDATE would let the authorization
+    // side move transport state it does not observe.
+    expect(
+      r.rows
+        .map((x) => x.line)
+        .filter((line) => N7_DELIVERY_WORKER_AUTHORED.some((t) => line.startsWith(`${t} `)))
+        .filter((line) => line.includes(' freightos_delivery_worker ')),
+    ).toEqual([
+      'network_external_transport_permits freightos_delivery_worker INSERT,SELECT',
+      'network_external_transports freightos_delivery_worker INSERT,SELECT',
+    ]);
+
+    // The complement, and the load-bearing half of OR-05: the egress-capable identity cannot write
+    // its own permission. No INSERT, no UPDATE, no DELETE on the permit table — it reads permits
+    // and nothing more. Its only writes are the attempt it makes and the transport state that
+    // attempt produces.
+    const transportWorkerWrites = r.rows
+      .map((x) => x.line)
+      .filter((line) => line.includes(' freightos_transport_worker '))
+      .filter((line) => /INSERT|UPDATE|DELETE|TRUNCATE/.test(line));
+    expect(transportWorkerWrites).toEqual([
+      'network_external_transport_attempts freightos_transport_worker INSERT,SELECT',
+      'network_external_transports freightos_transport_worker SELECT,UPDATE',
+    ]);
+    expect(
+      transportWorkerWrites.filter((line) =>
+        line.startsWith('network_external_transport_permits '),
+      ),
+    ).toEqual([]);
   });
 
   it('has RLS enabled AND forced on every registry table', async () => {
@@ -1699,7 +1760,7 @@ describe('the structural authority-graph gate', () => {
     expect(r.rows.map((x) => x.line)).toEqual(
       ALL_NETWORK_RELATIONS.map((t) => `${t} rls=true force=true`),
     );
-    expect(r.rows).toHaveLength(24);
+    expect(r.rows).toHaveLength(29);
   });
 
   it('defines the participant type enum as exactly the seven ADR-N0005 values', async () => {

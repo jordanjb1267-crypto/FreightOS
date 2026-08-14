@@ -1,6 +1,9 @@
 # N7 External Transport — Role, ACL and Secret Model
 
-Architecture phase. **No role is created. No grant is issued. No secret exists.**
+> **Status: implemented in migration 0035.** `freightos_transport_worker` exists, its grants are
+> issued, and **no secret exists** — that last part is unchanged and is `OR-07`: the destination
+> registry holds credential REFERENCES, refused by CHECK constraint if they look like credential
+> material, and resolution is deferred to the N7-B adapter boundary.
 
 Companion to ADR-N0018.
 
@@ -68,17 +71,26 @@ freightos_transport_worker
 
 ## 3. Proposed grants
 
-| Relation                                                | `freightos_transport_worker`  | Note                             |
-| ------------------------------------------------------- | ----------------------------- | -------------------------------- |
-| `network_transport_destinations`                        | SELECT                        | derive endpoint and adapter      |
-| `network_transport_destination_revocations`             | SELECT                        | eligibility                      |
-| `network_external_transports`                           | SELECT, INSERT, UPDATE        | its own operational state        |
-| `network_external_transport_attempts`                   | SELECT, INSERT                | append-only journal              |
-| `network_disclosure_artifacts`                          | SELECT — **narrowed**, see §5 | the bytes                        |
-| `network_disclosure_inbox`                              | SELECT                        | obligation origin                |
-| N3 journal, N4 intents, N1 registry                     | **none**                      | not needed under Option A        |
-| N5-A grants / revocations, N5-B ceilings, subscriptions | **none under Option A**       | required under Option B — see §4 |
-| everything else                                         | none                          |                                  |
+| Relation                                                | `freightos_transport_worker`  | Note                                  |
+| ------------------------------------------------------- | ----------------------------- | ------------------------------------- |
+| `network_transport_destinations`                        | SELECT                        | derive endpoint and adapter           |
+| `network_transport_destination_revocations`             | SELECT                        | eligibility                           |
+| `network_external_transports`                           | SELECT, UPDATE                | its own operational state             |
+| `network_external_transport_permits`                    | SELECT — **no INSERT, ever**  | the brokered permission it spends     |
+| `network_external_transport_attempts`                   | SELECT, INSERT                | append-only journal                   |
+| `network_disclosure_artifacts`                          | SELECT — **narrowed**, see §5 | the bytes                             |
+| `network_disclosure_inbox`                              | SELECT                        | obligation origin                     |
+| `network_participants`                                  | SELECT — organizations only   | recipient identity                    |
+| N3 journal, N4 intents                                  | **none**                      | nothing it needs is reachable there   |
+| N5-A grants / revocations, N5-B ceilings, subscriptions | **none**                      | it cannot evaluate what it cannot see |
+| everything else                                         | none                          |                                       |
+
+**As shipped in migration 0035**, with two corrections to the table above as first drafted. The
+transport worker holds **no INSERT** on `network_external_transports`: the obligation is created by
+the authorization side, and a role that could create its own obligation could decide what it was
+owed. And it holds **no write of any kind** on the permit table — that absence is the entire content
+of `OR-05` Option C, and it is a missing GRANT rather than a refusing policy, so there is nothing a
+later policy edit could accidentally widen.
 
 Explicit REVOKEs of INSERT/UPDATE/DELETE/TRUNCATE on every N3/N4/N5/N6 relation, stated rather than
 implied — 0034's posture, carried forward. `GRANT USAGE ON SCHEMA public, app` is required or every
@@ -102,6 +114,19 @@ The recommendation in §2 is **not independent** of the fresh-N5-at-egress rulin
 Choosing Option B and _also_ claiming strong separation of duties would be self-deception. If the
 owner rules B, the honest description is "a dedicated role for auditability and kill-switch
 independence, with an unchanged read blast radius" — still worth having, but not what §2 argues for.
+
+**Ruled: Option C.** The table above is the shipped model. What that buys, stated as the property
+rather than as the mechanism: a full compromise of the egress-capable process yields the artifacts
+it was already told to send and nothing else. It cannot enumerate authorized disclosures — the
+artifact read resolves through an existing obligation, so an artifact nobody owes is invisible. It
+cannot evaluate authorization, because it holds no read on any input to that decision. And it
+cannot manufacture permission for itself, because minting a permit requires an INSERT it does not
+have.
+
+The cost is real and was accepted: two workers in the request path, a permit lifetime to reason
+about, and a fifth table. The permit's lifetime turned out to be the cheapest part — it is bound to
+the same absolute deadline the future attempt will enforce (`not_after`), so there is no separate
+TTL to keep in step with anything.
 
 ## 5. Least-privilege artifact access
 

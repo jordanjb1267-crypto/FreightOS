@@ -1,8 +1,14 @@
 # N7 External Transport — Threat Model
 
-Architecture phase. **No executable egress exists.** This document is frozen _before_ any adapter is
-written, because a filter designed alongside its own threat model tends to enumerate the attacks its
-author already thought of.
+Frozen _before_ any adapter is written, because a filter designed alongside its own threat model
+tends to enumerate the attacks its author already thought of.
+
+> **Status after N7-A: still no executable egress.** N7-A built the control plane and the security
+> boundary and added no network primitive — `NETWORK_EGRESS=PASS` holds, with zero approved modules.
+> The attacker capabilities and controls below therefore describe the surface N7-B will introduce,
+> not one that exists today. The two rows already realised are §5's role separation (the transport
+> worker holds no N5 read and cannot mint its own permit) and the egress CI gate, which shipped
+> before the thing it governs.
 
 Companion to ADR-N0018. Scope: the boundary between a committed N6 inbox row and a byte leaving the
 process.

@@ -1,10 +1,16 @@
 # N7 External Transport — Egress CI Model
 
-Architecture phase. **The existing validator is unchanged by this document.** Nothing here is
-implemented; `NETWORK_EGRESS=PASS` still means what it has always meant.
+Companion to ADR-N0018. Closes the standing finding `NETWORK_EGRESS_CI_OBSERVABILITY=OPEN`.
 
-Companion to ADR-N0018. Closes, by design, the standing finding
-`NETWORK_EGRESS_CI_OBSERVABILITY=OPEN`.
+> **Status: IMPLEMENTED in N7-A**, with zero approved modules. The sections below were written in
+> the architecture phase and are preserved as the design argument; §8 records what shipped and where
+> it lives. `NETWORK_EGRESS=PASS` still means exactly what it has always meant — N7-A adds no egress
+> primitive — and `NETWORK_EGRESS_ALLOWLIST=PASS` now additionally means that the list of modules
+> permitted to have one is empty and asserted to be empty.
+>
+> The ordering was deliberate. The gate governing egress was built **before** the first primitive
+> exists, so its first exercise is not the very change that needs it — which is how a control
+> becomes a formality.
 
 ---
 
@@ -139,3 +145,46 @@ reviewable. It is not a sandbox.**
 The SSRF controls in `N7_THREAT_MODEL.md` §5 are what constrain where an _approved_ socket may
 connect. This gate constrains only where a socket may exist at all. Both are needed and neither
 substitutes for the other.
+
+## 8. As implemented — N7-A
+
+| Design element                      | Where it lives                                                          |
+| ----------------------------------- | ----------------------------------------------------------------------- |
+| The primitive inventory             | `scripts/lib/network-primitives.mjs`                                    |
+| Zero-capability gate (§1)           | `scripts/check-network-egress.mjs` → `pnpm validate:egress`             |
+| Bounded-allowlist gate (§3)         | `scripts/check-egress-allowlist.mjs` → `pnpm validate:egress-allowlist` |
+| The governed manifest (§3.1)        | `config/network/egress-allowlist.json`                                  |
+| Gate tests, incl. negative controls | `scripts/test/egress-allowlist-gate.test.ts`                            |
+
+**The inventory is shared, not duplicated.** Both gates import the same module rather than each
+carrying its own list of what counts as an egress primitive. Two copies of that list would agree
+until the day a primitive was added to one of them, and the gate that missed it would keep reporting
+PASS — so a test asserts that neither script defines the inventory locally.
+
+**The named CI steps (§4), which is what closes the finding:**
+
+```yaml
+- name: External egress — zero capability
+  run: pnpm validate:egress
+
+- name: External egress — bounded allowlist
+  run: pnpm validate:egress-allowlist
+```
+
+Both appear by name in the checks list on every pull request, so a change to the egress posture is
+visible without opening a log.
+
+**Two properties came out stronger than §3 specified:**
+
+- **`expectedCount` must be updated in the same change as any entry.** §3.1 asked that adding an
+  entry fail until an assertion is updated; the manifest carries its own declared count, so a
+  widening is two lines in one diff rather than one line plus an edit somewhere else. It cannot be
+  done by accident.
+- **SQL and dependency manifests are never allowlistable at all.** §3.3 states them as prohibited;
+  the gate enforces that structurally — an entry naming a migration or a `package.json` is rejected
+  as malformed rather than honoured. There is no path by which a migration gains egress, not even a
+  reviewed one.
+
+**Bounded size (§3.1)** is `expectedCount = 0` today. The `≤ 1` bound §3.1 anticipated becomes
+meaningful when N7-B adds its first adapter; until then the stronger statement holds, and the gate
+asserts the stronger one.

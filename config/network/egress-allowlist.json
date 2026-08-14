@@ -1,0 +1,29 @@
+{
+  "$comment": [
+    "GOVERNED EGRESS MANIFEST — the complete list of modules permitted to contain an external",
+    "network primitive. Reviewed like code, asserted by scripts/check-egress-allowlist.mjs.",
+    "",
+    "N7-A ships with ZERO approved modules. The manifest exists before the first primitive so that",
+    "the gate governing egress predates the thing it governs — otherwise its first exercise is the",
+    "very change that needs it, which is how a control becomes a formality.",
+    "",
+    "Adding an entry is an owner-reviewed act. `expectedCount` must be updated in the same change,",
+    "so a widening is two lines in the diff rather than one, and it cannot be done by accident.",
+    "",
+    "RULES the gate enforces (see N7_EGRESS_CI_MODEL.md):",
+    "  - entries are exact repo-relative file paths. No globs, no directory prefixes.",
+    "  - every entry must resolve to a file that exists.",
+    "  - no duplicate entries.",
+    "  - an entry that contains NO egress primitive is STALE and fails. A standing permission",
+    "    nobody is using will eventually be inherited by whatever moves into that path.",
+    "  - a primitive outside this list fails, named by file and line.",
+    "  - modules.length must equal expectedCount.",
+    "",
+    "This manifest does NOT grant permission to reach any particular address. Where an approved",
+    "module may connect is governed separately by the SSRF control set in N7_THREAT_MODEL.md §5.",
+    "Neither substitutes for the other."
+  ],
+  "version": 1,
+  "expectedCount": 0,
+  "modules": []
+}

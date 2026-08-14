@@ -1,10 +1,14 @@
 # N7 External Transport — Test Strategy and Mutation Plan
 
-Architecture phase. **No test is implemented.** This is the verification design, frozen before the
-code, so that detectors are written against threats rather than against whatever the implementation
-happened to do.
+This is the verification design, frozen before the code, so that detectors are written against
+threats rather than against whatever the implementation happened to do.
 
 Companion to ADR-N0018 and `N7_THREAT_MODEL.md`.
+
+> **Status:** the non-egress half is implemented and its mutations executed — see §7. The SSRF and
+> adapter mutations (`N7-S-*`) remain unimplementable until N7-B introduces something that can open
+> a socket, which is the point of §5's eighth hazard: with no network in CI, an SSRF test written
+> today would pass for the wrong reason.
 
 ---
 
@@ -173,3 +177,80 @@ Carried forward from N6, where each was met in practice:
 
 Step 4 precedes step 5 deliberately: the gate that governs egress should exist before the thing it
 governs, or its first exercise is a change that already needs it.
+
+---
+
+## 7. Executed — N7-A
+
+Thirteen mutations were applied one at a time to migration 0035 or to
+`packages/context/src/external-transport.ts`, the named test re-run, and the source restored and
+verified byte-identical by SHA-256. **All thirteen were detected.** A mutation that is not detected
+is a control that does not exist, so the result is reported as a count of detections rather than as
+a statement that the tests pass.
+
+Each row names the test that failed, because §1's whole argument is that "some test failed" is not
+evidence — T-01 through T-04 were all cases where a test failed or passed for a reason other than
+the one it claimed.
+
+### Structural binding
+
+| ID        | Mutation                                                | Detected by                                                      |
+| --------- | ------------------------------------------------------- | ---------------------------------------------------------------- |
+| `N7-A-B1` | destination binding decomposed to a single-column FK    | _makes "artifact for A, destination owned by B" UNREPRESENTABLE_ |
+| `N7-A-B2` | permit's `(artifact_id, artifact_digest)` FK removed    | _binds a permit to its transport as ONE referential fact_        |
+| `N7-A-B3` | obligation uniqueness made partial-on-non-terminal      | _refuses a SECOND obligation … terminal or not_                  |
+| `N7-A-B4` | `inbox_id` downgraded from a foreign key to a bare uuid | _refuses an obligation for an artifact with no inbox row_        |
+
+`B1` is the R-08 shape reintroduced deliberately: decomposing the composite key makes the artifact's
+recipient and the destination's recipient independent again, which is exactly the defect N6's
+final re-review found end-to-end. `B3` is the one an optimising reader is most likely to introduce
+by accident — a partial index looks like a refinement and is a replay channel.
+
+### Role separation
+
+| ID        | Mutation                                                              | Detected by                                                       |
+| --------- | --------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `N7-A-R1` | transport worker granted INSERT on permits, with a policy             | _REFUSES the transport worker minting its own permit_             |
+| `N7-A-R2` | transport worker granted SELECT on `network_disclosure_grants`        | _holds NO privilege on any N5 authorization input_                |
+| `N7-A-R3` | `GRANT freightos_delivery_worker TO freightos_transport_worker`       | _gives the transport worker no membership of the delivery worker_ |
+| `N7-A-R4` | artifact read policy widened from obligation-scoped to `USING (true)` | _reads an artifact ONLY where an obligation for it exists_        |
+
+**`N7-A-R3` was detected twice, and the second detection was not planned.** A role grant is a
+CLUSTER object: restoring the migration file did not undo it, so the edge survived into the next
+test run — where migration **0034's own deploy-time assertion** refused to apply at all, naming the
+offending edge and its `inherit=t` option. That is the same lesson as regression #4 (a role is not
+a database-scoped thing), arriving from the opposite direction, and it is independent evidence that
+0034's §2c guard is load-bearing rather than decorative. The cluster edge was revoked by its
+grantor and the suite returned to green.
+
+### Authority
+
+| ID        | Mutation                                                         | Detected by                                                                                |
+| --------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `N7-A-A1` | permit `no_update` trigger removed — deadlines become extensible | _is immutable authority — no widening, no re-pointing_                                     |
+| `N7-A-A2` | terminal-state check removed from the transition guard           | _keeps the obligation identity immutable and refuses a transition out of a terminal state_ |
+| `N7-A-A3` | delivery worker granted INSERT on the attempt journal            | _gives the delivery worker no attempt write_                                               |
+| `N7-A-A4` | destination INSERT policy stops deriving recipient tenancy       | _refuses a destination for an organization in ANOTHER tenant_                              |
+
+`A4` is T-04's hazard checked directly: the cross-tenant destination test could plausibly have been
+passing on participant-registry RLS rather than on the tenancy clause it names. Removing only that
+clause fails only that test, which is what makes the naming honest.
+
+### Duplicated identity
+
+| ID        | Mutation                                                                | Detected by                                              |
+| --------- | ----------------------------------------------------------------------- | -------------------------------------------------------- |
+| `N7-A-T1` | an outcome removed from the TypeScript taxonomy that the enum still has | _defines three closed enums and no open text vocabulary_ |
+
+The enum and the TypeScript union are the same identity in two places — `R-07`'s shape at the
+type layer. Unclassified, a real outcome reaches `outcomeSemantics()` as `undefined` and reads as
+"not terminal, not retryable": the most dangerous available default for a transport decision, and
+reached without an error. The parity assertion compares both directions against the live catalog.
+
+### Gate mutations
+
+`N7-M-20`, `N7-M-22` and `N7-M-23` are implemented as standing negative controls inside
+`scripts/test/egress-allowlist-gate.test.ts` rather than as one-off mutations — each writes a real
+violation into a temporary file, runs the actual gate as a subprocess, asserts the specific failure
+line, and restores. They run on every CI pass, so the gate is observed to fail continuously rather
+than once.
