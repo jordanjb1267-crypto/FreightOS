@@ -297,14 +297,36 @@ describe('the database surface N6 adds', () => {
     expect(r.rows.every((x) => x.rls && x.force)).toBe(true);
   });
 
-  it('builds no destination, webhook, dead-letter or replay table', async () => {
+  it('builds no destination, webhook, dead-letter or replay RELATION of any kind', async () => {
+    // Any relation kind, not only ordinary tables. This is a pattern scan over names that do not
+    // exist yet, so the N7 surface it denies could arrive as a view or a materialised view and
+    // satisfy a `relkind = 'r'` gate — the U-16 narrowing, in the place it would matter most.
     const r = await owner.query<{ n: string }>(
-      `SELECT c.relname AS n FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
-        WHERE ns.nspname = 'public' AND c.relkind = 'r'
+      `SELECT format('%s/%s', c.relname, c.relkind) AS n
+         FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+        WHERE ns.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
           AND (c.relname LIKE '%destination%' OR c.relname LIKE '%webhook%'
-               OR c.relname LIKE '%dead_letter%' OR c.relname LIKE '%replay%')`,
+               OR c.relname LIKE '%dead_letter%' OR c.relname LIKE '%replay%'
+               OR c.relname LIKE '%subscriber%')
+        ORDER BY c.relname`,
     );
     expect(r.rows.map((x) => x.n)).toEqual([]);
+
+    // Anti-vacuity: the scan finds a planted relation of a NON-table kind, so the empty result
+    // above is a real absence rather than a query that matches nothing it is pointed at.
+    await owner.query('BEGIN');
+    try {
+      await owner.query('CREATE VIEW network_delivery_destination_probe AS SELECT 1 AS x');
+      const planted = await owner.query<{ n: string }>(
+        `SELECT format('%s/%s', c.relname, c.relkind) AS n
+           FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+          WHERE ns.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+            AND c.relname LIKE '%destination%'`,
+      );
+      expect(planted.rows.map((x) => x.n)).toEqual(['network_delivery_destination_probe/v']);
+    } finally {
+      await owner.query('ROLLBACK');
+    }
   });
 
   it('keys routing resolutions and deliveries off the N4 INTENT, not the event journal', async () => {

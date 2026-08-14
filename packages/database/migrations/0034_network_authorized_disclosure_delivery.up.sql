@@ -1111,15 +1111,22 @@ BEGIN
     RAISE EXCEPTION 'N6 table set is wrong: %', v_tables;
   END IF;
 
-  -- (b) no table this phase refused to build.
-  SELECT string_agg(c.relname, ',') INTO v_missing
+  -- (b) no RELATION this phase refused to build — any kind, not only ordinary tables.
+  --
+  -- Unlike (a), which names seven relations that are known to be tables, this is a PATTERN scan
+  -- over names that do not exist yet. Restricting it to `relkind = 'r'` would let the N7 surface
+  -- arrive as a view, a materialised view or a foreign table and satisfy the gate — the same
+  -- narrowing U-16 found on the `network_%` ACL scan, where the fix was to cover every kind the
+  -- gate's purpose implies rather than the one kind that happens to exist today.
+  SELECT string_agg(format('%s/%s', c.relname, c.relkind), ',' ORDER BY c.relname) INTO v_missing
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE n.nspname = 'public' AND c.relkind = 'r'
+   WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
      AND (c.relname LIKE '%destination%' OR c.relname LIKE '%webhook%'
           OR c.relname LIKE '%dead_letter%' OR c.relname LIKE '%replay%'
           OR c.relname LIKE '%subscriber%');
   IF v_missing IS NOT NULL THEN
-    RAISE EXCEPTION 'N6 must not create destination/webhook/dead-letter/replay/subscriber tables: %',
+    RAISE EXCEPTION
+      'N6 must not create destination/webhook/dead-letter/replay/subscriber relations: %',
       v_missing;
   END IF;
 
