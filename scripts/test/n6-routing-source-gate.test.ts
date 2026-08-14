@@ -84,6 +84,16 @@ const FORBIDDEN_PARAMETERS = [
   'sensitivity',
   'grant',
   'fields',
+  // R-11. An escape hatch from the artifact/event pairing check would be a caller asserting
+  // provenance, which is the same class of thing as a caller asserting a recipient. None of the
+  // module's real parameters — input, metadata, artifact, attemptNumber, random, attemptCount,
+  // createdAt, now — contains any of these, so the gate costs nothing until someone adds one.
+  'override',
+  'ignore',
+  'trust',
+  'skip',
+  'bypass',
+  'force',
 ] as const;
 
 describe('the N6 router accepts no caller-supplied authority', () => {
@@ -202,6 +212,50 @@ describe('the N6 router accepts no caller-supplied authority', () => {
     for (const escape of ['.classification', 'tenantId', 'tenant_id']) {
       expect(SOURCE, `${escape} must not appear in the N6 router`).not.toContain(escape);
     }
+  });
+
+  it('keeps the artifact/event pairing contract — R-11', () => {
+    // THE CONTRACT T-02 TAUGHT US TO PIN. An API invariant that holds because nobody has removed
+    // it yet is not an invariant; the type surface is what keeps it true. Four things have to
+    // survive for the pairing check to remain writeable AND required.
+
+    // 1 & 2. Both identities must remain available to the function. If either field were renamed
+    //        or dropped, the check would stop compiling — but a future edit could equally drop the
+    //        CHECK and keep the fields, so these are the floor rather than the whole gate.
+    const disclosure = readFileSync(
+      new URL('../../packages/context/src/disclosure.ts', import.meta.url),
+      'utf8',
+    );
+    expect(disclosure, 'DisclosureEvent must still carry eventId').toMatch(/\beventId\b/);
+    expect(SOURCE, 'DisclosureArtifact must still carry networkEventId').toMatch(
+      /readonly networkEventId: string;/,
+    );
+
+    // 3. The refusal reason remains part of the result contract. Deleting the union member is the
+    //    cheapest way to delete the behaviour, and it would otherwise fail only inside the tests
+    //    that assert it rather than at the contract.
+    expect(SOURCE, 'artifact_event_mismatch must remain a ReauthorizationRefusalReason').toContain(
+      "| 'artifact_event_mismatch'",
+    );
+
+    // 4. THE ORDERING, structurally. Read off the function body rather than the whole file, so a
+    //    mention of either token in the header prose cannot satisfy it. The comparison must appear
+    //    before the N5 call — behaviour proves the current order, this keeps it.
+    const start = SOURCE.indexOf('export function reauthorizeDelivery');
+    expect(start, 'reauthorizeDelivery must exist for this gate to mean anything').toBeGreaterThan(
+      -1,
+    );
+    const body = SOURCE.slice(start, SOURCE.indexOf('\n}', start));
+    const guard = body.indexOf('artifact.networkEventId !== input.event.eventId');
+    const n5 = body.indexOf('evaluateDisclosureWithCeiling');
+    expect(guard, 'the pairing comparison must be present in the body').toBeGreaterThan(-1);
+    expect(n5, 'the N5 evaluation must be present in the body').toBeGreaterThan(-1);
+    expect(guard, 'provenance must be checked BEFORE N5 evaluation').toBeLessThan(n5);
+
+    // And before the subscription lookup, which is the other refusal that could mask it.
+    const lookup = body.indexOf('input.subscriptions.find');
+    expect(lookup).toBeGreaterThan(-1);
+    expect(guard, 'provenance must be checked BEFORE the subscription lookup').toBeLessThan(lookup);
   });
 
   it('performs no network egress of any kind', () => {

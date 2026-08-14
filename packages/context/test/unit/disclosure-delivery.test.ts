@@ -442,6 +442,110 @@ describe('a retry can never widen, and is never silently narrowed', () => {
   });
 });
 
+/**
+ * R-11 — reauthorization is only valid for the event the artifact is bound to.
+ *
+ * The artifact is immutable and names its event; the event arrives as a separate argument. Nothing
+ * required the two to agree, so an artifact minted for E1 could be re-authorized against E2 and the
+ * entire evaluation would run on E2 — its organization, its contract, its data — while the artifact
+ * that would actually leave was E1's. Reproduced on the shipped candidate: the mismatched pair
+ * returned `authorized: true`.
+ *
+ * Migration 0034 binds `delivery.network_event_id = artifact.network_event_id` for PERSISTED rows.
+ * That is the database's guarantee about stored state. This is the evaluator's guarantee about its
+ * own arguments, and neither substitutes for the other.
+ */
+describe('reauthorization refuses an event the artifact is not bound to — R-11', () => {
+  const artifactOfE1 = () => resolveRouting(input(), METADATA).authorized[0]!;
+
+  /** The same input in every respect except the event identity. */
+  const withEventId = (eventId: string, rest: Partial<DeliveryRoutingInput> = {}) =>
+    input({ event: { ...input().event, eventId }, ...rest });
+
+  it('permits the MATCHED pair, unchanged — the positive control', () => {
+    const artifact = artifactOfE1();
+    expect(artifact.networkEventId).toBe('evt-1');
+    const outcome = reauthorizeDelivery(artifact, withEventId('evt-1'), METADATA);
+    expect(outcome.authorized).toBe(true);
+    expect((outcome as { compositeDecisionDigest: string }).compositeDecisionDigest).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+  });
+
+  it('refuses the MISMATCHED pair with exactly artifact_event_mismatch', () => {
+    const outcome = reauthorizeDelivery(artifactOfE1(), withEventId('evt-2'), METADATA);
+    expect(outcome).toEqual({
+      authorized: false,
+      reason: 'artifact_event_mismatch',
+      // No N5 evaluation ran, so there is no digest. A digest here would claim a decision that was
+      // never made — and would be indistinguishable from an ordinary authorization refusal.
+      compositeDecisionDigest: null,
+      detail: 'artifact is bound to evt-1, not evt-2',
+    });
+  });
+
+  it('checks provenance BEFORE N5 — an N5 refusal must not mask the mismatch', () => {
+    // THE ORDERING ORACLE. This event would independently fail N5-B: `consent-grant.v1` is
+    // `never_external`, an absolute ceiling. Before the guard, the caller was told
+    // `sensitivity:schema_never_external` — a true statement about E2 that says nothing about the
+    // artifact in its hand, and that hid the provenance defect behind a plausible refusal.
+    const outcome = reauthorizeDelivery(
+      artifactOfE1(),
+      withEventId('evt-2', {
+        event: { ...input().event, eventId: 'evt-2', schemaRef: CONSENT_GRANT },
+        subscriptions: [{ ...subscription, durableSchemaRef: CONSENT_GRANT }],
+      }),
+      METADATA,
+    );
+    expect((outcome as { reason: string }).reason).toBe('artifact_event_mismatch');
+    expect(
+      (outcome as { compositeDecisionDigest: string | null }).compositeDecisionDigest,
+    ).toBeNull();
+  });
+
+  it('checks provenance BEFORE the subscription lookup, too', () => {
+    // The other pre-N5 refusal. A mismatched event whose subscription is also gone must still name
+    // the mismatch: `subscription_no_longer_effective` would be the second plausible mask.
+    const outcome = reauthorizeDelivery(
+      artifactOfE1(),
+      withEventId('evt-2', { subscriptions: [] }),
+      METADATA,
+    );
+    expect((outcome as { reason: string }).reason).toBe('artifact_event_mismatch');
+  });
+
+  it('refuses on the EVENT IDENTITY alone — the pairing oracle', () => {
+    // THE PERMANENT ANTI-VACUITY CONTROL for this defect class.
+    //
+    // Two calls differing in exactly one character of one field. If the refusal above were coming
+    // from anything other than the event identity — a stale fixture, an unrelated denial, a typo in
+    // the expectation — these two would not disagree. This is what a removed guard would break,
+    // without needing the guard's absence to be simulated.
+    const artifact = artifactOfE1();
+    const matched = reauthorizeDelivery(artifact, withEventId('evt-1'), METADATA);
+    const mismatched = reauthorizeDelivery(artifact, withEventId('evt-1x'), METADATA);
+
+    expect(matched.authorized).toBe(true);
+    expect(mismatched.authorized).toBe(false);
+    expect((mismatched as { reason: string }).reason).toBe('artifact_event_mismatch');
+  });
+
+  it('exposes no way for a caller to skip the check', () => {
+    // The refusal is unconditional. An override would be a caller asserting provenance, which is
+    // the whole class of thing N6 refuses — and the source gate forbids the parameter shape that
+    // would carry one. Asserted here as behaviour: extra arguments change nothing.
+    const artifact = artifactOfE1();
+    const extra = reauthorizeDelivery(
+      artifact,
+      withEventId('evt-2'),
+      METADATA,
+      // @ts-expect-error the signature takes three parameters; a fourth must be inert.
+      { ignoreArtifactEventMismatch: true },
+    );
+    expect((extra as { reason: string }).reason).toBe('artifact_event_mismatch');
+  });
+});
+
 describe('retry budget', () => {
   it('exhausts on attempts', () => {
     expect(retryBudgetExhausted(DELIVERY_MAX_ATTEMPTS - 1, AT, AT)).toBe(false);

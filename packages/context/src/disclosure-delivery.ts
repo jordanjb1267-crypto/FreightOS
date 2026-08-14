@@ -274,7 +274,16 @@ function materialize(
 export type ReauthorizationRefusalReason =
   | 'sensitivity_or_authorization_denied'
   | 'artifact_not_within_current_authorization'
-  | 'subscription_no_longer_effective';
+  | 'subscription_no_longer_effective'
+  /**
+   * The caller handed an event the artifact is not bound to — PROVENANCE INTEGRITY, not authority.
+   *
+   * Distinct from every other reason here, and deliberately so. The three above are answers to
+   * "may this leave now?"; this one says the question was malformed, because the artifact and the
+   * event describe different disclosures and no answer about either would be about the delivery in
+   * hand.
+   */
+  | 'artifact_event_mismatch';
 
 export interface ReauthorizationPermit {
   readonly authorized: true;
@@ -284,7 +293,7 @@ export interface ReauthorizationPermit {
 export interface ReauthorizationRefusal {
   readonly authorized: false;
   readonly reason: ReauthorizationRefusalReason;
-  /** Absent only when interest lapsed and no N5 evaluation was performed. */
+  /** Absent exactly when no N5 evaluation was performed — a lapsed subscription, or a mismatch. */
   readonly compositeDecisionDigest: string | null;
   readonly detail: string | null;
 }
@@ -314,6 +323,37 @@ export function reauthorizeDelivery(
   input: DeliveryRoutingInput,
   metadata: SensitivityMetadata | null,
 ): ReauthorizationOutcome {
+  // PROVENANCE INTEGRITY, FIRST — before N5-B, before N5-A, before the pointer comparison.
+  //
+  // The artifact is immutable and names the event it was minted for. The event arrives as a
+  // separate argument, and nothing required the two to agree: an artifact minted for E1 could be
+  // re-authorized against E2, and the evaluation would run entirely on E2 — its organization, its
+  // contract, its data — while the artifact that would actually leave was E1's. Measured on this
+  // branch: the mismatched pair returned `authorized: true`.
+  //
+  // THE ORDER IS THE POINT. Run this after N5 and an unrelated refusal hides it: a mismatched E2
+  // carrying a `never_external` contract came back `sensitivity:schema_never_external`, which is a
+  // true statement about E2 and tells the caller nothing about the artifact in its hand. A
+  // provenance mismatch is not a disclosure decision and must not be reported as one.
+  //
+  // Migration 0034 binds `delivery.network_event_id = artifact.network_event_id` for PERSISTED
+  // rows, so a caller reading both off one delivery cannot construct this. That is the database's
+  // guarantee about stored state; this is the evaluator's guarantee about its own arguments, and
+  // neither substitutes for the other.
+  //
+  // Unconditional. There is no flag, option or override that skips it — an escape hatch here would
+  // be a caller asserting provenance, which is the whole class of thing N6 refuses.
+  if (artifact.networkEventId !== input.event.eventId) {
+    return {
+      authorized: false,
+      reason: 'artifact_event_mismatch',
+      // No N5 evaluation was performed, so there is no digest to report. Synthesising one would
+      // claim a decision that was never made.
+      compositeDecisionDigest: null,
+      detail: `artifact is bound to ${artifact.networkEventId}, not ${input.event.eventId}`,
+    };
+  }
+
   const subscription = input.subscriptions.find(
     (s) => s.subscriptionId === artifact.subscriptionId,
   );

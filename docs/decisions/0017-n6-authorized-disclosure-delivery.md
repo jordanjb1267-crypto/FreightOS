@@ -122,6 +122,36 @@ N5-A against CURRENT authority, and the result is compared to the frozen artifac
 substituted for it. Mutations D-A (skip re-authorization) and D-F (evaluate at queue time) both fail
 the unit gate.
 
+### Reauthorization is only valid for the event the artifact is bound to
+
+`reauthorizeDelivery()` rejects an artifact/event mismatch **before** N5 evaluation, with refusal
+reason `artifact_event_mismatch`.
+
+The artifact is immutable and names its event; the event arrives as a separate argument. Nothing
+required the two to agree, so an artifact minted for E1 could be re-authorized against E2 and the
+whole evaluation would run on E2 — its organization, its contract, its data — while the artifact
+that would actually leave was E1's. Reproduced on the prior candidate: the mismatched pair returned
+`authorized: true`, and swapping E2's organization flipped it to
+`authorization:grantor_event_mismatch`, which proves the caller's event was what N5 actually saw
+(R-11).
+
+**The ordering is the decision, not an implementation detail.** Run the check after N5 and an
+unrelated refusal hides it: a mismatched E2 carrying a `never_external` contract came back
+`sensitivity:schema_never_external` — a true statement about E2 that says nothing about the artifact
+in hand. A lapsed subscription would mask it the same way. A provenance mismatch is not a disclosure
+decision and must not be reported as one, so it is answered first and carries no composite digest —
+there is no decision to cite because none was made.
+
+**This is provenance integrity, not disclosure authority**, and it does not overlap the database's
+guarantee. Migration 0034 binds `delivery.network_event_id = artifact.network_event_id` for
+PERSISTED rows (R-07); this binds the evaluator's own arguments. A caller that reads both off one
+delivery row cannot construct the mismatch — but the evaluator is a pure function that does not see
+the delivery row, so the schema cannot speak for it.
+
+The check is unconditional. There is no flag, option or override that skips it: an escape hatch here
+would be a caller asserting provenance, which is the same class of thing as a caller asserting a
+recipient. The source gate forbids the parameter shape that would carry one.
+
 ### A retry is byte-identical, and there is no narrower replacement
 
 The subset rule:
@@ -365,17 +395,17 @@ obligation rather than parking it somewhere for later re-emission.
 
 - N6 can prove what would be disclosed, to whom, and on what authority, without disclosing anything.
 - A recipient's inbox is the only destination, so nothing external depends on N6's shape yet.
-- Ten real defects were found and fixed, nine of them in security-relevant surfaces. Two were the
+- Eleven real defects were found and fixed, ten of them in security-relevant surfaces. Two were the
   same FORCE-RLS hazard with opposite consequences (R-05 failed closed, R-06 failed open). Four —
   R-07 through R-10 — were one shape: independent single-column keys where the invariant was that
-  several rows describe the same disclosure. Only R-08 was reachable as a disclosure to a party that
+  several rows describe the same disclosure. R-11 is that same shape one layer up, in the
+  evaluator's arguments rather than in stored rows. Only R-08 was reachable as a disclosure to a party that
   should not have received it, and it was reachable without touching a grant, a policy or a
   privilege.
-- The residual on `reauthorizeDelivery` is recorded rather than closed: the schema now guarantees a
-  persisted delivery and its artifact cannot disagree, but the function still takes an artifact and
-  an event as separate arguments and does not require them to match. No production caller exists —
-  the worker is N7 — and refusing the pair at runtime would mean a new refusal reason, which is new
-  N6 semantics rather than a repair. It is N7's to settle when it writes the caller.
+- The `reauthorizeDelivery` argument-pairing residual is CLOSED under owner ruling
+  `N6_REAUTHORIZE_ARGUMENT_PAIRING = PRE_MERGE_BLOCKER`. It became R-11, and the fix is one
+  evaluator-level fail-closed refusal ordered ahead of N5 — no replay semantics, no worker
+  behaviour, no new terminal state, no attempt, no inbox write, and no database change of any kind.
 - N7 inherits a settled decision surface and a worker role that already has exactly the reads it
   needs and no writes it does not.
 
