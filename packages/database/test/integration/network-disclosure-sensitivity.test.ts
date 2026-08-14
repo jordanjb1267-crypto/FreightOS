@@ -264,16 +264,18 @@ describe('the shipped metadata is exactly what governance authored', () => {
     })(app);
   });
 
-  it('gives every governed purpose exactly one ceiling', () => async (c: Client) => {
-    const missing = await c.query<{ p: string }>(
-      `SELECT p.code AS p FROM network_disclosure_purposes p
-           LEFT JOIN network_disclosure_purpose_ceilings x ON x.purpose_code = p.code
-          WHERE x.purpose_code IS NULL`,
-    );
-    expect(missing.rows.map((r) => r.p)).toEqual([]);
-    expect(metadata.purposeCeilings).toEqual([
-      { purposeCode: 'shipment_execution', maxSensitivityCode: 'counterparty_identifying' },
-    ]);
+  it('gives every governed purpose exactly one ceiling', () => {
+    return (async (c: Client) => {
+      const missing = await c.query<{ p: string }>(
+        `SELECT p.code AS p FROM network_disclosure_purposes p
+             LEFT JOIN network_disclosure_purpose_ceilings x ON x.purpose_code = p.code
+            WHERE x.purpose_code IS NULL`,
+      );
+      expect(missing.rows.map((r) => r.p)).toEqual([]);
+      expect(metadata.purposeCeilings).toEqual([
+        { purposeCode: 'shipment_execution', maxSensitivityCode: 'counterparty_identifying' },
+      ]);
+    })(app);
   });
 
   it('classifies workflow-state as counterparty_identifying, not execution_operational', () => {
@@ -314,8 +316,8 @@ describe('the ceiling decides, against real metadata', () => {
     expect(permittedPointers(decision)).toEqual([]);
   });
 
-  it('DENIES all four never_external contracts, whatever authority is presented', () =>
-    async (c: Client) => {
+  it('DENIES all four never_external contracts, whatever authority is presented', () => {
+    return (async (c: Client) => {
       const refs = (
         await c.query<{ r: string }>(
           `SELECT durable_schema_ref AS r FROM network_schema_disclosure_sensitivity
@@ -327,7 +329,8 @@ describe('the ceiling decides, against real metadata', () => {
         const decision = evaluateDisclosureWithCeiling(request(maximalFor(ref)), metadata);
         expect(decision, ref).toMatchObject({ decision: 'DENY', reason: 'schema_never_external' });
       }
-    });
+    })(app);
+  });
 
   it('DENIES a contract version that governance has not classified', () => {
     // A v2 adding a sensitive field cannot ride in on v1's ceiling — it has no assignment at all.
@@ -379,29 +382,145 @@ describe('the ceiling is orthogonal to who the recipient is', () => {
   });
 });
 
-describe('runtime cannot rewrite the ceiling', () => {
-  const WRITES: readonly [string, string][] = [
-    ['INSERT', `INSERT INTO %T VALUES (DEFAULT)`],
-    ['UPDATE', `UPDATE %T SET assigned_by = 'tampered'`],
-    ['DELETE', `DELETE FROM %T`],
-    ['TRUNCATE', `TRUNCATE %T`],
-  ];
+/**
+ * The provenance column each table actually has.
+ *
+ * They are NOT the same, and that is the whole reason this map exists rather than one literal.
+ * `network_disclosure_sensitivities` records who wrote a vocabulary level (`created_by`); the other
+ * two record who made an assignment (`assigned_by`). An UPDATE naming the wrong one never reaches
+ * a guard at all — PostgreSQL resolves columns during parse analysis and raises `undefined_column`
+ * (42703) first — so the statement "fails" and an assertion that only requires it to throw is
+ * satisfied by a typo. `probe column exists` below is the gate that makes that impossible.
+ */
+const PROBE_COLUMN: Readonly<Record<(typeof N5B_TABLES)[number], string>> = {
+  network_disclosure_purpose_ceilings: 'assigned_by',
+  network_disclosure_sensitivities: 'created_by',
+  network_schema_disclosure_sensitivity: 'assigned_by',
+};
 
+/**
+ * SQLSTATEs, named so an assertion says which mechanism it is about.
+ *
+ * `APPEND_ONLY` is what `app.reject_mutation()` raises (`ERRCODE = 'integrity_constraint_violation'`
+ * in migration 0001). Nothing else in this file may stand in for it.
+ */
+const APPEND_ONLY = '23000';
+const INSUFFICIENT_PRIVILEGE = '42501';
+const UNDEFINED_COLUMN = '42703';
+const TRUNCATE_BLOCKED_BY_FK = '0A000';
+
+interface Outcome {
+  readonly sqlstate: string | null;
+  readonly message: string;
+  readonly rowCount: number | null;
+}
+
+/** Run one statement in its own transaction and report what PostgreSQL actually did. */
+async function attempt(c: Client, sql: string): Promise<Outcome> {
+  await c.query('BEGIN');
+  try {
+    const r = await c.query(sql);
+    await c.query('ROLLBACK');
+    return { sqlstate: null, message: '', rowCount: r.rowCount };
+  } catch (error) {
+    await c.query('ROLLBACK');
+    const e = error as Error & { code?: string };
+    return { sqlstate: e.code ?? 'unknown', message: e.message.split('\n')[0]!, rowCount: null };
+  }
+}
+
+/**
+ * Require the append-only trigger, by identity, and nothing that merely resembles it.
+ *
+ * An undefined column, a privilege denial, a foreign-key refusal, a CHECK violation or an RLS
+ * zero-row no-op are all things that can happen to a write against these tables. None of them is
+ * evidence that `app.reject_mutation()` exists or fires, so the SQLSTATE and the message it emits
+ * are both pinned.
+ */
+function expectAppendOnlyTrigger(outcome: Outcome, table: string, op: string): void {
+  expect(
+    outcome.sqlstate,
+    `${table} ${op}: expected app.reject_mutation(), got ${outcome.message}`,
+  ).toBe(APPEND_ONLY);
+  expect(outcome.message).toBe(`${table} is append-only: ${op} is not permitted`);
+}
+
+/** Full logical content of a table, read as the superuser so RLS cannot hide a change. */
+async function contentDigest(table: string): Promise<string> {
+  const r = await owner.query<{ h: string }>(
+    `SELECT coalesce(md5(string_agg(x::text, ',' ORDER BY x::text)), '(empty)') AS h FROM ${table} x`,
+  );
+  return r.rows[0]!.h;
+}
+
+describe('the immutability oracle itself', () => {
+  it('names a probe column that exists on every N5-B table', () => {
+    return (async (c: Client) => {
+      // Without this the whole suite below can pass on `undefined_column`. It is the gate that
+      // turns a future created_by/assigned_by typo into a loud failure instead of a false green.
+      expect(Object.keys(PROBE_COLUMN).sort()).toEqual([...N5B_TABLES].sort());
+      for (const table of N5B_TABLES) {
+        const r = await c.query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM pg_attribute
+            WHERE attrelid = $1::regclass AND attname = $2 AND attnum > 0 AND NOT attisdropped`,
+          [table, PROBE_COLUMN[table]],
+        );
+        expect(Number(r.rows[0]!.n), `${table}.${PROBE_COLUMN[table]} must exist`).toBe(1);
+      }
+    })(app);
+  });
+
+  it('rejects a nonexistent probe column instead of crediting it as immutability', async () => {
+    // The defect this suite was rewritten to fix, pinned as a permanent control. `assigned_by` is
+    // the column the previous revision used for ALL three tables; on the vocabulary table it does
+    // not exist, so the statement died in parse analysis and the trigger was never consulted.
+    const wrong = await attempt(
+      owner,
+      `UPDATE network_disclosure_sensitivities SET assigned_by = 'x'`,
+    );
+    expect(wrong.sqlstate).toBe(UNDEFINED_COLUMN);
+
+    // And the oracle must refuse to accept that as proof.
+    expect(() =>
+      expectAppendOnlyTrigger(wrong, 'network_disclosure_sensitivities', 'UPDATE'),
+    ).toThrow();
+
+    // The same statement with the column the table really has does reach the trigger.
+    const right = await attempt(
+      owner,
+      `UPDATE network_disclosure_sensitivities SET ${PROBE_COLUMN.network_disclosure_sensitivities} = 'x'`,
+    );
+    expectAppendOnlyTrigger(right, 'network_disclosure_sensitivities', 'UPDATE');
+  });
+});
+
+describe('layer A — the runtime principal has no write authority at all', () => {
+  // freightos_app is refused before RLS or any trigger is reached: it simply holds no write
+  // privilege on these tables. This is the ACL layer and nothing else.
   for (const table of N5B_TABLES) {
-    for (const [verb, sql] of WRITES) {
-      it(`refuses ${verb} on ${table} as freightos_app`, () => async (c: Client) => {
-        await expect(c.query(sql.replace('%T', table))).rejects.toThrow();
+    for (const [verb, sql] of [
+      ['INSERT', `INSERT INTO ${table} DEFAULT VALUES`],
+      ['UPDATE', `UPDATE ${table} SET ${PROBE_COLUMN[table]} = 'tampered'`],
+      ['DELETE', `DELETE FROM ${table}`],
+      ['TRUNCATE', `TRUNCATE ${table}`],
+    ] as const) {
+      it(`refuses ${verb} on ${table} as freightos_app`, async () => {
+        const outcome = await attempt(app, sql);
+        expect(outcome.sqlstate, `${verb} ${table}: ${outcome.message}`).toBe(
+          INSUFFICIENT_PRIVILEGE,
+        );
+        expect(outcome.message).toBe(`permission denied for table ${table}`);
       });
     }
   }
 
-  it('refuses UPDATE and DELETE even to the table owner — FORCE RLS plus the guards', async () => {
-    // Migration ownership is not runtime administration. The owner is subject to policy too, and
-    // the append-only triggers fire regardless of privilege.
-    for (const table of N5B_TABLES) {
-      await expect(owner.query(`UPDATE ${table} SET assigned_by = 'x'`)).rejects.toThrow();
-      await expect(owner.query(`DELETE FROM ${table}`)).rejects.toThrow();
-    }
+  it('still lets the runtime READ them — anti-vacuity for every refusal above', () => {
+    return (async (c: Client) => {
+      const r = await c.query<{ n: string }>(
+        'SELECT count(*)::text AS n FROM network_disclosure_sensitivities',
+      );
+      expect(Number(r.rows[0]!.n)).toBe(4);
+    })(app);
   });
 
   it('refuses every write to an administrative and control-plane identity too', async () => {
@@ -409,19 +528,175 @@ describe('runtime cannot rewrite the ceiling', () => {
     for (const role of ['freightos_control_plane', 'freightos_admin_owner']) {
       for (const table of N5B_TABLES) {
         await expect(
-          asRole(db, role, (c) => c.query(`UPDATE ${table} SET assigned_by = 'x'`)),
+          asRole(db, role, (c) => c.query(`UPDATE ${table} SET ${PROBE_COLUMN[table]} = 'x'`)),
         ).rejects.toThrow();
       }
     }
   });
+});
 
-  it('still lets the runtime READ them — anti-vacuity for every refusal above', () =>
-    async (c: Client) => {
-      const r = await c.query<{ n: string }>(
-        'SELECT count(*)::text AS n FROM network_disclosure_sensitivities',
+describe('layer B — the true table owner, under FORCE RLS', () => {
+  // The owner is freightos_migrator, the deployment authority that ran 0033. It is NOT postgres;
+  // postgres appears in this file only as the superuser used to reach the triggers in layer C.
+  it('is owned by freightos_migrator', () => {
+    return (async (c: Client) => {
+      for (const table of N5B_TABLES) {
+        const r = await c.query<{ o: string }>(
+          `SELECT pg_get_userbyid(relowner) AS o FROM pg_class
+            WHERE relname = $1 AND relnamespace = 'public'::regnamespace`,
+          [table],
+        );
+        expect(r.rows[0]!.o, table).toBe('freightos_migrator');
+      }
+    })(app);
+  });
+
+  it('resolves owner UPDATE and DELETE to zero rows rather than an error, and changes nothing', async () => {
+    // FORCE RLS binds the owner too, and 0033 defines SELECT policies only. An UPDATE or DELETE
+    // therefore matches no row and PostgreSQL raises nothing — this is a silent no-op, not a
+    // refusal, and calling it a refusal would misdescribe the mechanism. The row trigger never
+    // fires because no row is ever reached; layer C is what proves the trigger exists.
+    const migrator = db.connectAsMigrator();
+    await migrator.connect();
+    try {
+      for (const table of N5B_TABLES) {
+        const before = await contentDigest(table);
+
+        const updated = await attempt(migrator, `UPDATE ${table} SET ${PROBE_COLUMN[table]} = 'x'`);
+        expect(updated.sqlstate, `${table} UPDATE`).toBeNull();
+        expect(updated.rowCount, `${table} UPDATE must touch no row`).toBe(0);
+
+        const deleted = await attempt(migrator, `DELETE FROM ${table}`);
+        expect(deleted.sqlstate, `${table} DELETE`).toBeNull();
+        expect(deleted.rowCount, `${table} DELETE must touch no row`).toBe(0);
+
+        expect(await contentDigest(table), `${table} content`).toBe(before);
+      }
+    } finally {
+      await migrator.end();
+    }
+  });
+
+  it('refuses owner INSERT through the RLS WITH CHECK, not through a privilege denial', async () => {
+    const migrator = db.connectAsMigrator();
+    await migrator.connect();
+    try {
+      for (const table of N5B_TABLES) {
+        const outcome = await attempt(migrator, `INSERT INTO ${table} DEFAULT VALUES`);
+        expect(outcome.sqlstate, `${table} INSERT: ${outcome.message}`).toBe(
+          INSUFFICIENT_PRIVILEGE,
+        );
+        expect(outcome.message).toBe(
+          `new row violates row-level security policy for table "${table}"`,
+        );
+      }
+    } finally {
+      await migrator.end();
+    }
+  });
+
+  it('refuses owner TRUNCATE, which RLS does not filter, through the statement trigger', async () => {
+    // TRUNCATE is not row-filtered, so unlike UPDATE/DELETE it reaches the statement-level trigger
+    // even for the owner. The vocabulary table is the exception: two foreign keys reference it, so
+    // PostgreSQL refuses at the constraint first and CASCADE is what gets past it to the trigger.
+    const migrator = db.connectAsMigrator();
+    await migrator.connect();
+    try {
+      for (const table of N5B_TABLES) {
+        const before = await contentDigest(table);
+        const plain = await attempt(migrator, `TRUNCATE ${table}`);
+        if (table === 'network_disclosure_sensitivities') {
+          expect(plain.sqlstate).toBe(TRUNCATE_BLOCKED_BY_FK);
+          expectAppendOnlyTrigger(
+            await attempt(migrator, `TRUNCATE ${table} CASCADE`),
+            table,
+            'TRUNCATE',
+          );
+        } else {
+          expectAppendOnlyTrigger(plain, table, 'TRUNCATE');
+        }
+        expect(await contentDigest(table), `${table} content`).toBe(before);
+      }
+    } finally {
+      await migrator.end();
+    }
+  });
+});
+
+describe('layer C — the append-only trigger, reached and proven to fire', () => {
+  // This is the decisive immutability oracle. `owner` here is the SUPERUSER / RLS-bypass test
+  // principal: a superuser is not subject to row-level security, so its UPDATE and DELETE reach
+  // real rows and therefore reach `app.reject_mutation()`. Under any RLS-bound identity the same
+  // statements are filtered to zero rows and prove nothing about the trigger.
+  for (const table of N5B_TABLES) {
+    it(`fires app.reject_mutation() on UPDATE ${table}`, async () => {
+      const before = await contentDigest(table);
+      expectAppendOnlyTrigger(
+        await attempt(owner, `UPDATE ${table} SET ${PROBE_COLUMN[table]} = 'tampered'`),
+        table,
+        'UPDATE',
       );
-      expect(Number(r.rows[0]!.n)).toBe(4);
+      expect(await contentDigest(table)).toBe(before);
     });
+
+    it(`fires app.reject_mutation() on DELETE ${table}`, async () => {
+      const before = await contentDigest(table);
+      expectAppendOnlyTrigger(await attempt(owner, `DELETE FROM ${table}`), table, 'DELETE');
+      expect(await contentDigest(table)).toBe(before);
+    });
+
+    it(`fires app.reject_mutation() on TRUNCATE ${table}`, async () => {
+      const before = await contentDigest(table);
+      const plain = await attempt(owner, `TRUNCATE ${table}`);
+      if (table === 'network_disclosure_sensitivities') {
+        // Named rather than hidden: the foreign keys refuse before the trigger is consulted, so
+        // the plain form proves the constraint and CASCADE proves the trigger.
+        expect(plain.sqlstate).toBe(TRUNCATE_BLOCKED_BY_FK);
+        expectAppendOnlyTrigger(
+          await attempt(owner, `TRUNCATE ${table} CASCADE`),
+          table,
+          'TRUNCATE',
+        );
+      } else {
+        expectAppendOnlyTrigger(plain, table, 'TRUNCATE');
+      }
+      expect(await contentDigest(table)).toBe(before);
+    });
+  }
+
+  it('is the trigger doing the refusing — disable it and the same UPDATE succeeds', async () => {
+    // The positive control for layer C. Without it, every assertion above is consistent with the
+    // trigger having been dropped and something else refusing. Disabling happens inside a
+    // transaction that is always rolled back: PostgreSQL DDL is transactional, so the trigger is
+    // restored exactly, and nothing is ever committed.
+    for (const table of N5B_TABLES) {
+      const before = await contentDigest(table);
+      await owner.query('BEGIN');
+      try {
+        await owner.query(`ALTER TABLE ${table} DISABLE TRIGGER ${table}_no_update`);
+        const r = await owner.query(`UPDATE ${table} SET ${PROBE_COLUMN[table]} = 'tampered'`);
+        expect(
+          r.rowCount,
+          `${table}: with the trigger off the UPDATE must reach rows`,
+        ).toBeGreaterThan(0);
+      } finally {
+        await owner.query('ROLLBACK');
+      }
+
+      // Restored, and provably so: enabled in the catalog, refusing again, content untouched.
+      const enabled = await owner.query<{ e: string }>(
+        `SELECT tgenabled AS e FROM pg_trigger WHERE tgrelid = $1::regclass AND tgname = $2`,
+        [table, `${table}_no_update`],
+      );
+      expect(enabled.rows[0]!.e, `${table} trigger must be re-enabled`).toBe('O');
+      expectAppendOnlyTrigger(
+        await attempt(owner, `UPDATE ${table} SET ${PROBE_COLUMN[table]} = 'tampered'`),
+        table,
+        'UPDATE',
+      );
+      expect(await contentDigest(table), `${table} content`).toBe(before);
+    }
+  });
 });
 
 describe('the database surface N5-B adds', () => {
