@@ -3,6 +3,11 @@ import type { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { withLegalContext, type Queryable } from '../../src/session.ts';
 import { carrierContext, TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
+import {
+  ALL_NETWORK_RELATIONS,
+  N6_DELIVERY_RELATIONS,
+  NETWORK_RELATION_LAYER,
+} from './network-relations.ts';
 import type { IdentityFixture } from './identity-harness.ts';
 import { seedVerifiedFixture } from './sr2-harness.ts';
 import {
@@ -880,30 +885,25 @@ describe('the read model a nullable tenant forces N1 to state — ADR-N0011', ()
     // deliberately not narrowed back to the five N1 tables: "no DELETE on any network table" is a
     // stronger and equally true statement, and a permanently append-only journal is exactly where
     // it matters most.
-    expect(state).toEqual([
-      'network_alias_namespaces delete=false truncate=false',
-      // N5-A's six, added when 0032 shipped. The gate widened rather than narrowed: a disclosure
-      // grant is authorization evidence, so erasing one is exactly as wrong as erasing a journal
-      // entry, and the revocation table exists precisely so that revoking is not deleting.
-      'network_disclosure_authority_bases delete=false truncate=false',
-      'network_disclosure_grant_revocations delete=false truncate=false',
-      'network_disclosure_grants delete=false truncate=false',
-      'network_disclosure_projection_fields delete=false truncate=false',
-      'network_disclosure_projections delete=false truncate=false',
-      // N5-B's three, added when 0033 shipped. Same reasoning one layer up: a sensitivity
-      // ceiling a runtime identity could delete is not a ceiling.
-      'network_disclosure_purpose_ceilings delete=false truncate=false',
-      'network_disclosure_purposes delete=false truncate=false',
-      'network_disclosure_sensitivities delete=false truncate=false',
-      'network_events delete=false truncate=false',
-      'network_participant_aliases delete=false truncate=false',
-      'network_participant_relationships delete=false truncate=false',
-      'network_participants delete=false truncate=false',
-      'network_relationship_types delete=false truncate=false',
-      'network_schema_disclosure_sensitivity delete=false truncate=false',
-      'network_schema_versions delete=false truncate=false',
-      'network_transport_intents delete=false truncate=false',
-    ]);
+    //
+    // The EXPECTED side is the declared inventory, not the same pattern restated. Discovery by
+    // prefix is what notices a relation nobody declared; judging it against a hand-maintained list
+    // is what makes the notice mean something. `network-disclosure-relation-inventory` proves the
+    // two agree, so a new table is caught here as a diff and there as a classification failure.
+    //
+    // The claim holds one layer at a time, and each layer's reason is its own. N1's five: a
+    // participant is retired by status, never removed. N3's journal: erasing an event is the one
+    // thing the journal exists to prevent. N5-A's six: a grant is authorization EVIDENCE, so
+    // erasing one is exactly as wrong as erasing a journal entry — the revocation table exists
+    // precisely so that revoking is not deleting. N5-B's three: a ceiling a runtime identity could
+    // delete is not a ceiling. N6's seven, added when 0034 shipped: a delivery record that could
+    // be erased could not distinguish DELIVERY ATTEMPTED from DELIVERY SUCCEEDED after the fact,
+    // which is the whole point of recording both.
+    expect(state).toEqual(ALL_NETWORK_RELATIONS.map((t) => `${t} delete=false truncate=false`));
+    // Anti-vacuity: the generated expectation above would also be satisfied by an empty scan
+    // matching an empty inventory. Twenty-four relations across seven layers, none of them zero.
+    expect(state).toHaveLength(24);
+    expect(new Set(ALL_NETWORK_RELATIONS.map((t) => NETWORK_RELATION_LAYER.get(t))).size).toBe(7);
   });
 });
 
@@ -1581,29 +1581,94 @@ describe('the structural authority-graph gate', () => {
   });
 
   it('grants the registry to no principal outside the two that already existed', async () => {
+    // PER TABLE, not `DISTINCT rolname, privilege` across the whole family.
+    //
+    // The collapsed form was the defect N6 exposed. It answered "which principals hold which
+    // privileges SOMEWHERE under `network_%`", so the delivery worker's legitimate INSERT on
+    // `network_delivery_attempts` and UPDATE on `network_disclosure_deliveries` arrived as bare
+    // `freightos_delivery_worker INSERT` / `UPDATE` lines — indistinguishable from that role
+    // having gained write access to the participant registry itself. A gate whose failure cannot
+    // tell you WHERE the privilege is cannot answer the question in its own title.
     const r = await client.query<{ line: string }>(
-      `SELECT DISTINCT format('%s %s', g.rolname, a.privilege_type) AS line
+      `SELECT format('%s %s %s', c.relname, g.rolname,
+                string_agg(DISTINCT a.privilege_type, ',' ORDER BY a.privilege_type)) AS line
          FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
          CROSS JOIN LATERAL aclexplode(c.relacl) a
          JOIN pg_roles g ON g.oid = a.grantee
-        WHERE n.nspname = 'public' AND c.relname LIKE 'network\\_%'
+        WHERE n.nspname = 'public' AND c.relname LIKE 'network\\_%' AND c.relkind = 'r'
           AND g.rolname <> 'freightos_migrator'
-        ORDER BY 1`,
+        GROUP BY c.relname, g.rolname
+        ORDER BY c.relname, g.rolname`,
     );
-    // N3 adds exactly ONE further principal, and exactly ONE table-level privilege for it: INSERT
-    // on the journal. Its journal READ is column-scoped and its participant read is column-scoped,
-    // so neither appears in `relacl` at all — which is the point of using column privileges. If a
-    // future change widens the writer to a whole-table SELECT, a new line appears here.
+    // N3 adds exactly ONE further principal to the journal, and exactly ONE table-level privilege
+    // for it: INSERT. Its journal READ is column-scoped and its participant read is column-scoped,
+    // so neither appears in `relacl` at all — which is the point of using column privileges.
+    //
+    // N6 adds `freightos_delivery_worker`, and every line below places it precisely: SELECT on
+    // everything it must read, writes ONLY on N6's own operational tables. It holds no INSERT and
+    // no UPDATE on any N1 registry table, on the journal, on N4, or on either N5 layer — that is
+    // the property this gate is for, and it is now visible line by line rather than inferred.
     expect(r.rows.map((x) => x.line)).toEqual([
-      'freightos_app INSERT',
-      'freightos_app SELECT',
-      'freightos_app UPDATE',
-      'freightos_control_plane INSERT',
-      'freightos_control_plane SELECT',
-      'freightos_control_plane UPDATE',
-      'freightos_event_writer INSERT',
+      'network_alias_namespaces freightos_app SELECT',
+      'network_alias_namespaces freightos_control_plane INSERT,SELECT',
+      'network_delivery_attempts freightos_delivery_worker INSERT,SELECT',
+      'network_disclosure_artifacts freightos_app SELECT',
+      'network_disclosure_artifacts freightos_delivery_worker INSERT,SELECT',
+      'network_disclosure_authority_bases freightos_app SELECT',
+      'network_disclosure_authority_bases freightos_delivery_worker SELECT',
+      'network_disclosure_deliveries freightos_delivery_worker INSERT,SELECT,UPDATE',
+      'network_disclosure_grant_revocations freightos_app INSERT,SELECT',
+      'network_disclosure_grant_revocations freightos_delivery_worker SELECT',
+      'network_disclosure_grants freightos_app INSERT,SELECT',
+      'network_disclosure_grants freightos_delivery_worker SELECT',
+      'network_disclosure_inbox freightos_app SELECT',
+      'network_disclosure_inbox freightos_delivery_worker INSERT,SELECT',
+      'network_disclosure_projection_fields freightos_app SELECT',
+      'network_disclosure_projection_fields freightos_delivery_worker SELECT',
+      'network_disclosure_projections freightos_app SELECT',
+      'network_disclosure_projections freightos_delivery_worker SELECT',
+      'network_disclosure_purpose_ceilings freightos_app SELECT',
+      'network_disclosure_purpose_ceilings freightos_delivery_worker SELECT',
+      'network_disclosure_purposes freightos_app SELECT',
+      'network_disclosure_purposes freightos_delivery_worker SELECT',
+      'network_disclosure_routing_resolutions freightos_delivery_worker INSERT,SELECT',
+      'network_disclosure_sensitivities freightos_app SELECT',
+      'network_disclosure_sensitivities freightos_delivery_worker SELECT',
+      'network_disclosure_subscription_revocations freightos_app INSERT,SELECT',
+      'network_disclosure_subscription_revocations freightos_delivery_worker SELECT',
+      'network_disclosure_subscriptions freightos_app INSERT,SELECT',
+      'network_disclosure_subscriptions freightos_delivery_worker SELECT',
+      'network_events freightos_app SELECT',
+      'network_events freightos_control_plane SELECT',
+      'network_events freightos_delivery_worker SELECT',
+      'network_events freightos_event_writer INSERT',
+      'network_participant_aliases freightos_app INSERT,SELECT,UPDATE',
+      'network_participant_aliases freightos_control_plane INSERT,SELECT,UPDATE',
+      'network_participant_relationships freightos_app INSERT,SELECT,UPDATE',
+      'network_participant_relationships freightos_control_plane INSERT,SELECT,UPDATE',
+      'network_participants freightos_app INSERT,SELECT,UPDATE',
+      'network_participants freightos_control_plane INSERT,SELECT,UPDATE',
+      'network_participants freightos_delivery_worker SELECT',
+      'network_relationship_types freightos_app SELECT',
+      'network_relationship_types freightos_control_plane INSERT,SELECT',
+      'network_schema_disclosure_sensitivity freightos_app SELECT',
+      'network_schema_disclosure_sensitivity freightos_delivery_worker SELECT',
+      'network_schema_versions freightos_app SELECT',
+      'network_schema_versions freightos_control_plane SELECT',
+      'network_schema_versions freightos_delivery_worker SELECT',
+      'network_transport_intents freightos_delivery_worker SELECT',
+      'network_transport_intents freightos_event_writer INSERT',
     ]);
+
+    // Restated as the invariant itself, so it survives any future reshuffle of the list above:
+    // outside N6's own seven tables, the delivery worker holds READ and nothing else.
+    const workerWritesOutsideN6 = r.rows
+      .map((x) => x.line)
+      .filter((line) => line.includes(' freightos_delivery_worker '))
+      .filter((line) => !N6_DELIVERY_RELATIONS.some((t) => line.startsWith(`${t} `)))
+      .filter((line) => /INSERT|UPDATE|DELETE|TRUNCATE/.test(line));
+    expect(workerWritesOutsideN6).toEqual([]);
   });
 
   it('has RLS enabled AND forced on every registry table', async () => {
@@ -1619,25 +1684,13 @@ describe('the structural authority-graph gate', () => {
     // forgot FORCE would otherwise be added without this gate noticing, which is the one thing it
     // exists to prevent. FORCE matters more on the journal than anywhere else — it binds the OWNER
     // too, so a migration-authority session cannot read past the tenant policy either.
-    expect(r.rows.map((x) => x.line)).toEqual([
-      'network_alias_namespaces rls=true force=true',
-      'network_disclosure_authority_bases rls=true force=true',
-      'network_disclosure_grant_revocations rls=true force=true',
-      'network_disclosure_grants rls=true force=true',
-      'network_disclosure_projection_fields rls=true force=true',
-      'network_disclosure_projections rls=true force=true',
-      'network_disclosure_purpose_ceilings rls=true force=true',
-      'network_disclosure_purposes rls=true force=true',
-      'network_disclosure_sensitivities rls=true force=true',
-      'network_events rls=true force=true',
-      'network_participant_aliases rls=true force=true',
-      'network_participant_relationships rls=true force=true',
-      'network_participants rls=true force=true',
-      'network_relationship_types rls=true force=true',
-      'network_schema_disclosure_sensitivity rls=true force=true',
-      'network_schema_versions rls=true force=true',
-      'network_transport_intents rls=true force=true',
-    ]);
+    //
+    // Discovered by prefix, judged against the declared inventory. The prefix is what spots a
+    // relation nobody declared; it is not what decides which layer that relation belongs to.
+    expect(r.rows.map((x) => x.line)).toEqual(
+      ALL_NETWORK_RELATIONS.map((t) => `${t} rls=true force=true`),
+    );
+    expect(r.rows).toHaveLength(24);
   });
 
   it('defines the participant type enum as exactly the seven ADR-N0005 values', async () => {
