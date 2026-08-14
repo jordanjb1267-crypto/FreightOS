@@ -250,17 +250,32 @@ describe('the manifest currently approves nothing — N7-A', () => {
     // egress" would drift, and the drift would be invisible until one of them was the only thing
     // still looking.
     const shared = readFileSync(join(ROOT, 'scripts/lib/network-primitives.mjs'), 'utf8');
-    expect(shared).toContain('export const NETWORK_MODULES');
-    expect(shared).toContain('export const TS_CALL_PATTERNS');
+
+    // EVERY exported constant the shared module defines, DERIVED from the module rather than
+    // listed here. Naming two of them by hand left the other six unguarded: mutation E-04
+    // redefined `SPECIFIER_PATTERNS` locally and walked straight through, because the check only
+    // ever looked for `NETWORK_MODULES` and `TS_CALL_PATTERNS`. A gate that enumerates its
+    // suspects protects exactly its suspects.
+    const exported = [...shared.matchAll(/export const ([A-Z][A-Z0-9_]*)\s*=/g)].map((m) => m[1]!);
+    expect(exported, 'the shared module exports no inventory constants').toContain(
+      'NETWORK_MODULES',
+    );
+    expect(exported.length, 'the derived export list is implausibly short').toBeGreaterThanOrEqual(
+      4,
+    );
 
     for (const gate of [GATE, LEGACY]) {
       const source = readFileSync(gate, 'utf8');
       expect(source, `${gate} must import the shared inventory`).toContain(
         'network-primitives.mjs',
       );
-      // Neither gate may redefine the inventory locally.
-      expect(source).not.toContain('const NETWORK_MODULES');
-      expect(source).not.toContain('const TS_CALL_PATTERNS');
+      // Neither gate may redefine ANY of them locally. Two copies of "what counts as egress" drift,
+      // and the drift is invisible until one of them is the only thing still looking.
+      for (const name of exported) {
+        expect(source, `${gate} redefines ${name} locally instead of importing it`).not.toMatch(
+          new RegExp(`(const|let|var)\\s+${name}\\s*=`),
+        );
+      }
     }
   });
 });

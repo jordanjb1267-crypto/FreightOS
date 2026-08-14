@@ -247,6 +247,85 @@ type layer. Unclassified, a real outcome reaches `outcomeSemantics()` as `undefi
 "not terminal, not retryable": the most dangerous available default for a transport decision, and
 reached without an error. The parity assertion compares both directions against the live catalog.
 
+### Batch 2 — the categories batch 1 did not reach
+
+Batch 1 was written against the design. This batch was written against the **required category
+list**, one mutation per category, and it is the one that found things — which is the argument for
+reconciling against categories rather than counting mutations.
+
+| ID         | Mutation                                                           | Detected by                                                                |
+| ---------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `N7-A-B5`  | destination unbound from the participant registry                  | _refuses a destination whose recipient is not a registered ORGANIZATION_   |
+| `N7-A-B5b` | participant key decomposed — type no longer bound                  | same                                                                       |
+| `N7-A-B6`  | obligation unbound from the artifact recipient                     | _makes "artifact for A, destination owned by B" UNREPRESENTABLE_           |
+| `N7-A-B7`  | permit unbound from its obligation's pair                          | _binds a permit to its transport as ONE referential fact_                  |
+| `N7-A-B8`  | attempt recordable with no permit                                  | _REFUSES an attempt with no permit for that attempt number_                |
+| `N7-A-R5`  | transport worker made SET-reachable to the delivery worker         | _is SET-ROLE reachable to nothing_                                         |
+| `N7-A-R6`  | authorization side gains egress-side obligation state              | _extends the delivery worker by exactly the two N7 relations_              |
+| `N7-A-A5`  | routing config gains `permitted_pointers`                          | _grants no field and no disclosure authority_                              |
+| `N7-A-A6`  | destination registration backfills historical inbox rows           | _creates NO obligation for history when a destination is registered later_ |
+| `N7-A-A7`  | schema compatibility by prefix instead of exact governed reference | _refuses an ungoverned purpose and an ungoverned contract_                 |
+| `N7-A-T2`  | the N6 retry constant changed from 6 to 9                          | _is the SAME constant_ — and N7's derived value followed it                |
+| `E-04`     | a gate redefines the primitive inventory locally                   | _shares ONE primitive inventory with the legacy validator_                 |
+
+`N7-A-T2` is the derivation check `OR-09` needs, run as a mutation rather than asserted. Changing
+N6's constant made only the RULED-VALUE assertions fail; every parity assertion between N6 and N7
+kept passing, which is what "derived, not restated" means operationally. A restatement would have
+failed the parity assertions and left the ruled-value ones green — the opposite signature.
+
+### Three mutations were NOT detected on first run, and each was a real hole
+
+Reporting these is the point of the exercise. A matrix that only lists the mutations that passed is
+a matrix that was written after the fact.
+
+**`N7-A-B5` — the destination/participant binding had no negative test.** Removing the composite
+foreign key outright changed nothing observable: every destination test was a positive case or a
+tenancy case, and a positive test cannot notice a missing constraint. Fixed by adding the negative —
+an unregistered uuid AND a registered participant of the wrong kind, the second of which a
+single-column key would have accepted. Both mutations are detected now, and `B5b` exists because
+"decomposed to a single column" is the shape a well-meaning simplification actually produces.
+
+**`E-04` — the shared-inventory check guarded two of eight exports.** It looked for
+`NETWORK_MODULES` and `TS_CALL_PATTERNS` by name, so redefining `SPECIFIER_PATTERNS` locally walked
+straight through — and a gate whose specifier list has silently diverged still reports PASS while
+missing every import-position primitive. Fixed by deriving the guarded list from the shared module's
+own exports, so a ninth export is covered the moment it exists. This is the same defect class as the
+mutation it was meant to catch, one level up.
+
+**`N7-A-R6` was a harness error, not a coverage hole** — the first run named a test pattern that
+matches nothing, so the run reported INCONCLUSIVE rather than a false green. Re-targeted at the
+assertion that actually names the broker's grant set, it is detected. Recorded because
+"INCONCLUSIVE" and "UNDETECTED" must not be allowed to blur.
+
+### Categories with no mutation, and why that is the stronger statement
+
+Two required categories cannot be mutated because the property is structural rather than enforced:
+
+- **multiple destinations multiply N5 authority.** There is no code path to break. An obligation
+  carries `artifact_id` and derives everything else; the artifact's `permitted_pointers`,
+  `authorization_digest` and `composite_decision_digest` are written once by N6 and are not
+  reachable from the destination table at all. `network_external_transports` has no column that
+  could vary per destination and affect authorization. Proven by the multi-destination test
+  observing that two obligations reference one artifact, and by `A5` — the mutation that gives the
+  destination a field authority IS this category's mutation, approached from the side where a
+  representation exists.
+- **caller endpoint.** N7-A has no transport execution API to pass an endpoint to. The gate
+  (`scripts/test/n7-transport-source-gate.test.ts`) is therefore written against the surface that
+  exists, so that the first sender inherits it rather than being asked to add it.
+
+### Cluster-state restoration — §37
+
+Every role mutation restores **both** the file and the cluster, because `N7-A-R3` proved a file
+restore is not enough: a `GRANT` is a catalog row shared by every database, and it survived the
+migration file being put back. The membership graph is measured after each batch:
+
+```
+freightos_migrator -> freightos_transport_worker  admin=true inherit=false set=false
+freightos_migrator -> freightos_delivery_worker   admin=true inherit=false set=false
+```
+
+Nothing else. No leftover grant from `R3` or `R5`, both of which created worker-to-worker edges.
+
 ### Gate mutations
 
 `N7-M-20`, `N7-M-22` and `N7-M-23` are implemented as standing negative controls inside

@@ -468,11 +468,47 @@ CREATE TABLE network_external_transport_attempts (
 
   failure_category text CHECK (failure_category IS NULL OR length(btrim(failure_category)) > 0),
 
+  -- THE PERMIT BINDING, and the column that makes it conditional without letting anyone choose the
+  -- condition.
+  --
+  -- Without this, `(transport_id, attempt_number)` existed on the permit AND on the attempt with
+  -- NOTHING forcing agreement — the R-07 shape, one layer out from where 0034 met it. An attempt
+  -- could be recorded for attempt 3 when no permit for attempt 3 was ever minted, which would make
+  -- the brokered model a matter of the transport worker's good behaviour rather than a property of
+  -- the schema. OR-05's whole claim is that the egress side cannot act without a permit; a claim
+  -- enforced only by the actor it constrains is not enforced.
+  --
+  -- It cannot be an unconditional foreign key, because not every outcome follows a permit. Five of
+  -- the fourteen are refusals FreightOS makes about ITSELF, before any permit is required: the
+  -- kill switch fired, authorization was withdrawn, the destination was revoked, our configuration
+  -- is invalid, or our own SSRF control refused the address. Those must still be recordable — an
+  -- unrecordable refusal is an operator with no way to see why nothing is being sent.
+  --
+  -- So the exemption is DERIVED from the outcome rather than asserted alongside it. The column is
+  -- GENERATED ALWAYS: no caller can write it, and no caller can therefore claim exemption for an
+  -- outcome that did reach the network. A composite foreign key with MATCH SIMPLE (the default) is
+  -- not checked when any column is NULL, which is exactly the conditional semantics wanted — and
+  -- the CASE below is asserted against the TypeScript taxonomy's `spendsAttempt` set, so the two
+  -- cannot drift.
+  permit_attempt_number integer
+    GENERATED ALWAYS AS (
+      CASE WHEN outcome IN ('configuration_invalid', 'destination_disabled', 'egress_disabled',
+                            'authorization_withdrawn', 'address_rejected')
+           THEN NULL ELSE attempt_number END
+    ) STORED,
+
   CONSTRAINT network_external_transport_attempts_number_unique
     UNIQUE (transport_id, attempt_number),
+  CONSTRAINT network_external_transport_attempts_permit_binding
+    FOREIGN KEY (transport_id, permit_attempt_number)
+    REFERENCES network_external_transport_permits (transport_id, attempt_number),
   CONSTRAINT network_external_transport_attempts_success_shape
     CHECK ((outcome = 'accepted') = (failure_category IS NULL))
 );
+
+-- F-20 support for the composite permit binding, in constraint column order.
+CREATE INDEX network_external_transport_attempts_permit_binding_idx
+  ON network_external_transport_attempts (transport_id, permit_attempt_number);
 
 -- ---------------------------------------------------------------------------
 -- §9. Immutability.

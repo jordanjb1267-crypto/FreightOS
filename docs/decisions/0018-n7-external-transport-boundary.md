@@ -363,15 +363,30 @@ the two disagree, this section is current and the text above is the reasoning th
   that had needed a definer would have been smuggling privilege through the one door SR-2's gates
   watch.
 
-**Still open, and deliberately not decided in N7-A:**
+**Ruled after N7-A — `OR-13`: external envelope registration is DEFERRED TO N7-B.**
 
-- **The external envelope's field set and its N2 registration.** The section above marks the fields
-  "not frozen, pending owner ruling", and that is still true. Registering a wire contract as a
-  governed durable schema freezes bytes before any adapter has had to produce them; the version
-  and the field list are better ruled alongside the adapter that emits them. N7-A therefore ships
-  the _routing_ half — a destination declares the payload `durable_schema_ref` it accepts, by exact
-  reference — and leaves envelope registration to N7-B. Envelope version and payload schema version
-  remain separate dimensions; nothing in 0035 collapses them.
+The section above marks the envelope's fields "not frozen, pending owner ruling". `OR-13` rules that
+the freezing itself waits: the field set, serialization contract, signing surface and acknowledgement
+semantics are not settled, and registering a governed durable N2 wire contract before the first
+adapter exercises those boundaries would freeze bytes nobody has had to produce — and a durable
+schema is by design the hardest thing in this repository to change afterwards.
+
+N7-A therefore registers **no** external wire-envelope durable schema, emits no envelope, and
+contains no external serialization code. It ships the _routing_ half instead: a destination declares
+the artifact payload's `durable_schema_ref` it accepts, by **exact reference**, with no prefix and no
+family inheritance. The two versions stay separate dimensions —
+
+```
+artifact payload durable_schema_ref   !=   external transport envelope version
+```
+
+— and nothing in 0035 collapses them. No further migration is to be created to satisfy the
+superseded registration requirement; `0035` is N7-A's only migration. Full ruling in
+`N7_OWNER_RULINGS.md` (`OR-13`), asserted mechanically by
+`scripts/test/n7-envelope-deferral-gate.test.ts`.
+
+**Still open:**
+
 - **`OR-06`'s open half** — whether endpoints are ultimately stored inline or resolved from a
   reference. Until it is ruled, `endpoint_ref` holds a reference and a CHECK constraint refuses
   anything with a URL scheme.

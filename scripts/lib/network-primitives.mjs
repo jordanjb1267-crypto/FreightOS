@@ -129,6 +129,15 @@ export const NETWORK_MODULES = new Set([
   'node:net',
   'node:tls',
   'node:dgram',
+  // NAME RESOLUTION. Added when the N7-A coverage review asked what the inventory actually
+  // enumerates rather than how many entries it has. `dns` opens no connection, which is exactly why
+  // it was missing and exactly why it belongs: DNS rebinding is the central concern of
+  // N7_THREAT_MODEL §5, and a module that can resolve a name is a module doing the first half of an
+  // egress. It is also the shape a "we only look things up" exemption would take.
+  'dns',
+  'dns/promises',
+  'node:dns',
+  'node:dns/promises',
   'undici',
   'node-fetch',
   'axios',
@@ -136,6 +145,15 @@ export const NETWORK_MODULES = new Set([
   'superagent',
   'request',
   'ws',
+  // PROCESS ESCAPE. `child_process` reaches `curl`, `wget`, `nc` and `psql`, so a scanner that
+  // enumerates HTTP clients while ignoring it enumerates the polite ways to leave. The threat model
+  // treats the boundary as "can a byte leave this process", not "which library carried it".
+  //
+  // Free to deny today: no runtime module under `packages/*/src` imports it. Test trees are already
+  // outside the scanned surface, which is where the cluster-teardown proofs legitimately spawn
+  // `pg_ctl`.
+  'child_process',
+  'node:child_process',
 ]);
 
 export const BROKER_MODULES = new Set([

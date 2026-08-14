@@ -28,8 +28,56 @@ Companion to ADR-N0018.
 | OR-10 | Replay policy                         | remain deferred                                | —                    |
 | OR-11 | Acknowledgement semantics             | per-adapter, 2xx ≠ processed                   | taxonomy             |
 | OR-12 | Attempt-metadata retention            | **no recommendation — needs policy**           | retention            |
+| OR-13 | External wire-envelope registration   | **RULED: defer to N7-B**                       | N2 registry, adapter |
 
 **OR-02 and OR-05 are coupled and must be ruled together.** See OR-05.
+
+## OR-13 — External transport envelope registration _(ruled: DEFER TO N7-B)_
+
+Added after N7-A, because the question only became answerable once the non-egress foundation
+existed. The architecture assumed the envelope would be registered as a governed N2 durable schema
+during the transport phase; N7-A made clear that "the transport phase" is two phases, and the
+envelope belongs to the second.
+
+**Ruling.**
+
+```
+N2 EXTERNAL TRANSPORT ENVELOPE REGISTRATION = DEFERRED TO N7-B
+```
+
+**Reason.** The wire-envelope field set, serialization contract, signing surface and acknowledgement
+semantics are not frozen. Registering a governed durable N2 wire contract before the first adapter
+has exercised those boundaries would freeze bytes nobody has had to produce — and a durable schema
+is, by design, the hardest thing in this repository to change afterwards.
+
+**What N7-A must therefore contain, and does:**
+
+| Requirement                                                                          | State        |
+| ------------------------------------------------------------------------------------ | ------------ |
+| No external wire-envelope durable schema registered                                  | 0 in N2      |
+| No external envelope emitted                                                         | none         |
+| No external serialization implementation                                             | none         |
+| Destination compatibility bound to the artifact payload's exact `durable_schema_ref` | implemented  |
+| Payload-schema version and transport-envelope version kept separate                  | see below    |
+| Envelope documented as an explicit N7-B owner gate                                   | this section |
+
+**The distinction the ruling turns on**, and the one a later reader is most likely to collapse:
+
+```
+artifact payload durable_schema_ref   !=   external transport envelope version
+```
+
+The first says _what the bytes inside mean_ and is governed by N2 today. The second would say _what
+frame carries them_ and is governed by nothing yet. A destination in N7-A declares the first, by
+**exact reference** — no prefix inheritance, no family inheritance, no most-recent-wins. It declares
+nothing about the second, because the second does not exist.
+
+Collapsing them into one number is the specific error this ruling prevents: a destination that
+accepts envelope v1 while accepting only some payload schema versions is an ordinary situation, and
+one version field cannot express it.
+
+**No additional migration** is to be created to satisfy the superseded envelope-registration
+requirement. `0035` is N7-A's only migration.
 
 ---
 

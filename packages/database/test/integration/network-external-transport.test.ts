@@ -192,17 +192,32 @@ interface Chain {
 
 async function mintChain(label: string, recipientId?: string): Promise<Chain> {
   const recipient = recipientId ?? (await registerOrganization(label, TENANT_A));
-  const subscription = await asAdminOfA(async (c) => {
+  // A recipient may already hold the subscription for this (purpose, contract) — N6 enforces one
+  // effective interest per triple, so a second chain for the same recipient reuses it rather than
+  // duplicating it. This is what lets a test build two artifacts for ONE recipient, which is the
+  // shape the replay and multi-destination cases need.
+  const existing = await asAdminOfA(async (c) => {
     const r = await c.query<{ id: string }>(
-      `INSERT INTO network_disclosure_subscriptions
-         (recipient_participant_id, purpose_code, durable_schema_ref, destination_kind,
-          effective_from)
-       VALUES ($1, $2, $3, 'freightos_inbox', now() - interval '1 day')
-       RETURNING subscription_id AS id`,
+      `SELECT subscription_id AS id FROM network_disclosure_subscriptions
+        WHERE recipient_participant_id = $1 AND purpose_code = $2 AND durable_schema_ref = $3
+        LIMIT 1`,
       [recipient, PURPOSE, WORKFLOW_STATE],
     );
-    return r.rows[0]!.id;
+    return r.rows[0]?.id ?? null;
   });
+  const subscription =
+    existing ??
+    (await asAdminOfA(async (c) => {
+      const r = await c.query<{ id: string }>(
+        `INSERT INTO network_disclosure_subscriptions
+           (recipient_participant_id, purpose_code, durable_schema_ref, destination_kind,
+            effective_from)
+         VALUES ($1, $2, $3, 'freightos_inbox', now() - interval '1 day')
+         RETURNING subscription_id AS id`,
+        [recipient, PURPOSE, WORKFLOW_STATE],
+      );
+      return r.rows[0]!.id;
+    }));
   const event = await acceptEvent(orgAsserter);
   // A digest unique per chain, so a permit bound to one artifact's bytes is demonstrably not
   // satisfiable by another's — the point of the digest foreign key.
@@ -548,6 +563,55 @@ describe('destinations are recipient-authored and permission-gated — OR-06', (
     expect(r.rows[0]!.t).toBe('organization');
   });
 
+  it('refuses a destination whose recipient is not a registered ORGANIZATION', async () => {
+    // The registry binding, tested negatively. Every other destination test is a positive or a
+    // tenancy case, and mutation N7-A-B5 — removing the composite participant foreign key
+    // outright — walked through all of them undetected: a positive test cannot notice a missing
+    // constraint, and the tenancy policy passes an unregistered uuid straight to the FK that was
+    // no longer there.
+    //
+    // Two negatives, because the composite key carries two facts. `recipient_participant_id` must
+    // name a REGISTERED participant, and `recipient_participant_type` — GENERATED ALWAYS as
+    // 'organization' — must match. A bare `uuid REFERENCES network_participants (id)` would satisfy
+    // the first and not the second, which is why the key is composite.
+    const unregistered = await attempt(
+      owner,
+      `INSERT INTO network_transport_destinations
+         (recipient_participant_id, destination_kind, purpose_code, durable_schema_ref, endpoint_ref)
+       VALUES ($1, 'https_webhook', $2, $3, 'destination-config:ghost')`,
+      [randomUUID(), PURPOSE, WORKFLOW_STATE],
+    );
+    expectSqlstate(unregistered, FOREIGN_KEY_VIOLATION, 'an unregistered recipient was accepted');
+    expect(unregistered.constraint).toBe(
+      'network_transport_destinations_recipient_is_organization',
+    );
+
+    const facility = await asRole(db, 'freightos_control_plane', async (client) => {
+      const r = await client.query<{ id: string }>(
+        `INSERT INTO network_participants
+           (participant_type, display_name, tenant_id, status, source_system, created_by, updated_by)
+         VALUES ('facility', $1, $2, 'active', 'test:n7', 'test:n7', 'test:n7')
+         RETURNING id`,
+        [`n7-dest-facility-${randomUUID().slice(0, 8)}`, TENANT_A],
+      );
+      return r.rows[0]!.id;
+    });
+    const wrongType = await attempt(
+      owner,
+      `INSERT INTO network_transport_destinations
+         (recipient_participant_id, destination_kind, purpose_code, durable_schema_ref, endpoint_ref)
+       VALUES ($1, 'https_webhook', $2, $3, 'destination-config:facility')`,
+      [facility, PURPOSE, WORKFLOW_STATE],
+    );
+    // A REGISTERED participant of the wrong kind. The single-column key would have accepted this.
+    expectSqlstate(
+      wrongType,
+      FOREIGN_KEY_VIOLATION,
+      'a facility was accepted as a destination recipient',
+    );
+    expect(wrongType.constraint).toBe('network_transport_destinations_recipient_is_organization');
+  });
+
   it('refuses a destination for an organization in ANOTHER tenant', async () => {
     // The exact hazard: `orgOtherTenant` is a real, registered, active organization. Every
     // individual check it faces passes. What refuses it is the tenancy join in the INSERT policy,
@@ -689,7 +753,10 @@ describe('destinations are recipient-authored and permission-gated — OR-06', (
       ['network_transport_destinations', '0A000'],
       ['network_external_transports', '0A000'],
       ['network_transport_destination_revocations', APPEND_ONLY],
-      ['network_external_transport_permits', APPEND_ONLY],
+      // Permits became FK-referenced when the attempt journal gained its permit binding, so their
+      // refusal moved from the trigger to the referential layer. Recording WHICH guard answers is
+      // what made that visible as a one-line diff instead of a silent change of protection.
+      ['network_external_transport_permits', '0A000'],
       ['network_external_transport_attempts', APPEND_ONLY],
     ] as const) {
       const outcome = await attempt(owner, `TRUNCATE ${table}`);
@@ -949,6 +1016,65 @@ describe('an obligation exists only for an artifact that was internally delivere
       [noDestination.artifact],
     );
     expect(none.rows[0]!.n).toBe(0);
+  });
+
+  it('creates NO obligation for history when a destination is registered later — OR-10', async () => {
+    // THE REPLAY QUESTION, asked behaviourally rather than by reading the schema.
+    //
+    // A recipient registers a destination today. Every artifact already delivered to their inbox is
+    // sitting there, authorized, with a committed inbox row — the exact precondition an obligation
+    // is built from. If registering a destination swept that history, one configuration change
+    // would externally transmit months of past disclosures in a batch, each of them authorized at
+    // the time and none of them authorized NOW. That is replay through the front door, and it is
+    // the single most plausible way for it to arrive by accident.
+    const historic = await mintChain('replay-history-a');
+    const alsoHistoric = await mintChain('replay-history-b', historic.recipient);
+
+    const before = await owner.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM network_external_transports WHERE recipient_participant_id = $1`,
+      [historic.recipient],
+    );
+    expect(
+      before.rows[0]!.n,
+      'the recipient already owes transport, so the test is not clean',
+    ).toBe(0);
+
+    // The destination arrives AFTER both inbox rows exist.
+    const destination = await createDestination(historic.recipient);
+
+    const after = await owner.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM network_external_transports WHERE recipient_participant_id = $1`,
+      [historic.recipient],
+    );
+    expect(after.rows[0]!.n, 'registering a destination swept historical inbox rows').toBe(0);
+
+    // ANTI-VACUITY, and it is the whole test. Zero obligations would also be the result if the
+    // obligation path were simply broken. So a PROSPECTIVE obligation is created against the same
+    // destination and the same recipient, and it works — proving the zero above is a statement
+    // about history rather than about a dead code path.
+    const prospective = await createTransport(alsoHistoric, destination);
+    expect(prospective).toMatch(/^[0-9a-f-]{36}$/);
+    const afterProspective = await owner.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM network_external_transports WHERE recipient_participant_id = $1`,
+      [historic.recipient],
+    );
+    expect(afterProspective.rows[0]!.n).toBe(1);
+
+    // And there is no trigger on the destination table that could ever do the sweep — the
+    // behavioural result above is backed by the structural absence of a mechanism. Destinations
+    // carry only `reject_mutation` guards; nothing on INSERT.
+    const triggers = await owner.query<{ line: string }>(
+      `SELECT format('%s %s', t.tgname, p.proname) AS line
+         FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+         JOIN pg_proc p ON p.oid = t.tgfoid
+        WHERE NOT t.tgisinternal AND c.relname = 'network_transport_destinations'
+          AND (t.tgtype & 4) <> 0
+        ORDER BY 1`,
+    );
+    expect(
+      triggers.rows.map((x) => x.line),
+      'a destination INSERT trigger exists',
+    ).toEqual([]);
   });
 
   it('refuses a SECOND obligation for the same (artifact, destination), terminal or not', async () => {
@@ -1300,6 +1426,119 @@ describe('authorization role != egress role — OR-02', () => {
     expect(control.rows[0]!.n, 'the oracle reports nothing for anyone').toBeGreaterThan(10);
   });
 
+  it('is SET-ROLE reachable to nothing — the indirect authority path, closed', async () => {
+    // ACL alone is not the whole answer. `SET ROLE` moves `current_user` without authenticating
+    // anything, so a role that can SET to another role holds that role's privileges on demand —
+    // and an ACL ledger measured only against `freightos_transport_worker` would report zero N5
+    // reads while one statement away from all of them.
+    //
+    // Measured through `pg_has_role(..., 'USAGE')`, which is what PostgreSQL itself consults, and
+    // over EVERY freightos role rather than a chosen few — a check that names its suspects misses
+    // the transitive path through a role nobody thought to list.
+    // BOTH privileges, because they answer different questions. `USAGE` is "holds the role's
+    // rights without doing anything"; `MEMBER` is "is a member, and could reach them". Checking
+    // only USAGE would miss a SET-reachable edge; checking only MEMBER would miss an inherited one.
+    const reachable = await owner.query<{ line: string }>(
+      `SELECT format('%s -> %s usage=%s member=%s', $1::text, r.rolname,
+                     pg_has_role($1::text, r.oid, 'USAGE')::text,
+                     pg_has_role($1::text, r.oid, 'MEMBER')::text) AS line
+         FROM pg_roles r
+        WHERE r.rolname LIKE 'freightos%' AND r.rolname <> $1
+          AND (pg_has_role($1::text, r.oid, 'USAGE') OR pg_has_role($1::text, r.oid, 'MEMBER'))
+        ORDER BY 1`,
+      ['freightos_transport_worker'],
+    );
+    expect(reachable.rows.map((x) => x.line)).toEqual([]);
+
+    // ANTI-VACUITY. An empty answer would look identical if the question were malformed, so the
+    // same oracle is asked about a role that genuinely has edges. The migrator is a member of every
+    // managed role — that is how a revert drops them — and holds USAGE on none of them, which is
+    // the ADMIN-without-INHERIT shape 0029 established. Both halves are asserted, so the oracle is
+    // shown to discriminate rather than merely to answer.
+    const control = await owner.query<{ member: number; usage: number }>(
+      `SELECT count(*) FILTER (WHERE pg_has_role('freightos_migrator', r.oid, 'MEMBER'))::int AS member,
+              count(*) FILTER (WHERE pg_has_role('freightos_migrator', r.oid, 'USAGE'))::int  AS usage
+         FROM pg_roles r
+        WHERE r.rolname IN ('freightos_transport_worker', 'freightos_delivery_worker')`,
+    );
+    expect(control.rows[0]!.member, 'the reachability oracle reports nothing for anyone').toBe(2);
+    expect(control.rows[0]!.usage, 'the migrator INHERITS a worker, which OR-02 forbids').toBe(0);
+
+    // And the definitive statement about SET, which `pg_has_role(..., 'MEMBER')` predates and
+    // therefore overstates: in PostgreSQL 16 `SET ROLE` requires the SET option on the membership,
+    // and the migrator's edge does not carry it. So even the one role with edges to the workers
+    // cannot become either of them.
+    const setOption = await owner.query<{ line: string }>(
+      `SELECT format('%s->%s set=%s', m.rolname, r.rolname, am.set_option::text) AS line
+         FROM pg_auth_members am
+         JOIN pg_roles r ON r.oid = am.roleid
+         JOIN pg_roles m ON m.oid = am.member
+        WHERE r.rolname IN ('freightos_transport_worker', 'freightos_delivery_worker')
+        ORDER BY 1`,
+    );
+    expect(setOption.rows.map((x) => x.line)).toEqual([
+      'freightos_migrator->freightos_delivery_worker set=false',
+      'freightos_migrator->freightos_transport_worker set=false',
+    ]);
+  });
+
+  it('pairs every FORCE-RLS SELECT grant with an admitting policy AND a visible row', async () => {
+    // THE FULL LEDGER, and the third column is the one that matters. A GRANT with no admitting
+    // policy under FORCE RLS returns ZERO ROWS AND RAISES NOTHING — met three times in this
+    // repository already (R-05 failed closed, R-06 failed open, U-10 blind). A ledger that checked
+    // only "grant + policy exists" would still pass if the policy's predicate admitted nothing, so
+    // this one reads an actual row through the worker's own connection.
+    const chain = await mintChain('rls-ledger');
+    const destination = await createDestination(chain.recipient);
+    const transportId = await createTransport(chain, destination);
+    await mintPermit(chain, transportId, destination);
+    await transport.query(
+      `INSERT INTO network_external_transport_attempts
+         (transport_id, attempt_number, outcome, failure_category)
+       VALUES ($1, 1, 'timeout', 'transport')`,
+      [transportId],
+    );
+    await asAdminOfA(async (c) => {
+      await c.query(
+        `INSERT INTO network_transport_destination_revocations (destination_id, reason)
+         VALUES ($1, 'n7 ledger fixture: the revocation read must be non-empty too')`,
+        [destination],
+      );
+    });
+
+    const grants = await owner.query<{ relation: string; force: boolean; policies: string }>(
+      `SELECT g.table_name AS relation,
+              c.relforcerowsecurity AS force,
+              coalesce((SELECT string_agg(p.policyname, ',' ORDER BY p.policyname)
+                          FROM pg_policies p
+                         WHERE p.schemaname = 'public' AND p.tablename = g.table_name
+                           AND p.cmd IN ('SELECT', 'ALL')
+                           AND ('freightos_transport_worker' = ANY (p.roles)
+                                OR 'public' = ANY (p.roles))), '(NONE)') AS policies
+         FROM information_schema.role_table_grants g
+         JOIN pg_class c ON c.oid = ('public.' || g.table_name)::regclass
+        WHERE g.grantee = 'freightos_transport_worker' AND g.privilege_type = 'SELECT'
+        ORDER BY g.table_name`,
+    );
+    expect(grants.rowCount, 'the ledger is empty, so every claim below is vacuous').toBe(8);
+
+    const ledger: string[] = [];
+    for (const row of grants.rows) {
+      expect(row.force, `${row.relation} is not FORCE-RLS`).toBe(true);
+      expect(row.policies, `${row.relation}: SELECT granted with no admitting policy`).not.toBe(
+        '(NONE)',
+      );
+      const seen = await transport.query(`SELECT 1 FROM public.${row.relation} LIMIT 1`);
+      ledger.push(
+        `${row.relation} force=${row.force} policies=${row.policies} rows=${seen.rowCount}`,
+      );
+      // THE ZERO-ROW FALSE GREEN, refused. Every one of the eight has a fixture row above or is
+      // reachable from one, so a permanently-empty read shows up here as 0 rather than as silence.
+      expect(seen.rowCount, `${row.relation}: grant + policy present but NO row visible`).toBe(1);
+    }
+    expect(ledger).toHaveLength(8);
+  });
+
   it('cannot read an N5 grant even by trying — the refusal is a privilege error, not an empty set', async () => {
     // Distinguishing the two is the entire lesson of R-05 / R-06 / U-10. An empty set would be
     // indistinguishable from "there are no grants", and a future migration that added a SELECT
@@ -1469,6 +1708,10 @@ describe('the attempt journal records metadata and never content', () => {
     const chain = await mintChain('attempt-shape');
     const destination = await createDestination(chain.recipient);
     const transportId = await createTransport(chain, destination);
+    // The permit is part of the FIXTURE here, not the subject. Both outcomes below reached the
+    // network, so both are permit-bound; without one the insert would fail on the permit binding
+    // and this test would credit the wrong constraint — T-03's exact shape.
+    await mintPermit(chain, transportId, destination);
 
     const acceptedWithFailure = await attempt(
       transport,
@@ -1488,10 +1731,143 @@ describe('the attempt journal records metadata and never content', () => {
     expectSqlstate(failureWithout, CHECK_VIOLATION, 'a failed attempt carried no category');
   });
 
+  it('REFUSES an attempt with no permit for that attempt number — OR-05 made structural', async () => {
+    // Without this binding, `(transport_id, attempt_number)` existed on the permit AND on the
+    // attempt with nothing forcing agreement — R-07's shape one layer out. An attempt could be
+    // recorded for a number no permit ever authorized, which would make "the egress side cannot
+    // act without a permit" a property of the worker's good behaviour rather than of the schema.
+    // A claim enforced only by the actor it constrains is not enforced.
+    const chain = await mintChain('attempt-needs-permit');
+    const destination = await createDestination(chain.recipient);
+    const transportId = await createTransport(chain, destination);
+
+    const unpermitted = await attempt(
+      transport,
+      `INSERT INTO network_external_transport_attempts
+         (transport_id, attempt_number, outcome, failure_category)
+       VALUES ($1, 1, 'timeout', 'transport')`,
+      [transportId],
+    );
+    expectSqlstate(unpermitted, FOREIGN_KEY_VIOLATION, 'an attempt was recorded with no permit');
+    expect(unpermitted.constraint).toBe('network_external_transport_attempts_permit_binding');
+
+    // POSITIVE CONTROL on the same axis: mint the permit and the identical insert succeeds. Without
+    // this the refusal above is satisfied by an insert that was never going to work.
+    await mintPermit(chain, transportId, destination);
+    const permitted = await attempt(
+      transport,
+      `INSERT INTO network_external_transport_attempts
+         (transport_id, attempt_number, outcome, failure_category)
+       VALUES ($1, 1, 'timeout', 'transport')`,
+      [transportId],
+    );
+    expect(permitted.sqlstate, `a permitted attempt was refused: ${permitted.message}`).toBeNull();
+
+    // AND THE PERMIT FOR ATTEMPT 1 DOES NOT AUTHORIZE ATTEMPT 2. The binding is per-number, which
+    // is what makes it attempt-scoped rather than a per-obligation licence.
+    const nextNumber = await attempt(
+      transport,
+      `INSERT INTO network_external_transport_attempts
+         (transport_id, attempt_number, outcome, failure_category)
+       VALUES ($1, 2, 'timeout', 'transport')`,
+      [transportId],
+    );
+    expectSqlstate(nextNumber, FOREIGN_KEY_VIOLATION, 'a permit for attempt 1 covered attempt 2');
+  });
+
+  it('still records a locally-refused outcome, and derives the exemption rather than accepting it', async () => {
+    // The five outcomes decided before any permit is required — the kill switch fired,
+    // authorization was withdrawn, the destination was revoked, our configuration is invalid, or
+    // our own SSRF control refused the address. An unrecordable refusal is an operator with no way
+    // to see why nothing is being sent, so these must remain writable with no permit.
+    const chain = await mintChain('attempt-local-refusal');
+    const destination = await createDestination(chain.recipient);
+    const transportId = await createTransport(chain, destination);
+
+    let n = 0;
+    for (const outcome of [
+      'configuration_invalid',
+      'destination_disabled',
+      'egress_disabled',
+      'authorization_withdrawn',
+      'address_rejected',
+    ] as const) {
+      n += 1;
+      const outcomeRow = await attempt(
+        transport,
+        `INSERT INTO network_external_transport_attempts
+           (transport_id, attempt_number, outcome, failure_category)
+         VALUES ($1, $2, $3, 'local')`,
+        [transportId, n, outcome],
+      );
+      expect(
+        outcomeRow.sqlstate,
+        `${outcome} could not be recorded without a permit: ${outcomeRow.message}`,
+      ).toBeNull();
+    }
+
+    // THE EXEMPTION IS DERIVED, NOT ASSERTED. `permit_attempt_number` is GENERATED ALWAYS, so no
+    // caller can claim exemption for an outcome that did reach the network — which is the only
+    // reason a conditional foreign key is safe here at all.
+    const generated = await owner.query<{ gen: string | null }>(
+      `SELECT a.attgenerated::text AS gen FROM pg_attribute a
+         JOIN pg_class c ON c.oid = a.attrelid
+        WHERE c.relname = 'network_external_transport_attempts'
+          AND a.attname = 'permit_attempt_number'`,
+    );
+    expect(generated.rows[0]!.gen, 'the exemption column is caller-writable').toBe('s');
+
+    const write = await attempt(
+      transport,
+      `INSERT INTO network_external_transport_attempts
+         (transport_id, attempt_number, outcome, failure_category, permit_attempt_number)
+       VALUES ($1, 9, 'timeout', 'transport', NULL)`,
+      [transportId],
+    );
+    // PostgreSQL refuses a write to a generated column outright — 428C9.
+    expect(write.sqlstate, `the exemption was caller-supplied: ${write.message}`).toBe('428C9');
+  });
+
+  it('derives the exemption set from the SAME classification the TypeScript uses', async () => {
+    // The SQL CASE and `spendsAttempt` are one identity in two places. If they drift, an outcome
+    // that reached the network becomes permit-exempt in the DATABASE while the application still
+    // believes it was permitted — the binding silently stops binding for that outcome, and nothing
+    // fails. That is the quietest possible failure of the whole permit model.
+    //
+    // Read from the CATALOG, not restated here. A list copied into this file would be a third copy
+    // of the same identity, and the test would then be checking two of its own transcriptions
+    // against each other while the shipped column drifted away from both.
+    const expr = await owner.query<{ src: string }>(
+      `SELECT pg_get_expr(d.adbin, d.adrelid) AS src
+         FROM pg_attrdef d
+         JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+         JOIN pg_class c ON c.oid = d.adrelid
+        WHERE c.relname = 'network_external_transport_attempts'
+          AND a.attname = 'permit_attempt_number'`,
+    );
+    expect(expr.rowCount, 'the generated column has no expression to read').toBe(1);
+
+    const exemptInSql = TRANSPORT_ATTEMPT_OUTCOMES.filter((o) =>
+      new RegExp(`'${o}'::app\\.network_external_transport_attempt_outcome`).test(
+        expr.rows[0]!.src,
+      ),
+    );
+    const exemptInTypeScript = TRANSPORT_ATTEMPT_OUTCOMES.filter(
+      (o) => !outcomeSemantics(o).spendsAttempt,
+    );
+    expect([...exemptInSql].sort()).toEqual([...exemptInTypeScript].sort());
+
+    // Anti-vacuity: the partition is real in both directions, so the equality above is not two
+    // empty sets agreeing. Five outcomes are decided locally; nine reached the network.
+    expect(exemptInTypeScript).toHaveLength(5);
+    expect(TRANSPORT_ATTEMPT_OUTCOMES.length - exemptInTypeScript.length).toBe(9);
+  });
+
   it('is append-only — an outcome cannot be revised after the fact', async () => {
     const chain = await mintChain('attempt-append-only');
     const destination = await createDestination(chain.recipient);
     const transportId = await createTransport(chain, destination);
+    await mintPermit(chain, transportId, destination);
     await transport.query(
       `INSERT INTO network_external_transport_attempts
          (transport_id, attempt_number, outcome, failure_category)
