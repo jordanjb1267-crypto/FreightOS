@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadMigrations, migrateDown, migrateUp } from '../../src/migrator.ts';
 import { MIGRATIONS_DIR } from '../../src/paths.ts';
 import { TestDatabase, acquireClusterRoleLock, releaseClusterRoleLock } from './harness.ts';
+import { N5A_DISCLOSURE_RELATIONS } from './network-relations.ts';
 
 /**
  * N5-B migration lifecycle — fresh install, the real upgrade over live N5-A state, one step down,
@@ -56,8 +57,8 @@ async function driveTo(version: number): Promise<void> {
   }
 }
 
-const one = async (sql: string): Promise<string> =>
-  String((await owner.query<{ v: string }>(sql)).rows[0]?.v ?? '(null)');
+const one = async (sql: string, params: unknown[] = []): Promise<string> =>
+  String((await owner.query<{ v: string }>(sql, params)).rows[0]?.v ?? '(null)');
 
 /**
  * Everything 0033 owns, plus everything it must not disturb.
@@ -107,17 +108,34 @@ const snapshot = async (): Promise<Record<string, string>> => {
       : '(absent)',
 
     // --- the surfaces 0033 must leave exactly as it found them ---------------
+    // Named, not pattern-matched. `network\_disclosure\_%` minus the N5-B two was a workable
+    // definition of "N5-A" only while those were the only two layers using the prefix; five of
+    // N6's seven tables match it as well, so the key would have started reporting N6 relations
+    // under an N5-A name. It cannot happen in this file — the phases here never pass 0033 — but a
+    // snapshot key that is wrong whenever it is reachable is not worth keeping.
     n5aTables: await one(
       `SELECT coalesce(string_agg(c.relname, ',' ORDER BY c.relname), '(none)') AS v
        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind = 'r'
-        AND c.relname LIKE 'network\\_disclosure\\_%'
-        AND c.relname NOT IN ('network_disclosure_sensitivities',
-                              'network_disclosure_purpose_ceilings')`,
+        AND c.relname = ANY($1)`,
+      [[...N5A_DISCLOSURE_RELATIONS]],
     ),
+    // Scoped to roles THIS DATABASE depends on, not to every role in the cluster.
+    //
+    // `pg_roles` is a cluster-global catalog. This file drives a database to tip 0033, but the
+    // cluster it lives in also carries databases at 0034, and a role outlives the database that
+    // created it — dropping a database removes its `pg_shdepend` rows, never the role. So an
+    // absolute `pg_roles` snapshot answers "what does this CLUSTER contain", which is not the
+    // question: the question is whether 0033 added a role, and it is answered by whether this
+    // database references one. That distinction is the same cluster-global role doctrine 0029
+    // states for teardown, applied to observation instead of deletion.
     roles: await one(
-      `SELECT string_agg(rolname, ',' ORDER BY rolname) AS v
-       FROM pg_roles WHERE rolname LIKE 'freightos%'`,
+      `SELECT string_agg(r.rolname, ',' ORDER BY r.rolname) AS v
+       FROM pg_roles r WHERE r.rolname LIKE 'freightos%'
+         AND EXISTS (SELECT 1 FROM pg_shdepend d
+                      WHERE d.refclassid = 'pg_authid'::regclass AND d.refobjid = r.oid
+                        AND d.dbid = (SELECT oid FROM pg_database
+                                       WHERE datname = current_database()))`,
     ),
     roleEdges: await one(
       `SELECT coalesce(string_agg(format('%s->%s/%s/%s', r.rolname, m.rolname,
@@ -139,9 +157,8 @@ const snapshot = async (): Promise<Record<string, string>> => {
     n5aPolicies: await one(
       `SELECT coalesce(string_agg(policyname || ':' || cmd, ',' ORDER BY policyname), '(none)') AS v
        FROM pg_policies
-      WHERE schemaname = 'public' AND tablename LIKE 'network\\_disclosure\\_%'
-        AND tablename NOT IN ('network_disclosure_sensitivities',
-                              'network_disclosure_purpose_ceilings')`,
+      WHERE schemaname = 'public' AND tablename = ANY($1)`,
+      [[...N5A_DISCLOSURE_RELATIONS]],
     ),
     registry: await one('SELECT count(*)::text AS v FROM network_schema_versions'),
     purposes: await one('SELECT count(*)::text AS v FROM network_disclosure_purposes'),
@@ -176,8 +193,11 @@ describe('fresh install', () => {
     const applied = await owner.query<{ n: string; tip: string }>(
       'SELECT count(*)::text AS n, max(version)::text AS tip FROM schema_migrations',
     );
-    // Exact, not "at least": a migration silently skipped is the failure this catches.
-    expect(Number(applied.rows[0]!.n)).toBe(migrations.length);
+    // Exact, not "at least": a migration silently skipped is the failure this catches. Counted
+    // against the migrations up to N5-B rather than against `migrations.length`, which is the tip
+    // of the whole repository — this phase deliberately stops at 0033, so comparing it to the tip
+    // asserted "0033 is the last migration that will ever exist" and broke the day 0034 shipped.
+    expect(Number(applied.rows[0]!.n)).toBe(migrations.filter((m) => m.version <= N5B).length);
     expect(applied.rows[0]!.tip).toBe(String(N5B));
 
     const inv = await snapshot();
@@ -202,6 +222,10 @@ describe('fresh install', () => {
 
   it('adds no role, no role edge and no SECURITY DEFINER', async () => {
     const inv = await snapshot();
+    // The eleven roles a database at 0033 depends on. `freightos_delivery_worker` is deliberately
+    // absent: 0034 creates it, and although it may well EXIST in this cluster — roles are
+    // cluster-global and another test database is at 0034 — nothing at 0033 references it. That is
+    // the whole assertion: 0033 adds no role of its own.
     expect(inv['roles']).toBe(
       'freightos_admin,freightos_admin_owner,freightos_app,freightos_audit_writer,' +
         'freightos_binding_owner,freightos_control_plane,freightos_event_writer,' +

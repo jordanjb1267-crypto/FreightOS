@@ -15,6 +15,7 @@ import type {
 } from '@freightos/context/disclosure';
 
 import { TENANT_A, TENANT_B, TestDatabase } from './harness.ts';
+import { N5A_DISCLOSURE_RELATIONS } from './network-relations.ts';
 import type { IdentityFixture } from './identity-harness.ts';
 import { connectAsFixtureAdministrator } from './identity-harness.ts';
 import { asRole, seedVerifiedFixture } from './sr2-harness.ts';
@@ -53,6 +54,7 @@ const N5B_TABLES = [
 
 let owner: Client;
 let app: Client;
+let worker: Client;
 let adminA: Client;
 let fixtureA: IdentityFixture;
 
@@ -189,6 +191,11 @@ beforeAll(async () => {
   // and a login is the shape the evaluator's caller actually has in production.
   app = db.connectAs('freightos_app');
   await app.connect();
+  // N6's worker is the SECOND governed reader of this metadata, added by 0034. It reads the
+  // ceiling to compute a disclosure decision it is not allowed to influence: SELECT and nothing
+  // else, proven below at both the privilege layer and the row layer.
+  worker = db.connectAs('freightos_delivery_worker');
+  await worker.connect();
   adminA = await connectAsFixtureAdministrator(db, fixtureA);
 
   orgA = await registerOrganization('org-a', TENANT_A);
@@ -229,6 +236,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await owner?.end();
   await app?.end();
+  await worker?.end();
   await adminA?.end();
 });
 
@@ -728,19 +736,121 @@ describe('the database surface N5-B adds', () => {
     );
   });
 
-  it('grants the runtime reader SELECT and nothing else, and no other role anything', async () => {
-    const r = await owner.query<{ grantee: string; privs: string }>(
-      `SELECT grantee, string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type) AS privs
+  it('grants the two runtime readers SELECT and nothing else, and no other role anything', async () => {
+    // N5-B has TWO governed readers, not one. 0033 shipped with `freightos_app`; 0034 added
+    // `freightos_delivery_worker`, which must consult the ceiling to compute a delivery decision.
+    // The set stays CLOSED and the privilege stays SELECT — a reader that could write the ceiling
+    // it is measured against is not a reader, it is an authority, and N5-B's whole purpose is that
+    // the ceiling is authored by governance and consulted by everyone else.
+    const r = await owner.query<{ line: string }>(
+      `SELECT format('%s %s %s', table_name, grantee,
+                string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type)) AS line
          FROM information_schema.role_table_grants
-        WHERE table_name = ANY($1) GROUP BY grantee ORDER BY grantee`,
+        WHERE table_name = ANY($1) GROUP BY table_name, grantee ORDER BY table_name, grantee`,
       [[...N5B_TABLES]],
     );
-    const app = r.rows.find((x) => x.grantee === 'freightos_app');
-    expect(app?.privs).toBe('SELECT');
-    expect(
-      r.rows.filter((x) => x.grantee !== 'freightos_app').map((x) => x.grantee),
-      'only the migration owner may hold anything beyond the reader',
-    ).toEqual(['freightos_migrator']);
+    const owned = 'DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE';
+    expect(r.rows.map((x) => x.line)).toEqual(
+      N5B_TABLES.flatMap((t) => [
+        `${t} freightos_app SELECT`,
+        `${t} freightos_delivery_worker SELECT`,
+        // The migration owner holds the table because it created it. Its writes are still refused,
+        // one layer further in, by the append-only triggers proven in `layer C` above.
+        `${t} freightos_migrator ${owned}`,
+      ]),
+    );
+  });
+
+  it('denies every write to both readers at the ACL layer, and grants PUBLIC nothing', async () => {
+    // Enforcement-layer attribution, stated explicitly rather than inferred from a thrown error:
+    // for the two runtime readers the write refusal is an ACL fact — the privilege was never
+    // granted — so it is `has_table_privilege` false here and SQLSTATE 42501 at runtime. It is NOT
+    // the append-only trigger, which these principals cannot reach; crediting a 42501 to the
+    // trigger would leave the trigger untested. The trigger is proven separately, in `layer C`,
+    // through the one principal that does get past the ACL: the table owner.
+    const r = await owner.query<{ line: string }>(
+      `SELECT format('%s %s select=%s insert=%s update=%s delete=%s truncate=%s',
+                c.relname, g.rolname,
+                has_table_privilege(g.rolname, c.oid, 'SELECT')::text,
+                has_table_privilege(g.rolname, c.oid, 'INSERT')::text,
+                has_table_privilege(g.rolname, c.oid, 'UPDATE')::text,
+                has_table_privilege(g.rolname, c.oid, 'DELETE')::text,
+                has_table_privilege(g.rolname, c.oid, 'TRUNCATE')::text) AS line
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+         CROSS JOIN (VALUES ('freightos_app'), ('freightos_delivery_worker'), ('public'))
+                    AS g(rolname)
+        WHERE n.nspname = 'public' AND c.relname = ANY($1)
+        ORDER BY c.relname, g.rolname`,
+      [[...N5B_TABLES]],
+    );
+    expect(r.rows.map((x) => x.line)).toEqual(
+      N5B_TABLES.flatMap((t) => [
+        `${t} freightos_app select=true insert=false update=false delete=false truncate=false`,
+        `${t} freightos_delivery_worker select=true insert=false update=false delete=false truncate=false`,
+        // PUBLIC is the grantee an accidental `GRANT ... TO PUBLIC` would land on, and the one
+        // that would hand the whole cluster a read without naming anybody.
+        `${t} public select=false insert=false update=false delete=false truncate=false`,
+      ]),
+    );
+  });
+
+  it('lets the delivery worker actually READ the governed metadata, not merely hold a GRANT', async () => {
+    // The anti-vacuity control for the reader set above. Under FORCE RLS a GRANT with no admitting
+    // SELECT policy returns ZERO ROWS rather than an error — the worst failure shape there is,
+    // because the worker would compute "no ceiling applies" and disclose. Asserting the privilege
+    // exists proves nothing about that; only rows do.
+    const assignment = await worker.query<{ code: string }>(
+      `SELECT sensitivity_code AS code FROM network_schema_disclosure_sensitivity
+        WHERE durable_schema_ref = $1`,
+      [WORKFLOW_STATE],
+    );
+    expect(assignment.rows.map((x) => x.code)).toEqual(['counterparty_identifying']);
+
+    const ceiling = await worker.query<{ code: string }>(
+      `SELECT max_sensitivity_code AS code FROM network_disclosure_purpose_ceilings
+        WHERE purpose_code = $1`,
+      [PURPOSE],
+    );
+    expect(ceiling.rows.map((x) => x.code)).toEqual(['counterparty_identifying']);
+
+    // And the ranked vocabulary the two above are compared through — without it the worker can
+    // read both sides of the comparison and still not be able to make it.
+    const vocabulary = await worker.query<{ line: string }>(
+      `SELECT format('%s=%s/%s', code, rank, externally_disclosable::text) AS line
+         FROM network_disclosure_sensitivities ORDER BY rank`,
+    );
+    expect(vocabulary.rows.map((x) => x.line)).toEqual([
+      'execution_operational=10/true',
+      'counterparty_identifying=20/true',
+      'commercial_terms=30/true',
+      'never_external=99/false',
+    ]);
+  });
+
+  it('refuses the delivery worker every write with 42501, before any trigger runs', async () => {
+    // The runtime half of the ACL matrix above: a real connection, a real statement, a pinned
+    // SQLSTATE. 42501 is `insufficient_privilege` — the ACL. If this ever came back 23000 the
+    // worker would have been granted the privilege and stopped by the trigger instead, which is a
+    // strictly weaker arrangement and a regression worth failing on.
+    for (const table of N5B_TABLES) {
+      for (const statement of [
+        // `PROBE_COLUMN` because the three tables do not share one: a statement naming a column
+        // that does not exist fails 42703 during parse, before the privilege check runs, and would
+        // have credited a typo as a security proof.
+        `UPDATE ${table} SET ${PROBE_COLUMN[table]} = 'tampered'`,
+        `DELETE FROM ${table}`,
+        `TRUNCATE ${table}`,
+      ]) {
+        await worker.query('BEGIN');
+        const error = await worker.query(statement).then(
+          () => null,
+          (e: { code?: string }) => e,
+        );
+        await worker.query('ROLLBACK');
+        expect(error, `${statement} must be refused`).not.toBeNull();
+        expect((error as { code?: string }).code, `${statement} enforcement layer`).toBe('42501');
+      }
+    }
   });
 
   it('adds no database function, and therefore no SECURITY DEFINER', async () => {
@@ -763,18 +873,57 @@ describe('the database surface N5-B adds', () => {
   });
 
   it('leaves the six N5-A tables and their policies untouched', async () => {
-    const r = await owner.query<{ t: string }>(
-      `SELECT string_agg(c.relname, ',' ORDER BY c.relname) AS t
-         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relkind = 'r'
-          AND c.relname LIKE 'network\\_disclosure\\_%' AND c.relname <> ALL($1)`,
-      [[...N5B_TABLES]],
+    // This assertion used to establish "N5-A" as `network_disclosure_%` MINUS the N5-B three. That
+    // definition was true only while those were the only two layers using the prefix; 0034 added
+    // five more tables matching it, and the assertion quietly became a statement about eleven
+    // relations. N5-A's six are now named — see `network-relations.ts`, and see
+    // `network-disclosure-relation-inventory` for the gate that fails when a NEW relation in the
+    // family goes unclassified. Naming the set is what makes that gate possible: a pattern cannot
+    // notice that its own meaning has changed.
+    const r = await owner.query<{ relname: string }>(
+      `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname = ANY($1)
+        ORDER BY c.relname`,
+      [[...N5A_DISCLOSURE_RELATIONS]],
     );
-    expect(r.rows[0]!.t).toBe(
-      'network_disclosure_authority_bases,network_disclosure_grant_revocations,' +
-        'network_disclosure_grants,network_disclosure_projection_fields,' +
-        'network_disclosure_projections,network_disclosure_purposes',
+    expect(r.rows.map((x) => x.relname)).toEqual([...N5A_DISCLOSURE_RELATIONS]);
+
+    // The policies half the title promises, which the old assertion never actually checked: N5-A's
+    // policies are still exactly N5-A's, and 0033 neither added one nor dropped one.
+    const policies = await owner.query<{ line: string }>(
+      `SELECT format('%s:%s:%s', tablename, policyname, cmd) AS line FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = ANY($1) ORDER BY tablename, policyname`,
+      [[...N5A_DISCLOSURE_RELATIONS]],
     );
+    expect(policies.rows.map((x) => x.line)).toEqual([
+      'network_disclosure_authority_bases:network_disclosure_authority_bases_read:SELECT',
+      // 0034's two, added because the delivery worker must re-authorize against CURRENT
+      // authorization at delivery time — it has to be able to see that a grant was revoked. They
+      // are read-only and role-scoped, and they sit alongside the app policies rather than
+      // replacing them: N5-A's write path is untouched, which is what "untouched" means here.
+      'network_disclosure_grant_revocations:network_disclosure_grant_revocations_delivery_worker_read:SELECT',
+      'network_disclosure_grant_revocations:network_disclosure_grant_revocations_insert:INSERT',
+      'network_disclosure_grant_revocations:network_disclosure_grant_revocations_read:SELECT',
+      'network_disclosure_grants:network_disclosure_grants_delivery_worker_read:SELECT',
+      'network_disclosure_grants:network_disclosure_grants_insert:INSERT',
+      'network_disclosure_grants:network_disclosure_grants_read:SELECT',
+      'network_disclosure_projection_fields:network_disclosure_projection_fields_read:SELECT',
+      'network_disclosure_projections:network_disclosure_projections_read:SELECT',
+      'network_disclosure_purposes:network_disclosure_purposes_read:SELECT',
+    ]);
+
+    // And the writers are still only the two N5-A shipped with. The worker gained a READ; nothing
+    // gained a write, which is the property the title is really claiming.
+    const writers = await owner.query<{ line: string }>(
+      `SELECT format('%s:%s:%s', tablename, policyname, cmd) AS line FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = ANY($1) AND cmd <> 'SELECT'
+        ORDER BY tablename, policyname`,
+      [[...N5A_DISCLOSURE_RELATIONS]],
+    );
+    expect(writers.rows.map((x) => x.line)).toEqual([
+      'network_disclosure_grant_revocations:network_disclosure_grant_revocations_insert:INSERT',
+      'network_disclosure_grants:network_disclosure_grants_insert:INSERT',
+    ]);
   });
 });
 
