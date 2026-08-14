@@ -127,7 +127,8 @@ BEGIN
     REVOKE ALL PRIVILEGES ON network_disclosure_sensitivities     FROM freightos_delivery_worker;
     REVOKE ALL PRIVILEGES ON network_schema_disclosure_sensitivity FROM freightos_delivery_worker;
     REVOKE ALL PRIVILEGES ON network_disclosure_purpose_ceilings  FROM freightos_delivery_worker;
-    REVOKE USAGE ON SCHEMA app FROM freightos_delivery_worker;
+    REVOKE USAGE ON SCHEMA public FROM freightos_delivery_worker;
+    REVOKE USAGE ON SCHEMA app    FROM freightos_delivery_worker;
     DROP ROLE freightos_delivery_worker;
   END IF;
 END

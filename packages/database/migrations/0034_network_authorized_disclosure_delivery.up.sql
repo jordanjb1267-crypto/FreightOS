@@ -802,7 +802,11 @@ GRANT SELECT, INSERT, UPDATE ON network_disclosure_deliveries           TO freig
 GRANT SELECT, INSERT     ON network_delivery_attempts                   TO freightos_delivery_worker;
 GRANT SELECT, INSERT     ON network_disclosure_inbox                    TO freightos_delivery_worker;
 
-GRANT USAGE ON SCHEMA app TO freightos_delivery_worker;
+-- 0013 revoked ALL on schema `public` from PUBLIC, so schema usage is granted per role rather than
+-- inherited. Without this the worker's every query fails as "relation does not exist" — a missing
+-- USAGE reads as absence, not as denial, which is a confusing way to discover a privilege gap.
+GRANT USAGE ON SCHEMA public TO freightos_delivery_worker;
+GRANT USAGE ON SCHEMA app    TO freightos_delivery_worker;
 
 -- The worker executes authority. It never creates it, and these revokes are the statement of that
 -- rather than a comment about it.
