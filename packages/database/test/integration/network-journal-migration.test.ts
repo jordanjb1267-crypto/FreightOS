@@ -733,7 +733,10 @@ describe('N3 is additive and exactly reversible', () => {
     // network_schema_versions — and is isolated for the same reason: version-ordered revert takes
     // it out before the 29 → 28 window opens. It adds no function, so it adds nothing this file
     // measures either.
-    expect(TIP).toBe(33);
+    // Current repository tip. TIP is derived from the migration set, so this is the exact-equality
+    // restatement of "N4 is still the only migration after N3 that touches the journal" — that
+    // clause is asserted separately below and is what carries the invariant.
+    expect(TIP).toBe(34);
   });
 });
 
