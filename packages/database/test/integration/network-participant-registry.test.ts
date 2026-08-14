@@ -890,12 +890,17 @@ describe('the read model a nullable tenant forces N1 to state — ADR-N0011', ()
       'network_disclosure_grants delete=false truncate=false',
       'network_disclosure_projection_fields delete=false truncate=false',
       'network_disclosure_projections delete=false truncate=false',
+      // N5-B's three, added when 0033 shipped. Same reasoning one layer up: a sensitivity
+      // ceiling a runtime identity could delete is not a ceiling.
+      'network_disclosure_purpose_ceilings delete=false truncate=false',
       'network_disclosure_purposes delete=false truncate=false',
+      'network_disclosure_sensitivities delete=false truncate=false',
       'network_events delete=false truncate=false',
       'network_participant_aliases delete=false truncate=false',
       'network_participant_relationships delete=false truncate=false',
       'network_participants delete=false truncate=false',
       'network_relationship_types delete=false truncate=false',
+      'network_schema_disclosure_sensitivity delete=false truncate=false',
       'network_schema_versions delete=false truncate=false',
       'network_transport_intents delete=false truncate=false',
     ]);
@@ -1621,12 +1626,15 @@ describe('the structural authority-graph gate', () => {
       'network_disclosure_grants rls=true force=true',
       'network_disclosure_projection_fields rls=true force=true',
       'network_disclosure_projections rls=true force=true',
+      'network_disclosure_purpose_ceilings rls=true force=true',
       'network_disclosure_purposes rls=true force=true',
+      'network_disclosure_sensitivities rls=true force=true',
       'network_events rls=true force=true',
       'network_participant_aliases rls=true force=true',
       'network_participant_relationships rls=true force=true',
       'network_participants rls=true force=true',
       'network_relationship_types rls=true force=true',
+      'network_schema_disclosure_sensitivity rls=true force=true',
       'network_schema_versions rls=true force=true',
       'network_transport_intents rls=true force=true',
     ]);

@@ -1178,10 +1178,17 @@ describe('journal RLS read matrix', () => {
         // three-table statement now stops at the foreign key before it ever reaches the trigger.
         // Extending it is the point of the case — a shrinking list would quietly stop testing the
         // trigger at all.
+        //
+        // And again with N5-B: `network_schema_disclosure_sensitivity` is a SECOND inbound
+        // reference to `network_schema_versions`. Without it named here the statement stops at the
+        // foreign key, and this case would silently degrade into a duplicate of the two above it —
+        // still passing, while no longer proving that the append-only trigger refuses a TRUNCATE
+        // the foreign keys have already been satisfied for.
         [
           'TRUNCATE network_events, network_schema_versions, network_transport_intents, ' +
             'network_disclosure_projections, network_disclosure_projection_fields, ' +
-            'network_disclosure_grants, network_disclosure_grant_revocations',
+            'network_disclosure_grants, network_disclosure_grant_revocations, ' +
+            'network_schema_disclosure_sensitivity',
           /append-only/i,
         ],
         // And CASCADE, the obvious way to dissolve the FK objection in one word. The trigger is

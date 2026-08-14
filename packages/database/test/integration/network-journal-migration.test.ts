@@ -727,7 +727,13 @@ describe('N3 is additive and exactly reversible', () => {
     // isolation, and does not: the driver reverts in version order, so 0032 is already gone before
     // the 29 → 28 window this file measures is ever entered, and the comparison is taken inside
     // that window.
-    expect(TIP).toBe(32);
+    //
+    // 0033 is N5-B. It adds a second INBOUND foreign key to the same N3 table —
+    // network_schema_disclosure_sensitivity.durable_schema_ref references
+    // network_schema_versions — and is isolated for the same reason: version-ordered revert takes
+    // it out before the 29 → 28 window opens. It adds no function, so it adds nothing this file
+    // measures either.
+    expect(TIP).toBe(33);
   });
 });
 

@@ -431,8 +431,10 @@ describe('fresh install — §23', () => {
       );
       return r.rows[0]!;
     });
-    // Exact, not "at least": a migration silently skipped is the failure this catches.
-    expect(Number(applied.n)).toBe(migrations.length);
+    // Exact, not "at least": a migration silently skipped is the failure this catches. Counted
+    // against the migrations at or below N5-A rather than against every migration that exists,
+    // because this file deliberately drives to 32 and later migrations are not expected here.
+    expect(Number(applied.n)).toBe(migrations.filter((m) => m.version <= N5A).length);
     expect(applied.tip).toBe(String(N5A));
 
     const inv = await n5aInventory();

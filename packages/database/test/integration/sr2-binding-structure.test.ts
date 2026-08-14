@@ -1461,8 +1461,11 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       // proconfig — P-01, and the reason they are absent is that layer 3 (a body that names its
       // schema) is what protects an invoker-rights function. So it adds nothing to `definers()` and
       // nothing this block measures.
+      //
+      // 0033 is N5-B. It adds three reference tables and NO function at all, so it contributes
+      // nothing to `definers()` and nothing to the pg_temp pin this block protects.
       expect((await migrateDown(client, migrations, 23)).reverted).toEqual([
-        32, 31, 30, 29, 28, 27, 26, 25, 24,
+        33, 32, 31, 30, 29, 28, 27, 26, 25, 24,
       ]);
       const at23 = await definers();
       expect(at23.length, 'the revert dropped definers it should only have altered').toBe(
@@ -1495,7 +1498,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
 
       // And back up. Everything matches where it started, field for field.
       expect((await migrateUp(client, migrations)).applied).toEqual([
-        24, 25, 26, 27, 28, 29, 30, 31, 32,
+        24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
       ]);
       expect(await definers()).toEqual(atTop);
       expect(await scopeFns()).toEqual(scopeTop);
