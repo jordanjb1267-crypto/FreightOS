@@ -1464,8 +1464,13 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
       //
       // 0033 is N5-B. It adds three reference tables and NO function at all, so it contributes
       // nothing to `definers()` and nothing to the pg_temp pin this block protects.
+      //
+      // 0034 is N6. It adds exactly one function — app.network_delivery_transition(), the delivery
+      // state-machine guard — and that function is INVOKER rights with no proconfig, so like N5-A's
+      // four trigger functions it contributes nothing to `definers()` and nothing to the pg_temp
+      // pin. The role it creates is a LOGIN service credential, never a definer owner.
       expect((await migrateDown(client, migrations, 23)).reverted).toEqual([
-        33, 32, 31, 30, 29, 28, 27, 26, 25, 24,
+        34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24,
       ]);
       const at23 = await definers();
       expect(at23.length, 'the revert dropped definers it should only have altered').toBe(
@@ -1498,7 +1503,7 @@ describe('gate Z — pg_temp is demoted for every definer, not just the reviewed
 
       // And back up. Everything matches where it started, field for field.
       expect((await migrateUp(client, migrations)).applied).toEqual([
-        24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+        24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
       ]);
       expect(await definers()).toEqual(atTop);
       expect(await scopeFns()).toEqual(scopeTop);

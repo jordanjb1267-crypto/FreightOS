@@ -69,9 +69,37 @@ async function asRole<T>(role: string, work: (client: Client) => Promise<T>): Pr
   }
 }
 
-/** Superuser. The only identity that can read the intent table at all — nothing else may. */
+/** Superuser. Bypasses row-level security, which is what makes it the trigger's only prover. */
 async function asAdmin<T>(work: (client: Client) => Promise<T>): Promise<T> {
   return asRole('postgres', work);
+}
+
+/**
+ * Every relation that must be named alongside N4 for PostgreSQL to accept a TRUNCATE, discovered
+ * from the catalog.
+ *
+ * N4 stopped being a leaf when N6 shipped: `network_disclosure_routing_resolutions` and
+ * `network_disclosure_deliveries` reference it, and further tables reference those. A plain
+ * `TRUNCATE network_transport_intents` therefore no longer reaches N4's append-only trigger at all
+ * — it is refused earlier, by the foreign-key dependency, with 0A000. Those are two different
+ * guarantees and this file now proves both separately.
+ *
+ * Derived transitively rather than listed, because a hand-written list is exactly what went stale.
+ * N4 comes FIRST in the returned order: PostgreSQL fires BEFORE TRUNCATE triggers in statement
+ * order, so listing it last would raise from whichever relation preceded it and the assertion
+ * would pin the wrong table's message.
+ */
+async function truncateClosure(client: Client): Promise<string[]> {
+  const r = await client.query<{ relname: string }>(
+    `WITH RECURSIVE closure(oid) AS (
+       SELECT 'public.network_transport_intents'::regclass
+       UNION
+       SELECT con.conrelid FROM pg_constraint con JOIN closure cl ON con.confrelid = cl.oid
+        WHERE con.contype = 'f')
+     SELECT c.relname FROM closure JOIN pg_class c ON c.oid = closure.oid ORDER BY c.relname`,
+  );
+  const names = r.rows.map((x) => x.relname);
+  return ['network_transport_intents', ...names.filter((n) => n !== 'network_transport_intents')];
 }
 
 function draftFor(overrides: Partial<EventDraft> = {}): EventDraft {
@@ -480,8 +508,39 @@ describe('the intent is immutable', () => {
       // TRUNCATE is the exception, and the reason the statement-level trigger exists: row-level
       // security has no TRUNCATE policy type, so RLS does not apply to it at all. Without this
       // guard the owner could erase every transport debt in one statement.
-      await expect(client.query('TRUNCATE network_transport_intents')).rejects.toThrow(
-        /append-only: TRUNCATE is not permitted/,
+      //
+      // CASE A — the plain statement, refused by the FOREIGN KEY GRAPH. This is a dependency
+      // proof and nothing more: it says N6 rows point at N4, not that N4 is append-only. Crediting
+      // it as append-only evidence would leave the trigger untested from here on, which is exactly
+      // what happened once N6 added the first inbound reference.
+      const plain = await client.query('TRUNCATE network_transport_intents').then(
+        () => null,
+        (e: { code?: string; message?: string }) => e,
+      );
+      expect(plain?.code, 'plain TRUNCATE is refused by the FK graph, not the trigger').toBe(
+        '0A000',
+      );
+      expect(plain?.message).toMatch(/cannot truncate a table referenced in a foreign key/);
+
+      // CASE B — the whole referencing closure named at once, so PostgreSQL gets past the FK
+      // objection and the statement-level trigger is genuinely reached.
+      const closure = await truncateClosure(client);
+      expect(closure).toEqual([
+        'network_transport_intents',
+        'network_delivery_attempts',
+        'network_disclosure_deliveries',
+        'network_disclosure_inbox',
+        'network_disclosure_routing_resolutions',
+      ]);
+      const reached = await client.query(`TRUNCATE ${closure.join(', ')}`).then(
+        () => null,
+        (e: { code?: string; message?: string }) => e,
+      );
+      expect(reached?.code, 'the append-only trigger raises integrity_constraint_violation').toBe(
+        '23000',
+      );
+      expect(reached?.message).toBe(
+        'network_transport_intents is append-only: TRUNCATE is not permitted',
       );
     });
 
@@ -503,9 +562,14 @@ describe('the intent is immutable', () => {
           accepted.event_id,
         ]),
       ).rejects.toThrow(/append-only: DELETE is not permitted/);
+      // Same two cases as above, from the one principal RLS does not bind: the FK graph refuses
+      // the bare statement, and only the full closure reaches the trigger.
       await expect(admin.query('TRUNCATE network_transport_intents')).rejects.toThrow(
-        /append-only: TRUNCATE is not permitted/,
+        /cannot truncate a table referenced in a foreign key/,
       );
+      await expect(
+        admin.query(`TRUNCATE ${(await truncateClosure(admin)).join(', ')}`),
+      ).rejects.toThrow(/network_transport_intents is append-only: TRUNCATE is not permitted/);
     });
 
     expect(await intentCount(accepted.event_id)).toBe(1);
@@ -520,8 +584,18 @@ describe('the intent is immutable', () => {
       );
       return r.rows.map((x) => x.line);
     });
-    expect(policies).toHaveLength(1);
-    expect(policies[0]).toMatch(/^network_transport_intents_writer_insert cmd=a /);
+    // The set is CLOSED and is now two, not one. 0034 added a SELECT policy for the delivery
+    // worker — without it the worker's GRANT would have resolved to zero rows under FORCE RLS,
+    // which is a silent failure rather than a refusal. What must not appear is a policy for `w`
+    // (UPDATE) or `d` (DELETE), for any role at all, and that is what the title claims: reading a
+    // debt and owing one are different things, and neither is amending one.
+    expect(policies).toHaveLength(2);
+    expect(policies[0]).toMatch(/^network_transport_intents_delivery_worker_read cmd=r /);
+    expect(policies[1]).toMatch(/^network_transport_intents_writer_insert cmd=a /);
+
+    // Stated as the invariant rather than as a consequence of the two lines above, so it holds
+    // whatever the set grows into: no UPDATE policy, no DELETE policy, no ALL policy, ever.
+    expect(policies.filter((p) => /cmd=[wdX*] /.test(p))).toEqual([]);
   });
 });
 
@@ -639,16 +713,101 @@ describe('the privilege boundary', () => {
     expect(arbiters).toEqual(['network_transport_intents_pkey(p)']);
   });
 
-  it('grants no read to anyone — N6 opens that boundary, not N4', async () => {
+  it('grants the read to exactly one dedicated runtime reader — the one N6 opened', async () => {
+    // This assertion used to read `toEqual([])`, and its old title said N6 would open the boundary
+    // rather than N4. N6 has now opened it, so the statement that has to be preserved is not "no
+    // reader" — it is that the set of readers stays CLOSED, named, and one deep. A debt is
+    // readable by the identity whose job is to discharge it, and by nothing else.
     const readers = await asAdmin(async (admin) => {
-      const r = await admin.query<{ grantee: string }>(
-        `SELECT grantee FROM information_schema.table_privileges
-          WHERE table_name = 'network_transport_intents' AND privilege_type = 'SELECT'
-            AND grantee <> 'freightos_migrator'`,
+      const r = await admin.query<{ line: string }>(
+        `SELECT format('%s %s', grantee,
+                  string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type)) AS line
+           FROM information_schema.role_table_grants
+          WHERE table_name = 'network_transport_intents' AND grantee <> 'freightos_migrator'
+          GROUP BY grantee ORDER BY grantee`,
       );
-      return r.rows.map((x) => x.grantee);
+      return r.rows.map((x) => x.line);
     });
-    expect(readers).toEqual([]);
+    // The event writer's INSERT is the minting authority 0030 shipped with; the worker's SELECT is
+    // 0034's addition. Neither has anything else, and no third principal appears.
+    expect(readers).toEqual(['freightos_delivery_worker SELECT', 'freightos_event_writer INSERT']);
+
+    // The application and the control plane are still REVOKEd outright. N4 is not a feed.
+    const excluded = await asAdmin(async (admin) => {
+      const r = await admin.query<{ line: string }>(
+        `SELECT format('%s select=%s insert=%s update=%s delete=%s truncate=%s', g.rolname,
+                  has_table_privilege(g.rolname, 'public.network_transport_intents', 'SELECT')::text,
+                  has_table_privilege(g.rolname, 'public.network_transport_intents', 'INSERT')::text,
+                  has_table_privilege(g.rolname, 'public.network_transport_intents', 'UPDATE')::text,
+                  has_table_privilege(g.rolname, 'public.network_transport_intents', 'DELETE')::text,
+                  has_table_privilege(g.rolname, 'public.network_transport_intents', 'TRUNCATE')::text)
+                AS line
+           FROM (VALUES ('freightos_app'), ('freightos_control_plane'), ('public'),
+                        ('freightos_delivery_worker'), ('freightos_event_writer')) AS g(rolname)
+          ORDER BY g.rolname`,
+      );
+      return r.rows.map((x) => x.line);
+    });
+    expect(excluded).toEqual([
+      'freightos_app select=false insert=false update=false delete=false truncate=false',
+      'freightos_control_plane select=false insert=false update=false delete=false truncate=false',
+      // The two that hold something hold exactly one verb each, and neither holds UPDATE, DELETE
+      // or TRUNCATE — no runtime role can amend or erase a transport debt at the privilege layer.
+      'freightos_delivery_worker select=true insert=false update=false delete=false truncate=false',
+      'freightos_event_writer select=false insert=true update=false delete=false truncate=false',
+      'public select=false insert=false update=false delete=false truncate=false',
+    ]);
+  });
+
+  it('lets the worker actually READ a minted intent — privilege, policy and row', async () => {
+    // The three-layer proof, and layer three is the one that matters. A GRANT proves a privilege
+    // exists; a policy proves something admits the role; only a returned row proves the two line
+    // up. Under FORCE RLS a mismatch between them yields ZERO ROWS and no error — N6 would find no
+    // transport debt to discharge and every downstream test would pass by having nothing to do.
+    const accepted = await asWriter(async (client) => acceptNetworkEvent(client, draftFor()));
+
+    // Layer 1 — the privilege.
+    const privilege = await asAdmin(async (admin) => {
+      const r = await admin.query<{ ok: boolean }>(
+        `SELECT has_table_privilege('freightos_delivery_worker',
+                  'public.network_transport_intents', 'SELECT') AS ok`,
+      );
+      return r.rows[0]!.ok;
+    });
+    expect(privilege).toBe(true);
+
+    // Layer 2 — a policy that actually names the worker for SELECT.
+    const policy = await asAdmin(async (admin) => {
+      const r = await admin.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM pg_policies
+          WHERE schemaname = 'public' AND tablename = 'network_transport_intents'
+            AND cmd = 'SELECT' AND 'freightos_delivery_worker' = ANY (roles)`,
+      );
+      return r.rows[0]!.n;
+    });
+    expect(policy).toBe('1');
+
+    // Layer 3 — the row. Anything other than exactly one is failure, zero most of all.
+    await asRole('freightos_delivery_worker', async (client) => {
+      const r = await client.query<{ id: string }>(
+        'SELECT network_event_id::text AS id FROM network_transport_intents WHERE network_event_id = $1',
+        [accepted.event_id],
+      );
+      expect(r.rows.map((x) => x.id)).toEqual([accepted.event_id]);
+
+      // And the worker cannot write what it can read.
+      for (const [statement, verb] of [
+        ['UPDATE network_transport_intents SET created_at = now()', 'UPDATE'],
+        ['DELETE FROM network_transport_intents', 'DELETE'],
+        ['TRUNCATE network_transport_intents', 'TRUNCATE'],
+      ] as const) {
+        const error = await client.query(statement).then(
+          () => null,
+          (e: { code?: string }) => e,
+        );
+        expect(error?.code, `${verb} must be refused at the ACL layer`).toBe('42501');
+      }
+    });
   });
 });
 
@@ -802,10 +961,28 @@ describe('the other three artifacts are untouched', () => {
         'trace_id,evidence_refs,recorded_at,accepted_by,tenant_id,event_fingerprint,' +
         'corrects_event_id,replacement_event_id',
     );
+    // N4 added no policy here, and still does not. The fourth name is N6's, and it is a READ: the
+    // delivery worker holds SELECT on the journal, and under FORCE RLS a grant with no admitting
+    // policy would have returned zero rows rather than an error — the worker would have seen that
+    // a transport debt existed and never been able to see the event it was owed for.
     expect(shape.policies).toBe(
-      'network_events_read,network_events_writer_identity_read,network_events_writer_insert',
+      'network_events_delivery_worker_read,network_events_read,' +
+        'network_events_writer_identity_read,network_events_writer_insert',
     );
-    // The ONLY N4 attachment: one AFTER INSERT trigger. No mutable delivery column, no new policy.
+    // The property that actually has to hold, stated so it survives the next layer: whatever is
+    // added here may only READ. The journal's write path stays exactly the event writer's.
+    const journalWriters = await asAdmin(async (admin) => {
+      const r = await admin.query<{ line: string }>(
+        `SELECT format('%s:%s', p.polname, p.polcmd) AS line
+           FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+          WHERE c.relname = 'network_events' AND p.polcmd <> 'r' ORDER BY p.polname`,
+      );
+      return r.rows.map((x) => x.line);
+    });
+    expect(journalWriters).toEqual(['network_events_writer_insert:a']);
+
+    // The ONLY N4 attachment: one AFTER INSERT trigger. No mutable delivery column, no new
+    // trigger from N6 either — N6 reads the journal and never writes to it.
     expect(shape.triggers).toBe(
       'network_events_acceptance,network_events_no_delete,network_events_no_truncate,' +
         'network_events_no_update,network_events_transport_intent',

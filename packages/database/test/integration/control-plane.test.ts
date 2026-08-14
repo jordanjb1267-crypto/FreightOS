@@ -116,6 +116,12 @@ describe('the shape ADR-0020 requires', () => {
       // control-plane disjunct of the policies that survive.
       'freightos_binding_owner',
       'freightos_control_plane',
+      // N6 / 0034 §2. The delivery runtime, added here deliberately as this list demands. It is a
+      // LOGIN identity that can hold privilege, and it is NOT a control-plane member — it executes
+      // an already-authorized disclosure and holds no authority to create one. This list gaining a
+      // row must never be read as this role gaining reach; the membership graph below is what
+      // proves it did not.
+      'freightos_delivery_worker',
       // N3 / 0029 §1. The network event journal writer: the one role here that LOGS IN and owns
       // nothing. PostgreSQL cannot evaluate JSON Schema, so payload conformance can only be
       // established in the acceptance component — and the journal is permanently immutable, which
@@ -1192,6 +1198,8 @@ describe('the role graph, described accurately — R2-05', () => {
       // SR-2 / 0020 §1.
       'freightos_binding_owner',
       'freightos_control_plane',
+      // N6 / 0034 §2. LOGIN service credential; no elevated attribute.
+      'freightos_delivery_worker',
       // N3 / 0029 §1. The network event journal writer.
       'freightos_event_writer',
       'freightos_hierarchy_owner',
@@ -1268,6 +1276,11 @@ describe('the role graph, described accurately — R2-05', () => {
       // transferred; INHERIT false so no ordinary migrator statement picks its rights up.
       'freightos_migrator -> freightos_binding_owner admin=true inherit=false set=true',
       'freightos_migrator -> freightos_control_plane admin=true inherit=false set=false',
+      // N6 / 0034 §2. The same terms as N3's event writer: ADMIN only because PostgreSQL grants a
+      // role's creator admin over it, which is what lets the revert drop it. SET FALSE — the worker
+      // owns nothing, so no `ALTER ... OWNER TO` needs to reach it. INHERIT FALSE is load-bearing:
+      // an inheriting migrator would silently hold the ability to write every recipient's inbox.
+      'freightos_migrator -> freightos_delivery_worker admin=true inherit=false set=false',
       // N3 / 0029 §1. SET FALSE, unlike every definer owner above — the writer owns nothing, so
       // no `ALTER ... OWNER TO` ever needs to reach it and the migrator never needs to become it.
       // ADMIN is present only because PostgreSQL grants the creator of a role admin over it, and

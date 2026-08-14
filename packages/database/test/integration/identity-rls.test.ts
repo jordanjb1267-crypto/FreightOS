@@ -431,7 +431,11 @@ describe('missing context fails closed', () => {
     // 22 through 0031, plus N5-A's three disclosure keys (0032). The catalog is global vocabulary,
     // so the count moves whenever a migration seeds one — the property under test is that a session
     // with no tenant context still sees ALL of it, not that it has a particular size.
-    expect(r.rowCount).toBe(25);
+    // 22 through 0031, plus N5-A's three disclosure keys (0032), plus N6's three subscription
+    // keys (0034). The property under test is that a session with NO tenant context still sees the
+    // whole global vocabulary — not that it has a particular size — so the count moves with every
+    // seeding migration and the assertion stays exact rather than becoming >=.
+    expect(r.rowCount).toBe(28);
   });
 
   it('shows no users when the caller administers no organization node', async () => {

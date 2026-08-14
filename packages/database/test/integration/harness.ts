@@ -327,6 +327,14 @@ export class TestDatabase {
       // migration 0029, so a database built at any earlier version legitimately has no such role,
       // and the parity harness reaches those versions on purpose.
       'freightos_event_writer',
+      // N6's delivery worker, created by migration 0034 and covered by the same guard for the same
+      // reason. Its absence here was a CI-only defect: three integration files open a real worker
+      // LOGIN, and under trust auth a role with no password connects anyway, so the omission was
+      // invisible locally and surfaced only against CI's password auth as
+      // "password authentication failed for user freightos_delivery_worker". The role is a
+      // legitimate runtime LOGIN identity like the four above it; nothing about its database
+      // authority is involved.
+      'freightos_delivery_worker',
     ]) {
       const present = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
       if (present.rowCount === 0) continue;

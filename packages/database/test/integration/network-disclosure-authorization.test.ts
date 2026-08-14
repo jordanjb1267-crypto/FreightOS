@@ -655,7 +655,17 @@ describe('the permission gate has the approved call shape — §7 and §8', () =
     expr: string;
   }
 
-  /** The four N5-A policies that carry a permission check, with their stored expression. */
+  /**
+   * The four N5-A policies that carry a permission check, with their stored expression.
+   *
+   * Selected BY NAME. This used to be `polname LIKE 'network_disclosure_grant%'`, which was a
+   * workable way of saying "the four" only while the four were the only policies on those tables.
+   * 0034 added two more — role-scoped reads for the delivery worker — and the pattern absorbed
+   * them, so three of the assertions below started demanding a permission call from a policy that
+   * deliberately has none. The pattern is not the authority; `EXPECTED_KEY` is. The policies the
+   * pattern also matches are classified explicitly in `NON_PERMISSION_POLICIES` below, so nothing
+   * on these tables goes unaccounted for.
+   */
   const permissionPolicies = async (): Promise<PolicyRow[]> =>
     (
       await owner.query<PolicyRow>(
@@ -663,10 +673,29 @@ describe('the permission gate has the approved call shape — §7 and §8', () =
                 coalesce(pg_get_expr(polqual, polrelid), '')
                   || ' ' || coalesce(pg_get_expr(polwithcheck, polrelid), '') AS expr
            FROM pg_policy
-          WHERE polname LIKE 'network_disclosure_grant%'
+          WHERE polname = ANY($1)
           ORDER BY polname`,
+        [Object.keys(EXPECTED_KEY)],
       )
     ).rows;
+
+  /**
+   * The policies on the two grant tables that are deliberately NOT permission-gated, and why.
+   *
+   * `app.user_has_permission(tenant, user, key, at)` resolves over an authenticated USER identity.
+   * `freightos_delivery_worker` is a background database role: it has no `app.current_user_id()`
+   * and no membership, so a permission check inside its policy would evaluate false forever and
+   * the grant it reads would be invisible. Its authority is ROLE-scoped instead — a separate
+   * login, holding SELECT and nothing else, admitted by a policy that names it explicitly. That is
+   * the same arrangement N3 already uses for `freightos_event_writer`.
+   *
+   * Listing them here is what keeps the exemption honest: a third un-gated policy on these tables
+   * fails the classification assertion below rather than quietly joining the set.
+   */
+  const NON_PERMISSION_POLICIES = [
+    'network_disclosure_grant_revocations_delivery_worker_read',
+    'network_disclosure_grants_delivery_worker_read',
+  ] as const;
 
   /** The permission sub-select, extracted by balancing parentheses from its opening bracket. */
   function permissionSubselect(expr: string): string {
@@ -721,6 +750,43 @@ describe('the permission gate has the approved call shape — §7 and §8', () =
       for (const other of Object.values(EXPECTED_KEY).filter((k) => k !== EXPECTED_KEY[polname])) {
         expect(expr, `${polname} also names ${other}`).not.toContain(`'${other}'::text`);
       }
+    }
+  });
+
+  it('accounts for every policy on the two grant tables — gated, or explicitly not', async () => {
+    // The gate that replaces the name pattern. Discovery is still by catalog, but membership of
+    // "permission-gated" is declared, and anything else on these tables has to be named as an
+    // exemption. A new policy that is neither fails here instead of being absorbed by a `LIKE`.
+    const all = await owner.query<{ polname: string; cmd: string }>(
+      `SELECT p.polname, p.polcmd::text AS cmd FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+        WHERE c.relname IN ('network_disclosure_grants', 'network_disclosure_grant_revocations')
+        ORDER BY p.polname`,
+    );
+    expect(all.rows.map((r) => r.polname)).toEqual(
+      [...Object.keys(EXPECTED_KEY), ...NON_PERMISSION_POLICIES].sort(),
+    );
+
+    // And the exemption is bounded: the un-gated policies READ, and only read. A write policy
+    // without a permission check on an authorization table is a different thing entirely.
+    const exempt = all.rows.filter((r) =>
+      (NON_PERMISSION_POLICIES as readonly string[]).includes(r.polname),
+    );
+    expect(exempt.map((r) => `${r.polname}:${r.cmd}`)).toEqual([
+      'network_disclosure_grant_revocations_delivery_worker_read:r',
+      'network_disclosure_grants_delivery_worker_read:r',
+    ]);
+
+    // Positive control on the classification itself: the exempt policies really do lack the
+    // permission call, so "exempt" describes the catalog rather than merely this list.
+    const exprs = await owner.query<PolicyRow>(
+      `SELECT polname, coalesce(pg_get_expr(polqual, polrelid), '') AS expr
+         FROM pg_policy WHERE polname = ANY($1) ORDER BY polname`,
+      [[...NON_PERMISSION_POLICIES]],
+    );
+    for (const { polname, expr } of exprs.rows) {
+      expect(expr, `${polname} unexpectedly carries a permission check`).not.toContain(
+        'app.user_has_permission(',
+      );
     }
   });
 
@@ -922,6 +988,18 @@ describe('N3 and N4 are untouched by N5-A', () => {
     const roles = await owner.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM pg_roles WHERE rolname LIKE 'freightos%'`,
     );
-    expect(roles.rows[0]!.count).toBe('11');
+    // Twelve since 0034 added freightos_delivery_worker. The invariant is that N5-A ITSELF adds
+    // none — asserted by name below so a future migration adding a role cannot be absorbed by a
+    // count that merely moved.
+    expect(roles.rows[0]!.count).toBe('12');
+    const named = await owner.query<{ r: string }>(
+      `SELECT string_agg(rolname, ',' ORDER BY rolname) AS r FROM pg_roles WHERE rolname LIKE 'freightos%'`,
+    );
+    expect(named.rows[0]!.r).toBe(
+      'freightos_admin,freightos_admin_owner,freightos_app,freightos_audit_writer,' +
+        'freightos_binding_owner,freightos_control_plane,freightos_delivery_worker,' +
+        'freightos_event_writer,freightos_hierarchy_owner,freightos_identity_guard,' +
+        'freightos_migrator,freightos_operator_registry_owner',
+    );
   });
 });

@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./authentication-boundary": "./src/authentication-boundary.ts",
     "./disclosure": "./src/disclosure.ts",
-    "./disclosure-sensitivity": "./src/disclosure-sensitivity.ts"
+    "./disclosure-sensitivity": "./src/disclosure-sensitivity.ts",
+    "./disclosure-delivery": "./src/disclosure-delivery.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
