@@ -57,13 +57,20 @@
 // No network access. Deterministic output. Exit 0 = clean, 1 = fail.
 
 import {
+  REPO_ROOT,
   collectManifests,
   collectSqlFiles,
   collectTsFiles,
+  resolveScanRoot,
   scanManifest,
   scanSqlFile,
   scanTsFile,
 } from './lib/network-primitives.mjs';
+
+// N7B-G1. The scan root is resolved ONCE, defaults to the real repository, and fails closed on a
+// bad override — see `resolveScanRoot`. Negative-control tests point it at a disposable copied
+// tree so the real migration files are never mutated to prove the gate can say FAIL.
+const SCAN_ROOT = resolveScanRoot();
 
 // THE INVENTORY AND THE SCANNERS LIVE IN ONE PLACE — `scripts/lib/network-primitives.mjs`.
 //
@@ -79,19 +86,19 @@ import {
 
 const findings = [];
 
-const tsFiles = collectTsFiles();
-for (const file of tsFiles) findings.push(...scanTsFile(file));
+const tsFiles = collectTsFiles(SCAN_ROOT);
+for (const file of tsFiles) findings.push(...scanTsFile(file, SCAN_ROOT));
 
-const sqlFiles = collectSqlFiles();
+const sqlFiles = collectSqlFiles(SCAN_ROOT);
 let signalling = 0;
 for (const file of sqlFiles) {
-  const r = scanSqlFile(file);
+  const r = scanSqlFile(file, SCAN_ROOT);
   findings.push(...r.findings);
   signalling += r.signalling;
 }
 
-const manifests = collectManifests();
-for (const file of manifests) findings.push(...scanManifest(file));
+const manifests = collectManifests(SCAN_ROOT);
+for (const file of manifests) findings.push(...scanManifest(file, SCAN_ROOT));
 
 // ── Verdict ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -124,6 +131,9 @@ if (findings.length > 0) {
   process.exit(1);
 }
 
+// An overridden root is named in the output so a fixture scan can never be mistaken for a
+// repository scan in a log. The default prints nothing new — CI output is byte-identical.
+if (SCAN_ROOT !== REPO_ROOT) console.log(`  scan root override: ${SCAN_ROOT}`);
 console.log('NETWORK_EGRESS=PASS');
 console.log(`  source files scanned: ${tsFiles.length}`);
 console.log(`  migrations scanned: ${sqlFiles.length}`);

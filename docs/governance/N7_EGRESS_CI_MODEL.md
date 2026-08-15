@@ -188,3 +188,35 @@ visible without opening a log.
 **Bounded size (§3.1)** is `expectedCount = 0` today. The `≤ 1` bound §3.1 anticipated becomes
 meaningful when N7-B adds its first adapter; until then the stronger statement holds, and the gate
 asserts the stronger one.
+
+## 9. Test isolation — N7B-G1
+
+**The rule:** adversarial source mutations must operate against isolated fixture trees unless the
+test is explicitly proving repository-mutation behaviour (as the handoff-integrity validator's
+tamper controls are). **Real migration and source trees are not mutation sandboxes.**
+
+**The historical hazard, recorded rather than rewritten away.** Through N7-A, the egress negative
+controls proved the gates could say FAIL by planting primitives in REAL repository files —
+`COPY … TO PROGRAM` appended to migration `0030`, a broker dependency written into a real
+`package.json` — and restoring them afterwards. Restoration was reliable; the WINDOW was the
+defect. A migration file is executable input, and a concurrent process that loaded the real
+migration directory during the window observed, and would have executed, the planted statement.
+This was not theoretical: it produced a real false failure during N7-A verification when a unit run
+overlapped a background integration run, and it is why `N7B-G1` was made a hard precondition for
+N7-B — an egress _implementation_ phase must not begin while egress _testing_ still mutates the
+tree that phase would ship from.
+
+**The remediation is physical, not advisory.** Both gates resolve one scan root
+(`resolveScanRoot` in the shared primitive module): the default is the real repository, production
+and CI behaviour is byte-identical, and an override — `FREIGHTOS_EGRESS_SCAN_ROOT` — fails closed
+on anything that does not mirror the scanned layout. Negative controls copy the exact scan surface
+(root and per-package manifests, `packages/*/src`, the migration directory, the governed egress
+manifest) into a `mkdtemp` tree under the OS temp directory, mutate only the copy, and point the
+SAME scanner at it. There is no test-only scanner, no fixture-aware branch, and no CI step that
+sets the override — properties `G1-F` and the CI-wiring test assert rather than assume.
+
+A mutex would have satisfied none of this. Serialization narrows a window; isolation removes it,
+and the standing proofs (`scripts/test/egress-fixture-isolation.test.ts`, G1-A…G1-F) hold the
+suite to it: real-file SHA identical before/during/after every planted mutation, a mid-control
+failure unable to dirty the repository, concurrent fixtures blind to each other, and the default
+root measured — with its own anti-vacuity control — to be the real repository.
