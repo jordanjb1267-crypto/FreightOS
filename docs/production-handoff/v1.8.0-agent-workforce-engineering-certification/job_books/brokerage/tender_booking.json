@@ -1,0 +1,35 @@
+{
+  "department": "brokerage",
+  "slug": "tender_booking",
+  "name": "Tender/Booking Agent",
+  "component": "hybrid_agent",
+  "mission": "Issue exact-version carrier tenders to an allocated qualified carrier, capture response and bind coverage idempotently.",
+  "upstream": [
+    "Allocation Agent"
+  ],
+  "downstream": [
+    "Broker Shipment Execution Agent",
+    "Carrier Agent Organization"
+  ],
+  "tools": [
+    "tender API/EDI",
+    "policy",
+    "booking service"
+  ],
+  "commands": [
+    "send_carrier_tender",
+    "bind_carrier_assignment",
+    "withdraw_tender"
+  ],
+  "owns": [
+    "tender construction",
+    "delivery",
+    "response correlation",
+    "coverage binding"
+  ],
+  "non_scope": [
+    "qualification",
+    "allocation decision",
+    "shipment execution after booking"
+  ]
+}

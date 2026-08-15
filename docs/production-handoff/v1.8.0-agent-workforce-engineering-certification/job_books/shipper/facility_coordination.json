@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "facility_coordination",
+  "name": "Shipper Facility Coordination Agent",
+  "component": "agent",
+  "mission": "Coordinate shipper-owned origin/destination facility requirements and appointments through FacilityOS/network.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "shipper facility requests"
+  ],
+  "non_scope": [
+    "facility operational authority"
+  ]
+}

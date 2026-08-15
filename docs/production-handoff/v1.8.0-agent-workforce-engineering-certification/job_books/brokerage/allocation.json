@@ -1,0 +1,32 @@
+{
+  "department": "brokerage",
+  "slug": "allocation",
+  "name": "Allocation Agent",
+  "component": "hybrid_agent",
+  "mission": "Rank and select among qualified carriers according to service, price, risk and customer policy within the Brokerage Plane.",
+  "upstream": [
+    "Carrier Qualification Agent",
+    "Broker Negotiation Agent"
+  ],
+  "downstream": [
+    "Tender/Booking Agent"
+  ],
+  "tools": [
+    "allocation scorer",
+    "policy",
+    "service history"
+  ],
+  "commands": [
+    "record_allocation_proposal"
+  ],
+  "owns": [
+    "candidate scoring",
+    "allocation proposal",
+    "tradeoff explanation"
+  ],
+  "non_scope": [
+    "qualification",
+    "tender execution",
+    "carrier acceptance"
+  ]
+}

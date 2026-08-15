@@ -1,0 +1,3 @@
+name: broker_quote_to_settlement
+faults: [carrier authority change before tender, ambiguous acceptance, facility delay/accessorial dispute, payment destination change]
+acceptance: [no plane leakage, unqualified carrier never tendered, money deterministic, transaction record complete]

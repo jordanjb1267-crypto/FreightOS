@@ -1,0 +1,26 @@
+{
+  "department": "service_provider",
+  "slug": "parts_dependency",
+  "name": "Parts & Dependency Agent",
+  "component": "agent",
+  "mission": "Coordinate parts/vendor/dependency availability that blocks service work without fabricating inventory or ordering outside authority.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SPOT/RigDesk retrieval",
+    "policy query",
+    "provider domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "service_provider_typed_command"
+  ],
+  "owns": [
+    "parts/dependency coordination"
+  ],
+  "non_scope": [
+    "unauthorized purchase"
+  ]
+}

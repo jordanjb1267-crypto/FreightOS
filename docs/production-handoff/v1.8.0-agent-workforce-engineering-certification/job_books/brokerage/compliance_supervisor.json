@@ -1,0 +1,36 @@
+{
+  "department": "brokerage",
+  "slug": "compliance_supervisor",
+  "name": "Compliance Supervisor Agent",
+  "component": "human_supervised_agent",
+  "mission": "Supervise brokerage authority, financial responsibility, carrier/commercial controls and recordkeeping; route high-risk decisions to authorized humans.",
+  "upstream": [
+    "Carrier Qualification Agent",
+    "Margin Risk Service",
+    "Broker Transaction Record Service"
+  ],
+  "downstream": [
+    "Human Compliance",
+    "Brokerage Operations Orchestrator"
+  ],
+  "tools": [
+    "authority/financial-responsibility adapters",
+    "record audit",
+    "policy"
+  ],
+  "commands": [
+    "place_brokerage_hold",
+    "open_compliance_case",
+    "request_human_compliance_decision"
+  ],
+  "owns": [
+    "compliance monitoring",
+    "hold/escalation",
+    "record completeness"
+  ],
+  "non_scope": [
+    "self-release legal hold",
+    "legal advice",
+    "authority filing changes"
+  ]
+}

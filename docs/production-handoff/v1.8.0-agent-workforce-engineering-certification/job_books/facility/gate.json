@@ -1,0 +1,26 @@
+{
+  "department": "facility",
+  "slug": "gate",
+  "name": "Gate Agent",
+  "component": "hybrid_agent",
+  "mission": "Digitally coordinate visit identity, credential, document gate, check-in and queue/staging target under policy.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "FOT retrieval",
+    "policy query",
+    "FacilityOS domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "facility_typed_command"
+  ],
+  "owns": [
+    "digital check-in and credential workflow"
+  ],
+  "non_scope": [
+    "barrier/door/PLC actuation; safety override"
+  ]
+}

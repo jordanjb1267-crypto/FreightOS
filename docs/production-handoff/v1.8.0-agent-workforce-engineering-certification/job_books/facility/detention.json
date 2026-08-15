@@ -1,0 +1,26 @@
+{
+  "department": "facility",
+  "slug": "detention",
+  "name": "Detention Clock Service",
+  "component": "deterministic_service",
+  "mission": "Calculate detention timing/evidence from configured terms and authoritative visit timestamps.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "FOT retrieval",
+    "policy query",
+    "FacilityOS domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "facility_typed_command"
+  ],
+  "owns": [
+    "detention clock arithmetic"
+  ],
+  "non_scope": [
+    "contract interpretation beyond config; charge approval"
+  ]
+}

@@ -1,0 +1,55 @@
+flowchart LR
+  N0["Accessorial Agent"]
+  N1["Allocation Agent"]
+  N2["Carrier Pay/Reconciliation Agent"]
+  N3["Carrier Qualification Agent"]
+  N4["Carrier Sourcing Agent"]
+  N5["Claims/Evidence Agent"]
+  N6["Compliance Supervisor Agent"]
+  N7["Broker Configuration Steward"]
+  N8["Broker Documentation Agent"]
+  N9["Facility Coordination Agent"]
+  N10["Margin Risk Service"]
+  N11["Broker Negotiation Agent"]
+  N12["Brokerage Operations Orchestrator"]
+  N13["Customer/Carrier Relationship Support Agent"]
+  N14["Requirements Agent"]
+  N15["Broker Shipment Execution Agent"]
+  N16["Shipper Billing Agent"]
+  N17["Shipper Intake Agent"]
+  N18["Shipper Pricing Agent"]
+  N19["Tender/Booking Agent"]
+  N20["Tracking/Communication Agent"]
+  N21["Broker Transaction Record Service"]
+  N0 --> N16
+  N0 --> N2
+  N1 --> N19
+  N3 --> N11
+  N3 --> N1
+  N3 --> N6
+  N4 --> N3
+  N6 --> N12
+  N8 --> N0
+  N8 --> N16
+  N8 --> N2
+  N9 --> N20
+  N10 --> N1
+  N10 --> N6
+  N11 --> N1
+  N11 --> N19
+  N12 --> N17
+  N12 --> N18
+  N12 --> N4
+  N12 --> N15
+  N12 --> N6
+  N14 --> N18
+  N14 --> N4
+  N14 --> N3
+  N15 --> N20
+  N15 --> N9
+  N15 --> N8
+  N15 --> N0
+  N17 --> N14
+  N18 --> N4
+  N19 --> N15
+  N21 --> N6

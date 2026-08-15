@@ -1,0 +1,74 @@
+department,from_job,to_job,contract
+brokerage,Accessorial Agent,Shipper Billing Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Accessorial Agent,Carrier Pay/Reconciliation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Allocation Agent,Tender/Booking Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Carrier Pay/Reconciliation Agent,Finance/Payment System,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Carrier Qualification Agent,Broker Negotiation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Carrier Qualification Agent,Allocation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Carrier Qualification Agent,Compliance Supervisor Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Carrier Sourcing Agent,Carrier Qualification Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Claims/Evidence Agent,Human Claims/Legal,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Compliance Supervisor Agent,Human Compliance,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Compliance Supervisor Agent,Brokerage Operations Orchestrator,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Configuration Steward,Human Admin/Architecture,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Documentation Agent,Accessorial Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Documentation Agent,Shipper Billing Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Documentation Agent,Carrier Pay/Reconciliation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Facility Coordination Agent,FacilityOS,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Facility Coordination Agent,Tracking/Communication Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Margin Risk Service,Allocation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Margin Risk Service,Compliance Supervisor Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Negotiation Agent,Allocation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Negotiation Agent,Tender/Booking Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Brokerage Operations Orchestrator,Shipper Intake Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Brokerage Operations Orchestrator,Shipper Pricing Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Brokerage Operations Orchestrator,Carrier Sourcing Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Brokerage Operations Orchestrator,Broker Shipment Execution Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Brokerage Operations Orchestrator,Compliance Supervisor Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Requirements Agent,Shipper Pricing Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Requirements Agent,Carrier Sourcing Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Requirements Agent,Carrier Qualification Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Shipment Execution Agent,Tracking/Communication Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Shipment Execution Agent,Facility Coordination Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Shipment Execution Agent,Broker Documentation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Shipment Execution Agent,Accessorial Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Shipper Billing Agent,Accounting,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Shipper Intake Agent,Requirements Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Shipper Pricing Agent,Carrier Sourcing Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Tender/Booking Agent,Broker Shipment Execution Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Tender/Booking Agent,Carrier Agent Organization,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Tracking/Communication Agent,Shipper,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Tracking/Communication Agent,Broker Exception workflow,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+brokerage,Broker Transaction Record Service,Compliance Supervisor Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Capacity Agent,Feasibility Engine,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Capacity Agent,Planning Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Chief Dispatch Orchestrator,Load Discovery Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Chief Dispatch Orchestrator,Planning Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Chief Dispatch Orchestrator,Dispatch Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Chief Dispatch Orchestrator,Carrier Exception Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Dispatch Agent,Tracking Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Dispatch Agent,Carrier Exception Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Documentation Agent,Settlement/Reconciliation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Carrier Exception Agent,Planning Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Carrier Exception Agent,Documentation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Carrier Exception Agent,Settlement/Reconciliation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Feasibility Engine,Planning Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Feasibility Engine,Dispatch Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Load Discovery Agent,Profitability Engine,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Load Discovery Agent,Feasibility Engine,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Load Discovery Agent,Planning Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Maintenance Readiness Agent,Capacity Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Maintenance Readiness Agent,Feasibility Engine,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Maintenance Readiness Agent,Carrier Exception Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Carrier Negotiation Agent,Dispatch Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Planning Agent,Carrier Negotiation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Planning Agent,Dispatch Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Profitability Engine,Planning Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Profitability Engine,Carrier Negotiation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Profitability Engine,Settlement/Reconciliation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Carrier Risk & Compliance Agent,Carrier Exception Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Carrier Risk & Compliance Agent,Human Compliance,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Settlement/Reconciliation Agent,RigReceipts,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Settlement/Reconciliation Agent,Accounting,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Tracking Agent,Carrier Exception Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer
+carrier,Tracking Agent,Documentation Agent,typed Handoff/Request/Proposal; receiver validates before ownership transfer

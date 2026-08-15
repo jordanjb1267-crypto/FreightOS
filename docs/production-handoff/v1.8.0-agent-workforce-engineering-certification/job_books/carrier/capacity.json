@@ -1,0 +1,37 @@
+{
+  "department": "carrier",
+  "slug": "capacity",
+  "name": "Capacity Agent",
+  "component": "hybrid_agent",
+  "mission": "Maintain an explainable current view of usable carrier capacity and surface capacity candidates without making final assignments.",
+  "upstream": [
+    "Chief Dispatch Orchestrator"
+  ],
+  "downstream": [
+    "Feasibility Engine",
+    "Planning Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "fleet/driver APIs",
+    "RigDesk readiness"
+  ],
+  "commands": [
+    "record_capacity_snapshot",
+    "invalidate_capacity_candidate"
+  ],
+  "owns": [
+    "availability synthesis",
+    "capacity candidate sets",
+    "capacity uncertainty/conflicts"
+  ],
+  "non_scope": [
+    "final dispatch assignment",
+    "HOS legality",
+    "load acceptance",
+    "cross-carrier sourcing"
+  ]
+}

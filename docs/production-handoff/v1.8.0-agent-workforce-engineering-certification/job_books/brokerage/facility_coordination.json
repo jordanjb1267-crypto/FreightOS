@@ -1,0 +1,32 @@
+{
+  "department": "brokerage",
+  "slug": "facility_coordination",
+  "name": "Facility Coordination Agent",
+  "component": "agent",
+  "mission": "Coordinate brokerage-side appointments, readiness, BOL/POD, delay and facility exceptions through FreightOS/FacilityOS without owning facility state.",
+  "upstream": [
+    "Broker Shipment Execution Agent"
+  ],
+  "downstream": [
+    "FacilityOS",
+    "Tracking/Communication Agent"
+  ],
+  "tools": [
+    "FreightOS network",
+    "FacilityOS adapter",
+    "communications"
+  ],
+  "commands": [
+    "request_appointment",
+    "request_facility_update"
+  ],
+  "owns": [
+    "facility requests/changes",
+    "cross-party appointment/document coordination"
+  ],
+  "non_scope": [
+    "gate admission",
+    "dock authority",
+    "custody/goods receipt"
+  ]
+}

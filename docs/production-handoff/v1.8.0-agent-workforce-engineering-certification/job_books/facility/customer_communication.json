@@ -1,0 +1,26 @@
+{
+  "department": "facility",
+  "slug": "customer_communication",
+  "name": "Facility Customer Communication Agent",
+  "component": "agent",
+  "mission": "Provide authorized routine status and exception communication to carriers, shippers, drivers and customers from facility truth.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "FOT retrieval",
+    "policy query",
+    "FacilityOS domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "facility_typed_command"
+  ],
+  "owns": [
+    "outbound facility communications"
+  ],
+  "non_scope": [
+    "change facility truth; commercial concessions"
+  ]
+}

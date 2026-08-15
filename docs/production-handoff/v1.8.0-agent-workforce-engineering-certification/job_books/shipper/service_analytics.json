@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "service_analytics",
+  "name": "Service Analytics Agent",
+  "component": "agent",
+  "mission": "Analyze transportation service performance, recurring exceptions, provider outcomes and improvement opportunities.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "analytics and improvement proposals"
+  ],
+  "non_scope": [
+    "automatic contract termination/change"
+  ]
+}

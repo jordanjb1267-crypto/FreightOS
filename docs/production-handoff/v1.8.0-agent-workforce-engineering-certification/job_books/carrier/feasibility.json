@@ -1,0 +1,34 @@
+{
+  "department": "carrier",
+  "slug": "feasibility",
+  "name": "Feasibility Engine",
+  "component": "hybrid_agent",
+  "mission": "Determine whether a proposed driver/equipment/mission combination is operationally eligible, keeping hard constraints deterministic and uncertainty explicit.",
+  "upstream": [
+    "Capacity Agent",
+    "Planning Agent"
+  ],
+  "downstream": [
+    "Planning Agent",
+    "Dispatch Agent"
+  ],
+  "tools": [
+    "HOS/ELD adapter",
+    "equipment capability service",
+    "RigDesk readiness",
+    "route/time service"
+  ],
+  "commands": [
+    "record_feasibility_result"
+  ],
+  "owns": [
+    "hard eligibility aggregation",
+    "feasibility evidence",
+    "unknown/conflict classification"
+  ],
+  "non_scope": [
+    "waive HOS/compliance",
+    "final dispatch",
+    "economic ranking"
+  ]
+}

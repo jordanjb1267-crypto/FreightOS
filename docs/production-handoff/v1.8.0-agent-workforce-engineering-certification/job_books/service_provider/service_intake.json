@@ -1,0 +1,26 @@
+{
+  "department": "service_provider",
+  "slug": "service_intake",
+  "name": "Service Intake Agent",
+  "component": "hybrid_agent",
+  "mission": "Convert roadside/repair/service requests into canonical service cases with exact asset, location, symptom, urgency and requester context.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SPOT/RigDesk retrieval",
+    "policy query",
+    "provider domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "service_provider_typed_command"
+  ],
+  "owns": [
+    "service-case intake"
+  ],
+  "non_scope": [
+    "mechanical diagnosis/certification"
+  ]
+}

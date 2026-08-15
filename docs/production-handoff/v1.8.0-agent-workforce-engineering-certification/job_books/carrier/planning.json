@@ -1,0 +1,39 @@
+{
+  "department": "carrier",
+  "slug": "planning",
+  "name": "Planning Agent",
+  "component": "agent",
+  "mission": "Build ranked explainable shipment and multi-load plans from eligible capacity, feasibility and economics.",
+  "upstream": [
+    "Capacity Agent",
+    "Feasibility Engine",
+    "Profitability Engine"
+  ],
+  "downstream": [
+    "Carrier Negotiation Agent",
+    "Dispatch Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "route/distance service",
+    "planning optimizer"
+  ],
+  "commands": [
+    "record_plan_proposal",
+    "request_replan"
+  ],
+  "owns": [
+    "candidate plans",
+    "sequence/route strategy",
+    "soft-constraint tradeoffs"
+  ],
+  "non_scope": [
+    "HOS legality",
+    "final assignment",
+    "acceptance outside policy",
+    "maintenance override"
+  ]
+}

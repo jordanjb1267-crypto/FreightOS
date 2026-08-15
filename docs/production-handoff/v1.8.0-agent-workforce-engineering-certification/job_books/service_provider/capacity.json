@@ -1,0 +1,26 @@
+{
+  "department": "service_provider",
+  "slug": "capacity",
+  "name": "Service Capacity Agent",
+  "component": "hybrid_agent",
+  "mission": "Maintain current bay/mobile-unit/tow-resource capacity without assigning work by itself.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SPOT/RigDesk retrieval",
+    "policy query",
+    "provider domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "service_provider_typed_command"
+  ],
+  "owns": [
+    "capacity view"
+  ],
+  "non_scope": [
+    "final dispatch"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "department": "brokerage",
+  "slug": "relationship_support",
+  "name": "Customer/Carrier Relationship Support Agent",
+  "component": "agent",
+  "mission": "Handle authorized routine relationship communications, service follow-up and issue triage without changing contracts, qualification or commercial policy.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "CRM"
+  ],
+  "commands": [
+    "send_relationship_message",
+    "record_feedback",
+    "open_relationship_task"
+  ],
+  "owns": [
+    "routine relationship communication",
+    "feedback intake",
+    "task routing"
+  ],
+  "non_scope": [
+    "contract change",
+    "qualification override",
+    "unauthorized concession"
+  ]
+}

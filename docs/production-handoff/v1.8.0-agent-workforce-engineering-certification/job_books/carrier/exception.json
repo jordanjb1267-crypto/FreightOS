@@ -1,0 +1,43 @@
+{
+  "department": "carrier",
+  "slug": "exception",
+  "name": "Carrier Exception Agent",
+  "component": "agent",
+  "mission": "Own carrier operational exceptions from detection through containment, coordination, replanning and verified resolution.",
+  "upstream": [
+    "Tracking Agent",
+    "Dispatch Agent",
+    "RigDesk",
+    "FacilityOS"
+  ],
+  "downstream": [
+    "Planning Agent",
+    "Documentation Agent",
+    "Settlement/Reconciliation Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "case manager"
+  ],
+  "commands": [
+    "open_exception",
+    "update_exception",
+    "request_replan",
+    "send_exception_notice",
+    "resolve_exception"
+  ],
+  "owns": [
+    "exception case ownership",
+    "triage",
+    "cross-specialist coordination",
+    "resolution plan"
+  ],
+  "non_scope": [
+    "safety/legal hold release",
+    "claims liability",
+    "payment settlement"
+  ]
+}

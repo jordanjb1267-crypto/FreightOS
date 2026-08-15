@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/job-certification/v1",
+  "title": "JobCertification",
+  "type": "object",
+  "required": [
+    "certificationId",
+    "tenantId",
+    "jobId",
+    "jobVersion",
+    "level",
+    "scope",
+    "evaluationVersion",
+    "evidenceRefs",
+    "approvedAt"
+  ],
+  "properties": {
+    "certificationId": {
+      "type": "string"
+    },
+    "tenantId": {
+      "type": "string"
+    },
+    "jobId": {
+      "type": "string"
+    },
+    "jobVersion": {
+      "type": "string"
+    },
+    "level": {
+      "enum": [
+        "J0",
+        "J1",
+        "J2",
+        "J3",
+        "J4",
+        "J5",
+        "J6",
+        "J7"
+      ]
+    },
+    "scope": {
+      "type": "object"
+    },
+    "evaluationVersion": {
+      "type": "string"
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approvedBy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approvedAt": {
+      "type": "string"
+    },
+    "expiresAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rollbackRef": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "department": "brokerage",
+  "slug": "shipper_billing",
+  "name": "Shipper Billing Agent",
+  "component": "hybrid_agent",
+  "mission": "Prepare and reconcile shipper invoices from exact brokerage terms and approved accessorials.",
+  "upstream": [
+    "Broker Documentation Agent",
+    "Accessorial Agent"
+  ],
+  "downstream": [
+    "Accounting"
+  ],
+  "tools": [
+    "money engine",
+    "accounting adapter",
+    "evidence"
+  ],
+  "commands": [
+    "create_shipper_invoice",
+    "export_shipper_invoice"
+  ],
+  "owns": [
+    "invoice packet",
+    "deterministic billing arithmetic",
+    "export status"
+  ],
+  "non_scope": [
+    "bank instructions",
+    "write-offs outside policy",
+    "carrier pay"
+  ]
+}

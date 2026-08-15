@@ -1,0 +1,37 @@
+{
+  "department": "brokerage",
+  "slug": "claims_evidence",
+  "name": "Claims/Evidence Agent",
+  "component": "human_supervised_agent",
+  "mission": "Assemble, preserve and organize claims/dispute evidence and deadlines without autonomously deciding legal liability or settlement.",
+  "upstream": [
+    "Broker Shipment Execution Agent",
+    "Broker Documentation Agent"
+  ],
+  "downstream": [
+    "Human Claims/Legal"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "claims case manager"
+  ],
+  "commands": [
+    "open_claim_case",
+    "request_claim_evidence",
+    "record_claim_outcome"
+  ],
+  "owns": [
+    "claims case intake",
+    "evidence chain",
+    "deadline/task management"
+  ],
+  "non_scope": [
+    "liability determination",
+    "settlement acceptance",
+    "legal advice"
+  ]
+}

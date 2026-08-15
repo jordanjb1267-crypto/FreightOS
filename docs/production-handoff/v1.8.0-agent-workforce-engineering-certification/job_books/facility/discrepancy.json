@@ -1,0 +1,26 @@
+{
+  "department": "facility",
+  "slug": "discrepancy",
+  "name": "Discrepancy Agent",
+  "component": "agent",
+  "mission": "Own shortage, overage, damage, seal, document, quality and receiving discrepancy workflows through evidence and authorized disposition.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "FOT retrieval",
+    "policy query",
+    "FacilityOS domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "facility_typed_command"
+  ],
+  "owns": [
+    "discrepancy case coordination"
+  ],
+  "non_scope": [
+    "legal liability; quality-hold release"
+  ]
+}

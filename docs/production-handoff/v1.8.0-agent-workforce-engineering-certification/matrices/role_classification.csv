@@ -1,0 +1,77 @@
+department,job,component_class,mission
+brokerage,Accessorial Agent,hybrid_agent,"Detect, evidence, calculate and route contractually permitted accessorials without inventing entitlement."
+brokerage,Allocation Agent,hybrid_agent,"Rank and select among qualified carriers according to service, price, risk and customer policy within the Brokerage Plane."
+brokerage,Carrier Pay/Reconciliation Agent,hybrid_agent,"Reconcile carrier payable against accepted tender, approved accessorials, documents and payment status while protecting payment-change controls."
+brokerage,Carrier Qualification Agent,hybrid_agent,"Determine whether a carrier meets brokerage, shipper, cargo, identity, authority, fraud and capability requirements before allocation."
+brokerage,Carrier Sourcing Agent,agent,Find potentially suitable carrier candidates from approved networks/sources without declaring them qualified or tendering freight.
+brokerage,Claims/Evidence Agent,human_supervised_agent,"Assemble, preserve and organize claims/dispute evidence and deadlines without autonomously deciding legal liability or settlement."
+brokerage,Compliance Supervisor Agent,human_supervised_agent,"Supervise brokerage authority, financial responsibility, carrier/commercial controls and recordkeeping; route high-risk decisions to authorized humans."
+brokerage,Broker Configuration Steward,human_supervised_agent,"Propose BOT, workflow, mapping and configuration changes from verified customer input without self-approving production authority."
+brokerage,Broker Documentation Agent,hybrid_agent,"Track broker-required documents and transaction evidence across shipper, carrier and facility sources."
+brokerage,Facility Coordination Agent,agent,"Coordinate brokerage-side appointments, readiness, BOL/POD, delay and facility exceptions through FreightOS/FacilityOS without owning facility state."
+brokerage,Margin Risk Service,deterministic_service,Continuously calculate brokerage margin/exposure and flag threshold breaches from exact sell/buy/accessorial terms.
+brokerage,Broker Negotiation Agent,agent,Negotiate shipper-side or carrier-side terms only within separately authorized deterministic envelopes and confidentiality boundaries.
+brokerage,Brokerage Operations Orchestrator,agent,"Coordinate RFQ, pricing, sourcing, qualification, tender, execution, documents, finance and compliance while preserving specialist authority."
+brokerage,Customer/Carrier Relationship Support Agent,agent,"Handle authorized routine relationship communications, service follow-up and issue triage without changing contracts, qualification or commercial policy."
+brokerage,Requirements Agent,agent,"Translate a normalized RFQ and account contract into explicit service, equipment, timing, facility, document and risk requirements."
+brokerage,Broker Shipment Execution Agent,agent,"Coordinate broker-side execution across carrier, facility, shipper, milestones, documents and service exceptions after coverage."
+brokerage,Shipper Billing Agent,hybrid_agent,Prepare and reconcile shipper invoices from exact brokerage terms and approved accessorials.
+brokerage,Shipper Intake Agent,hybrid_agent,Convert inbound shipper demand into a canonical attributable RFQ without committing the brokerage.
+brokerage,Shipper Pricing Agent,hybrid_agent,"Produce shipper-side quote recommendations and authorized quotes from deterministic pricing, credit and margin policy."
+brokerage,Tender/Booking Agent,hybrid_agent,"Issue exact-version carrier tenders to an allocated qualified carrier, capture response and bind coverage idempotently."
+brokerage,Tracking/Communication Agent,hybrid_agent,Maintain broker-visible shipment status and routine shipper/carrier communications from authoritative network events.
+brokerage,Broker Transaction Record Service,deterministic_service,"Construct, retain and expose the required brokerage transaction record from authoritative shipment, carrier, compensation and payment evidence."
+carrier,Capacity Agent,hybrid_agent,Maintain an explainable current view of usable carrier capacity and surface capacity candidates without making final assignments.
+carrier,Chief Dispatch Orchestrator,agent,"Maintain coherent carrier operations across intake, planning, dispatch, execution, exceptions, documents, maintenance readiness and settlement without stealing specialist authority."
+carrier,Dispatch Agent,agent,Convert an approved feasible operating plan into a precise carrier assignment and driver/equipment dispatch with acknowledgement and recovery.
+carrier,Documentation Agent,hybrid_agent,"Ensure required shipment documents are expected, collected, correctly associated, validated and routed without equating document presence with business-state completion."
+carrier,Carrier Exception Agent,agent,"Own carrier operational exceptions from detection through containment, coordination, replanning and verified resolution."
+carrier,Feasibility Engine,hybrid_agent,"Determine whether a proposed driver/equipment/mission combination is operationally eligible, keeping hard constraints deterministic and uncertainty explicit."
+carrier,Load Discovery Agent,agent,Find and normalize work opportunities that fit the carrier's declared operating market without accepting freight.
+carrier,Maintenance Readiness Agent,hybrid_agent,Translate RigDesk/service evidence into mission-readiness implications for carrier planning without independently diagnosing or certifying safety.
+carrier,Carrier Negotiation Agent,agent,Negotiate or prepare carrier-side commercial responses inside deterministic carrier authority and profitability bounds.
+carrier,Planning Agent,agent,"Build ranked explainable shipment and multi-load plans from eligible capacity, feasibility and economics."
+carrier,Profitability Engine,deterministic_service,Compute carrier-specific economic truth using versioned deterministic formulas.
+carrier,Carrier Risk & Compliance Agent,human_supervised_agent,"Surface carrier-side identity, credential, insurance, fraud, compliance and operational risks without self-clearing regulated or safety holds."
+carrier,Settlement/Reconciliation Agent,hybrid_agent,"Reconcile completed carrier work against exact commercial terms, evidence, invoices, payments and carrier economics."
+carrier,Tracking Agent,hybrid_agent,Maintain current shipment execution state from authoritative observations and detect stale/missing milestones without fabricating location or ETA.
+facility,Appointment Agent,hybrid_agent,"Schedule, recommend, revise and reconcile facility appointments within site capacity and policy."
+facility,Capacity/Labor Planning Agent,agent,Forecast and recommend facility service capacity/labor allocations without directly commanding workforce systems.
+facility,Cargo/Order Readiness Agent,hybrid_agent,Determine whether shipment/order cargo is operationally ready from authoritative ERP/WMS evidence.
+facility,Facility Integration/Configuration Steward,human_supervised_agent,"Propose FOT, mapping, workflow and integration changes with impact analysis without self-enabling production authority."
+facility,Custody/Evidence Agent,human_supervised_agent,"Prepare and record authorized custody transitions only when exact parties, objects, evidence and authority are satisfied."
+facility,Facility Customer Communication Agent,agent,"Provide authorized routine status and exception communication to carriers, shippers, drivers and customers from facility truth."
+facility,Detention Clock Service,deterministic_service,Calculate detention timing/evidence from configured terms and authoritative visit timestamps.
+facility,Discrepancy Agent,agent,"Own shortage, overage, damage, seal, document, quality and receiving discrepancy workflows through evidence and authorized disposition."
+facility,Dock Agent,hybrid_agent,"Coordinate dock readiness, compatibility, assignment targets and service state without actuating hardware."
+facility,Document/BOL Agent,hybrid_agent,"Ingest, secure, correlate, extract, validate, version and route BOL and facility transport documents."
+facility,Carrier/Driver Coordination Agent,agent,"Provide drivers/carriers authorized instructions, document requests, queue updates and help for a visit."
+facility,Facility Exception Agent,agent,"Own facility-side operational exceptions across visits, docks, documents, custody, receiving and systems."
+facility,Gate Agent,hybrid_agent,"Digitally coordinate visit identity, credential, document gate, check-in and queue/staging target under policy."
+facility,Load/Unload Verification Agent,hybrid_agent,Coordinate checklist/evidence that loading or unloading reached a defined operational completion state.
+facility,Facility Operations Orchestrator,agent,"Coordinate appointment, visit, gate, yard, dock, shipping, receiving, documents and exceptions across a site."
+facility,Receiving Office Agent,agent,"Operate inbound receiving-office workflow from BOL presentation through unload, inspection, receipt/discrepancy evidence and departure."
+facility,Shipping Office Agent,agent,"Operate the outbound shipping-office queue from pickup readiness through document acceptance, loading evidence and release prerequisites."
+facility,Yard Orchestration Agent,hybrid_agent,Recommend and coordinate non-safety-critical staging/queue work from current facility state.
+service_provider,Service Appointment/Dispatch Agent,agent,Schedule or dispatch an accepted service case to an eligible provider resource/slot without controlling vehicle motion.
+service_provider,Service Capacity Agent,hybrid_agent,Maintain current bay/mobile-unit/tow-resource capacity without assigning work by itself.
+service_provider,Service Customer Communication Agent,agent,"Keep driver/carrier/customer informed about intake, ETA, estimate, approvals, work status and completion from authoritative provider state."
+service_provider,Service Eligibility Engine,hybrid_agent,"Determine whether provider capability, geography, hours, credentials and policy make a request eligible for consideration."
+service_provider,Estimate Agent,hybrid_agent,Prepare service estimates from approved labor/parts/rate policies and available service evidence.
+service_provider,Service Evidence Agent,hybrid_agent,"Collect and preserve service evidence needed for completion, warranty, carrier readiness and invoicing."
+service_provider,Service Invoice/Reconciliation Agent,hybrid_agent,"Prepare and reconcile provider invoice against authorized estimate/work order, parts/labor evidence and completion state."
+service_provider,Parts & Dependency Agent,agent,Coordinate parts/vendor/dependency availability that blocks service work without fabricating inventory or ordering outside authority.
+service_provider,Service Intake Agent,hybrid_agent,"Convert roadside/repair/service requests into canonical service cases with exact asset, location, symptom, urgency and requester context."
+service_provider,Work Status Agent,hybrid_agent,Maintain service work-order status and ETA from authoritative provider/technician systems.
+shipper,Shipper Documentation Agent,hybrid_agent,Track shipper-required transportation/commercial documents and authoritative references.
+shipper,Shipper Exception Agent,agent,"Own shipper-side service exceptions, internal stakeholder coordination and approved counterparty actions."
+shipper,Shipper Facility Coordination Agent,agent,Coordinate shipper-owned origin/destination facility requirements and appointments through FacilityOS/network.
+shipper,Invoice Audit Engine,hybrid_agent,"Audit carrier/broker invoices against contracted/tendered terms, approved accessorials and execution evidence."
+shipper,Provider/Carrier Selection Agent,hybrid_agent,"Select an eligible contracted carrier/broker/provider according to routing, service, cost and legal-plane policy."
+shipper,Quote Analysis Agent,hybrid_agent,"Compare authorized carrier/broker quotes against requirements, routing, price, service and policy."
+shipper,Shipper Requirements Agent,agent,Translate order/contract needs into explicit transportation service requirements.
+shipper,Routing Guide Engine,deterministic_service,Apply shipper-approved routing-guide sequence and eligibility rules.
+shipper,Service Analytics Agent,agent,"Analyze transportation service performance, recurring exceptions, provider outcomes and improvement opportunities."
+shipper,Shipment Intake Agent,hybrid_agent,Convert shipper orders/requests into canonical transportation demand with exact provenance.
+shipper,Shipper Tender Agent,hybrid_agent,Issue exact-version direct-carrier or broker tenders according to the chosen legal/contract path.
+shipper,Shipper Tracking Agent,hybrid_agent,Maintain shipper-visible execution state from broker/carrier/facility assertions.

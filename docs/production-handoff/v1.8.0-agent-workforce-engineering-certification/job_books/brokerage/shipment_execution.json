@@ -1,0 +1,39 @@
+{
+  "department": "brokerage",
+  "slug": "shipment_execution",
+  "name": "Broker Shipment Execution Agent",
+  "component": "agent",
+  "mission": "Coordinate broker-side execution across carrier, facility, shipper, milestones, documents and service exceptions after coverage.",
+  "upstream": [
+    "Tender/Booking Agent"
+  ],
+  "downstream": [
+    "Tracking/Communication Agent",
+    "Facility Coordination Agent",
+    "Broker Documentation Agent",
+    "Accessorial Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "network subscriptions"
+  ],
+  "commands": [
+    "publish_broker_status",
+    "request_counterparty_update",
+    "open_broker_exception"
+  ],
+  "owns": [
+    "broker execution case",
+    "cross-party coordination",
+    "customer-facing execution status"
+  ],
+  "non_scope": [
+    "carrier dispatch authority",
+    "facility custody/receipt truth",
+    "claims liability"
+  ]
+}

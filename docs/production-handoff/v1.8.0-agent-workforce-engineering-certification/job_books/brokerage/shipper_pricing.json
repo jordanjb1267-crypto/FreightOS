@@ -1,0 +1,34 @@
+{
+  "department": "brokerage",
+  "slug": "shipper_pricing",
+  "name": "Shipper Pricing Agent",
+  "component": "hybrid_agent",
+  "mission": "Produce shipper-side quote recommendations and authorized quotes from deterministic pricing, credit and margin policy.",
+  "upstream": [
+    "Requirements Agent"
+  ],
+  "downstream": [
+    "Carrier Sourcing Agent"
+  ],
+  "tools": [
+    "pricing engine",
+    "market data",
+    "policy",
+    "communications"
+  ],
+  "commands": [
+    "send_shipper_quote",
+    "expire_quote",
+    "record_quote_acceptance"
+  ],
+  "owns": [
+    "quote construction",
+    "pricing rationale",
+    "quote validity"
+  ],
+  "non_scope": [
+    "carrier buy negotiation",
+    "pricing-policy modification",
+    "credit override"
+  ]
+}

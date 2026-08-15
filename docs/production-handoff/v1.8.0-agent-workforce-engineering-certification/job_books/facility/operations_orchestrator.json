@@ -1,0 +1,26 @@
+{
+  "department": "facility",
+  "slug": "operations_orchestrator",
+  "name": "Facility Operations Orchestrator",
+  "component": "agent",
+  "mission": "Coordinate appointment, visit, gate, yard, dock, shipping, receiving, documents and exceptions across a site.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "FOT retrieval",
+    "policy query",
+    "FacilityOS domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "facility_typed_command"
+  ],
+  "owns": [
+    "facility work ownership and priority"
+  ],
+  "non_scope": [
+    "physical control; custody/receipt override"
+  ]
+}
