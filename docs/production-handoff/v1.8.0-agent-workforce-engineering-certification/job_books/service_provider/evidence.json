@@ -1,0 +1,26 @@
+{
+  "department": "service_provider",
+  "slug": "evidence",
+  "name": "Service Evidence Agent",
+  "component": "hybrid_agent",
+  "mission": "Collect and preserve service evidence needed for completion, warranty, carrier readiness and invoicing.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SPOT/RigDesk retrieval",
+    "policy query",
+    "provider domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "service_provider_typed_command"
+  ],
+  "owns": [
+    "service evidence checklist"
+  ],
+  "non_scope": [
+    "safety certification beyond source"
+  ]
+}

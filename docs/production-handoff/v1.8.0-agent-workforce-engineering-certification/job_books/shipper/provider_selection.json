@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "provider_selection",
+  "name": "Provider/Carrier Selection Agent",
+  "component": "hybrid_agent",
+  "mission": "Select an eligible contracted carrier/broker/provider according to routing, service, cost and legal-plane policy.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "provider selection proposal"
+  ],
+  "non_scope": [
+    "carrier qualification beyond shipper policy; unauthorized brokerage"
+  ]
+}

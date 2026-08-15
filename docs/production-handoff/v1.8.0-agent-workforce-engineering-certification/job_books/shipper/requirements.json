@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "requirements",
+  "name": "Shipper Requirements Agent",
+  "component": "agent",
+  "mission": "Translate order/contract needs into explicit transportation service requirements.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "requirements interpretation"
+  ],
+  "non_scope": [
+    "commercial quote/provider selection"
+  ]
+}

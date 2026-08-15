@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "quote_analysis",
+  "name": "Quote Analysis Agent",
+  "component": "hybrid_agent",
+  "mission": "Compare authorized carrier/broker quotes against requirements, routing, price, service and policy.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "quote comparison/explanation"
+  ],
+  "non_scope": [
+    "brokerage representation; bid manipulation"
+  ]
+}

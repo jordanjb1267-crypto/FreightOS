@@ -1,0 +1,178 @@
+{
+  "package": "FreightOS_Enterprise_Agent_Operations_Handoff_v1.5.0",
+  "version": "1.5.0",
+  "date": "2026-08-14",
+  "relationship": "additive; no existing FreightOS artifact modified",
+  "files": [
+    {
+      "path": "00_MASTER_HANDOFF.md",
+      "sha256": "0086de618f208607a6bf4052ea94c44d4d43fbc3fa1b16dd379269c47a25c516",
+      "bytes": 5800
+    },
+    {
+      "path": "01_ENTERPRISE_AGENT_CONSTITUTION.md",
+      "sha256": "628ec1e45557aaf8036f5a7cea1e57515cd495b5c8e8c26c924d1cde207e6a9a",
+      "bytes": 3568
+    },
+    {
+      "path": "02_COMPANY_OPERATIONAL_TWIN.md",
+      "sha256": "cd87db2f486f37bf4c25203b9f5355c1e123e1916ca398a5b9f51a8655a1caf0",
+      "bytes": 4313
+    },
+    {
+      "path": "03_TENANT_AGENT_ORGANIZATION_FACTORY.md",
+      "sha256": "21161c5ccfb590cb528950d26b11d58677ab98a49a4213b1a20c152c18d517f3",
+      "bytes": 3236
+    },
+    {
+      "path": "04_ADAPTIVE_WORKFLOW_GRAPH_RUNTIME.md",
+      "sha256": "627db51cd75de8b10c2bbec3343ade17de3a6ebc39365155704f4049c2020027",
+      "bytes": 3169
+    },
+    {
+      "path": "05_UNIVERSAL_DISPATCH_ORCHESTRATION.md",
+      "sha256": "00107235f1ec1a4a748ef23cfcf4a69253cefa21f10359afb3e41d7bcd3402db",
+      "bytes": 3473
+    },
+    {
+      "path": "06_BACK_OFFICE_AUTOMATION.md",
+      "sha256": "d0ff18483107713bda03052da8033053bb50f6322202a663273c35ebd70f8c8c",
+      "bytes": 2370
+    },
+    {
+      "path": "07_MAINTENANCE_REPAIR_ROADSIDE.md",
+      "sha256": "768d6566743566ce5b45e38f056eb62442abfbe5f94ce8c634fc70c25547112a",
+      "bytes": 2741
+    },
+    {
+      "path": "08_MULTIMODAL_CAPABILITY_PACKS.md",
+      "sha256": "8053d864dce4e9a15d54e2abf09364d67135aa1ac56bec4f7e446961a74fc13d",
+      "bytes": 2042
+    },
+    {
+      "path": "09_CUSTOMER_CONTROL_AND_EXPLAINABILITY.md",
+      "sha256": "8f6445ef8cc86a356e99f9d9d6edc1a507b48b48e40c7161834f9266c15ef896",
+      "bytes": 2240
+    },
+    {
+      "path": "10_AUTONOMY_CERTIFICATION_AND_SHADOW_MODE.md",
+      "sha256": "42de1ff6b3abdc56e9c04862223036ad091d63a4ec59c113ab72bf37209730e1",
+      "bytes": 2212
+    },
+    {
+      "path": "11_INTEGRATION_ADAPTER_AND_CONFORMANCE.md",
+      "sha256": "73d614bd0ad82bc0d4c05052e4816e63ad22f53e2dfccb98d3afed1f1d3252a2",
+      "bytes": 1804
+    },
+    {
+      "path": "12_ENTERPRISE_SCALE_AND_CELL_ARCHITECTURE.md",
+      "sha256": "73d96f07724f93fca5a87839240f56bbdb419ec026ae9e5707eb99b8bbea016d",
+      "bytes": 2289
+    },
+    {
+      "path": "13_KNOWLEDGE_MEMORY_AND_DATA_GOVERNANCE.md",
+      "sha256": "c352e62886502005679edded91a62025098719a3b2606a709fcb1b7623eaed13",
+      "bytes": 2014
+    },
+    {
+      "path": "14_OBSERVABILITY_EVALUATION_AND_OUTCOMES.md",
+      "sha256": "3dbcf5a1e7116ff4d198c2a5471f959a8b84f5e2f4966537783122c7c6c2d68e",
+      "bytes": 1994
+    },
+    {
+      "path": "15_CUSTOMER_IMPLEMENTATION_AND_GO_LIVE.md",
+      "sha256": "b642e3492c084cdea1e2b13ab35ec527340ed0ca651d93b03c70b39098ebafb6",
+      "bytes": 2335
+    },
+    {
+      "path": "16_ACCEPTANCE_GATES.md",
+      "sha256": "8c20dc1fc802431a465cb8e60482d5f2ca2425449f62c58057dd4c2122145168",
+      "bytes": 2591
+    },
+    {
+      "path": "17_IMPLEMENTATION_ROADMAP.md",
+      "sha256": "b56e5f5ac0392733553d914cf24d0a7865479dfeb67809c655c6d3f9c49cd508",
+      "bytes": 2672
+    },
+    {
+      "path": "18_CLAUDE_MASTER_IMPLEMENTATION_PROMPT.md",
+      "sha256": "e163b11f4ad161480413c8550e4c2b21ac64a72dc8fc6689bf0aa1aa61134a00",
+      "bytes": 3748
+    },
+    {
+      "path": "COMBINED_HANDOFF.md",
+      "sha256": "2c77c6fa66f2ebff7079d017747fb5b40382d17247ee5ab8060ce3c7ae8a2ea1",
+      "bytes": 73523
+    },
+    {
+      "path": "README.md",
+      "sha256": "de2d42be4595bca4776c5ed3b315453c836b98470cd184e835e01819d83c54eb",
+      "bytes": 3502
+    },
+    {
+      "path": "SOURCE_RELATIONSHIP.md",
+      "sha256": "a755ff7553d0888e93f3878f8985305f74b95254758c7921008256736ccabc72",
+      "bytes": 1268
+    },
+    {
+      "path": "contracts/agent_manifest.schema.json",
+      "sha256": "7622f8e6a330e15a159731abdccfca8e645b971678dc7251e71694256531ba05",
+      "bytes": 1380
+    },
+    {
+      "path": "contracts/autonomy_grant.schema.json",
+      "sha256": "b005bac405d1a2afa5858f7667d83cff8fd817089cc16b8a46f317ccf8c99909",
+      "bytes": 1133
+    },
+    {
+      "path": "contracts/capability_pack.schema.json",
+      "sha256": "c46bc376c7a74921096301d868b2e5fca2eed0c0fd1c7645d34c2d0b090ca04d",
+      "bytes": 1535
+    },
+    {
+      "path": "contracts/company_operational_twin.schema.json",
+      "sha256": "d871d77488ead085caf5f136b0e013196cd9a2eb3442e2258d389fc74a2d42af",
+      "bytes": 2750
+    },
+    {
+      "path": "contracts/enterprise_agent_graph.yaml",
+      "sha256": "33960f1f56998fb81227a63d1bda589931365bb433e15fdfb25a4ed0f69caa62",
+      "bytes": 1764
+    },
+    {
+      "path": "contracts/workflow_definition.schema.json",
+      "sha256": "519d2745d9c2e0d9abd0187d65c7ad56e50412d9683a851f2a0c2bd602813b3a",
+      "bytes": 1347
+    },
+    {
+      "path": "diagrams/01_enterprise_agent_architecture.mmd",
+      "sha256": "b93a2a4ac4a7cb242d6fe351e672fe6cf8bd53aabfbcb3bb661fcfe67cf1ec9d",
+      "bytes": 832
+    },
+    {
+      "path": "diagrams/02_customer_onboarding.mmd",
+      "sha256": "b3770395ba6cbf556f33c3e6285f64ff5f74c92017cf3dff11d15aca91859247",
+      "bytes": 452
+    },
+    {
+      "path": "diagrams/03_universal_dispatch_graph.mmd",
+      "sha256": "55198e3915ed93431c62d5a94d6f75be89da2a237b6edf927837f62f99a27009",
+      "bytes": 629
+    },
+    {
+      "path": "templates/company_intake.yaml",
+      "sha256": "da6cb99ff8b8d7938bd42370c6cb05326d33ffb871ba73585e7e468023d44513",
+      "bytes": 806
+    },
+    {
+      "path": "templates/customer_go_live_checklist.md",
+      "sha256": "ef17442f1a157b2d23bc301dc869a6759fa01338047c6eefb41194986914fecb",
+      "bytes": 719
+    },
+    {
+      "path": "templates/workflow_discovery.md",
+      "sha256": "d81e846ea2c65e2d69664d689d773f747520795005b09a91ae978670f7cbdf2a",
+      "bytes": 636
+    }
+  ]
+}

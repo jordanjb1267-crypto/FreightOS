@@ -1,0 +1,39 @@
+{
+  "department": "carrier",
+  "slug": "tracking",
+  "name": "Tracking Agent",
+  "component": "hybrid_agent",
+  "mission": "Maintain current shipment execution state from authoritative observations and detect stale/missing milestones without fabricating location or ETA.",
+  "upstream": [
+    "Dispatch Agent"
+  ],
+  "downstream": [
+    "Carrier Exception Agent",
+    "Documentation Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "telematics adapter",
+    "FacilityOS events",
+    "ETA service"
+  ],
+  "commands": [
+    "record_shipment_status",
+    "publish_status_assertion",
+    "open_exception"
+  ],
+  "owns": [
+    "milestone state",
+    "freshness",
+    "ETA synthesis",
+    "routine status publication"
+  ],
+  "non_scope": [
+    "dispatch changes",
+    "exception resolution",
+    "facility receipt/custody truth"
+  ]
+}

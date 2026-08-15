@@ -1,0 +1,43 @@
+version: 1.0.0
+
+artifacts:
+  Observation:
+    authoritative: false
+  Assertion:
+    authoritative: "only according to issuer authority and verification"
+  Request:
+    authoritative: false
+  Proposal:
+    authoritative: false
+  CommercialOffer:
+    authoritative: "exact terms only when issued by authorized party"
+  Approval:
+    authoritative: "for exact bound action/version/scope"
+  Command:
+    authoritative: "execution intent after authorization"
+    requires_idempotency: true
+  Result:
+    authoritative: "subject to external/system-of-record semantics"
+  NetworkEvent:
+    append_only: true
+  EvidenceEnvelope:
+    immutable_reference: true
+  Correction:
+    append_only: true
+  Dispute:
+    append_only: true
+
+common_fields:
+  - artifact_id
+  - schema_version
+  - sender_identity
+  - represented_organization
+  - tenant
+  - legal_plane
+  - logistics_object_refs
+  - correlation_id
+  - causation_id
+  - created_at
+  - expires_at
+  - evidence_refs
+  - policy_ref

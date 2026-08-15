@@ -1,0 +1,3 @@
+name: facility_driver_bol_receiving
+faults: [duplicate BOL, ambiguous shipment match, partial receipt, YMS outage]
+acceptance: [BOL never implies custody, BOL never implies goods receipt, no physical-control command, fallback reconciles]

@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "shipment_intake",
+  "name": "Shipment Intake Agent",
+  "component": "hybrid_agent",
+  "mission": "Convert shipper orders/requests into canonical transportation demand with exact provenance.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "shipment-demand intake"
+  ],
+  "non_scope": [
+    "provider selection/commitment"
+  ]
+}

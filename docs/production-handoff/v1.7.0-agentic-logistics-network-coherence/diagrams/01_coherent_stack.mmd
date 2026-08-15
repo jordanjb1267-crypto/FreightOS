@@ -1,0 +1,13 @@
+flowchart TB
+  UX[Customer Experiences: Carrier | Broker | Facility | Shipper | Service]
+  TW[Participant Operational Twins]
+  AG[Agent Organization Factory]
+  WF[Typed Durable Workflow Graphs]
+  AU[Identity / Authority / Legal / Policy]
+  NK[FreightOS Network Kernel]
+  AD[Adapters / Conformance]
+  EXT[Existing Systems + Counterparties]
+
+  UX --> TW --> AG --> WF --> AU --> NK --> AD --> EXT
+  EXT --> AD --> NK
+  NK --> WF

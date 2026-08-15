@@ -1,0 +1,26 @@
+{
+  "department": "service_provider",
+  "slug": "estimate",
+  "name": "Estimate Agent",
+  "component": "hybrid_agent",
+  "mission": "Prepare service estimates from approved labor/parts/rate policies and available service evidence.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SPOT/RigDesk retrieval",
+    "policy query",
+    "provider domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "service_provider_typed_command"
+  ],
+  "owns": [
+    "estimate preparation"
+  ],
+  "non_scope": [
+    "safety diagnosis; unauthorized concession"
+  ]
+}

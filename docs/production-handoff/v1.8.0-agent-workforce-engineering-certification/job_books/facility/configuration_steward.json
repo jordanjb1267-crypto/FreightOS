@@ -1,0 +1,26 @@
+{
+  "department": "facility",
+  "slug": "configuration_steward",
+  "name": "Facility Integration/Configuration Steward",
+  "component": "human_supervised_agent",
+  "mission": "Propose FOT, mapping, workflow and integration changes with impact analysis without self-enabling production authority.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "FOT retrieval",
+    "policy query",
+    "FacilityOS domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "facility_typed_command"
+  ],
+  "owns": [
+    "configuration proposals"
+  ],
+  "non_scope": [
+    "self-approval; physical-control expansion"
+  ]
+}

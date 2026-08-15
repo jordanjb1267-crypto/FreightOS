@@ -1,0 +1,26 @@
+# Brokerage Go-Live Checklist
+
+- [ ] Brokerage entity/authority verified
+- [ ] Financial responsibility verified
+- [ ] BOC-3/process-agent requirement verified
+- [ ] Counsel/legal operating gate signed
+- [ ] BOT approved
+- [ ] Carrier-Agent/Brokerage Plane separation tested
+- [ ] Shipper account/contract map approved
+- [ ] Carrier qualification policy approved
+- [ ] Quote/margin policy approved
+- [ ] TMS/CRM/accounting integrations conformed
+- [ ] Fraud/payment-change controls tested
+- [ ] RFQ/quote shadow passed
+- [ ] Carrier qualification shadow passed
+- [ ] Tender exact-version acceptance tested
+- [ ] Idempotency/reconciliation tested
+- [ ] FacilityOS integration tested
+- [ ] Broker transaction record completeness tested
+- [ ] 3-year minimum retention configured
+- [ ] Authorized record review/export tested
+- [ ] Proposed transparency automation disabled unless legally activated
+- [ ] Kill switches tested
+- [ ] Authority/financial-responsibility incident runbook tested
+- [ ] Rollback/restore tested
+- [ ] Customer/compliance signoff

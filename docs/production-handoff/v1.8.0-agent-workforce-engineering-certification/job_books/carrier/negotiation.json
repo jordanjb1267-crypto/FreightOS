@@ -1,0 +1,37 @@
+{
+  "department": "carrier",
+  "slug": "negotiation",
+  "name": "Carrier Negotiation Agent",
+  "component": "agent",
+  "mission": "Negotiate or prepare carrier-side commercial responses inside deterministic carrier authority and profitability bounds.",
+  "upstream": [
+    "Planning Agent",
+    "Profitability Engine"
+  ],
+  "downstream": [
+    "Dispatch Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "communications gateway",
+    "negotiation state"
+  ],
+  "commands": [
+    "send_carrier_counter",
+    "send_carrier_acceptance",
+    "withdraw_carrier_offer"
+  ],
+  "owns": [
+    "counter strategy",
+    "message drafting",
+    "negotiation cadence"
+  ],
+  "non_scope": [
+    "brokerage-side representation",
+    "rate-floor override",
+    "binding acceptance outside authority"
+  ]
+}

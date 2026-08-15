@@ -1,0 +1,39 @@
+{
+  "department": "brokerage",
+  "slug": "negotiation",
+  "name": "Broker Negotiation Agent",
+  "component": "agent",
+  "mission": "Negotiate shipper-side or carrier-side terms only within separately authorized deterministic envelopes and confidentiality boundaries.",
+  "upstream": [
+    "Shipper Pricing Agent",
+    "Carrier Qualification Agent"
+  ],
+  "downstream": [
+    "Allocation Agent",
+    "Tender/Booking Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "pricing/margin engine",
+    "negotiation state"
+  ],
+  "commands": [
+    "send_broker_counter",
+    "record_negotiated_terms"
+  ],
+  "owns": [
+    "counter strategy",
+    "message generation",
+    "concession selection within bounds"
+  ],
+  "non_scope": [
+    "rate math",
+    "margin policy",
+    "contract amendment",
+    "qualification"
+  ]
+}

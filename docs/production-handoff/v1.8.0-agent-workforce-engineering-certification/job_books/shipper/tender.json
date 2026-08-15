@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "tender",
+  "name": "Shipper Tender Agent",
+  "component": "hybrid_agent",
+  "mission": "Issue exact-version direct-carrier or broker tenders according to the chosen legal/contract path.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "shipper-side tender issuance"
+  ],
+  "non_scope": [
+    "carrier/broker internal allocation"
+  ]
+}

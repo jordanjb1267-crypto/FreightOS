@@ -1,0 +1,26 @@
+{
+  "department": "service_provider",
+  "slug": "eligibility",
+  "name": "Service Eligibility Engine",
+  "component": "hybrid_agent",
+  "mission": "Determine whether provider capability, geography, hours, credentials and policy make a request eligible for consideration.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SPOT/RigDesk retrieval",
+    "policy query",
+    "provider domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "service_provider_typed_command"
+  ],
+  "owns": [
+    "eligibility result"
+  ],
+  "non_scope": [
+    "final acceptance; technician assignment"
+  ]
+}

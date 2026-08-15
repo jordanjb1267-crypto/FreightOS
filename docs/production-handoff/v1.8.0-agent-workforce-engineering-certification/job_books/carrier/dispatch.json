@@ -1,0 +1,38 @@
+{
+  "department": "carrier",
+  "slug": "dispatch",
+  "name": "Dispatch Agent",
+  "component": "agent",
+  "mission": "Convert an approved feasible operating plan into a precise carrier assignment and driver/equipment dispatch with acknowledgement and recovery.",
+  "upstream": [
+    "Planning Agent",
+    "Feasibility Engine"
+  ],
+  "downstream": [
+    "Tracking Agent",
+    "Carrier Exception Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "TMS assignment adapter",
+    "driver communications"
+  ],
+  "commands": [
+    "assign_driver_equipment",
+    "send_dispatch_instruction",
+    "cancel_dispatch_instruction"
+  ],
+  "owns": [
+    "assignment preparation",
+    "dispatch communication",
+    "assignment side-effect orchestration"
+  ],
+  "non_scope": [
+    "feasibility override",
+    "commercial renegotiation",
+    "cross-carrier allocation"
+  ]
+}

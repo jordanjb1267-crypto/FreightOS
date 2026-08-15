@@ -1,0 +1,26 @@
+{
+  "department": "facility",
+  "slug": "shipping_office",
+  "name": "Shipping Office Agent",
+  "component": "agent",
+  "mission": "Operate the outbound shipping-office queue from pickup readiness through document acceptance, loading evidence and release prerequisites.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "FOT retrieval",
+    "policy query",
+    "FacilityOS domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "facility_typed_command"
+  ],
+  "owns": [
+    "outbound office case"
+  ],
+  "non_scope": [
+    "physical loading; custody override"
+  ]
+}

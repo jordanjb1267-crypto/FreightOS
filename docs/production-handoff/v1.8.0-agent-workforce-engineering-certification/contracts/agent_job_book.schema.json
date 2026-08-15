@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/agent-job-book/v1",
+  "title": "AgentJobBook",
+  "type": "object",
+  "required": [
+    "jobId",
+    "department",
+    "name",
+    "componentClass",
+    "mission",
+    "ownedOutcomes",
+    "nonScope",
+    "inputs",
+    "outputs",
+    "decisionRights",
+    "commands",
+    "normalGraph",
+    "exceptionPolicy",
+    "evaluationSuite"
+  ],
+  "properties": {
+    "jobId": {
+      "type": "string"
+    },
+    "department": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "componentClass": {
+      "enum": [
+        "agent",
+        "hybrid_agent",
+        "deterministic_service",
+        "workflow_service",
+        "human_supervised_agent"
+      ]
+    },
+    "mission": {
+      "type": "string"
+    },
+    "ownedOutcomes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "nonScope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "decisionRights": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "normalGraph": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "exceptionPolicy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evaluationSuite": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

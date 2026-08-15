@@ -1,0 +1,198 @@
+{
+  "package": "FacilityOS_Enterprise_Agent_Operations_Handoff_v1.0.0",
+  "version": "1.0.0",
+  "date": "2026-08-14",
+  "relationship": "additive; existing FreightOS/FacilityOS artifacts not modified",
+  "files": [
+    {
+      "path": "00_MASTER_HANDOFF.md",
+      "sha256": "6b01fa883f840e9e9e2db6ca69fef35aed68a1e760dddd4d13f50533bf00af11",
+      "bytes": 3902
+    },
+    {
+      "path": "01_FACILITYOS_CONSTITUTION.md",
+      "sha256": "9c24166ff8922cb3a54b4617785f77d718869674758d503214350999a557497f",
+      "bytes": 2377
+    },
+    {
+      "path": "02_FACILITY_OPERATIONAL_TWIN.md",
+      "sha256": "8099ed903bcd7694748814a93d5be801bbadbaa24ff6889be384d4d4019d83a6",
+      "bytes": 2106
+    },
+    {
+      "path": "03_FACILITY_AGENT_ORGANIZATION_FACTORY.md",
+      "sha256": "2127a2f6856bb358386fcac628ac1f6b93305e37857a4e1549b5bb1e8df140e0",
+      "bytes": 1926
+    },
+    {
+      "path": "04_FACILITY_WORKFLOW_GRAPH_STANDARD.md",
+      "sha256": "6209ee9aa70445d504793e8682e3d2a87585c7bf63aad8d76ff81cd217d3a4d1",
+      "bytes": 1404
+    },
+    {
+      "path": "05_VEHICLE_VISIT_AND_DRIVER_EXPERIENCE.md",
+      "sha256": "90473d736d24792407fd2bc9c690ea6e4f8199591c0c1858ce5e2aef6726076f",
+      "bytes": 1479
+    },
+    {
+      "path": "06_BOL_DOCUMENT_AND_OFFICE_EXCHANGE.md",
+      "sha256": "2901a37e0aeb5b3399abe17dcaa4626816220a35ce0c7ca05b4828e9afec6ca6",
+      "bytes": 4586
+    },
+    {
+      "path": "07_SHIPPING_ORIGIN_OPERATIONS.md",
+      "sha256": "4b7e47a3bf6beffd3ae387e782773fa4f952bc36f7b8d1c169aa6f6f7db32538",
+      "bytes": 1105
+    },
+    {
+      "path": "08_RECEIVING_DESTINATION_OPERATIONS.md",
+      "sha256": "8d858087662fa8288195dec7919a9e49724f25be59de8bb48b27eb4884ef5c32",
+      "bytes": 1263
+    },
+    {
+      "path": "09_GATE_YARD_DOCK_ORCHESTRATION.md",
+      "sha256": "f193698116fe6d9eea951900ec51a85042f13d85a35cbc6f2fb585f106854f40",
+      "bytes": 1145
+    },
+    {
+      "path": "10_CUSTODY_EVIDENCE_AND_TRACEABILITY.md",
+      "sha256": "ec8d44245d476a2afe0d7b783495455c386af6234785b604c0c1ee64bf00da71",
+      "bytes": 1069
+    },
+    {
+      "path": "11_APPOINTMENTS_CAPACITY_AND_DETENTION.md",
+      "sha256": "ddf1fddcc62a7be839567619d3dbc487fba9e69fee308ade25bcd13a715c9e84",
+      "bytes": 1193
+    },
+    {
+      "path": "12_DISCREPANCY_EXCEPTION_AND_CLAIMS_EVIDENCE.md",
+      "sha256": "979091b3eb95dc2e86a13483b16eeb6d04085354aeaac78aabce9b95e52eb4aa",
+      "bytes": 1080
+    },
+    {
+      "path": "13_INTEGRATIONS_AND_STANDARDS.md",
+      "sha256": "27187528a0e254534b117e80c1ca3d26cd55487f4da4d11d5274ba2cdbeba3e4",
+      "bytes": 1746
+    },
+    {
+      "path": "14_CUSTOMER_CONTROL_AND_EXPLAINABILITY.md",
+      "sha256": "38cf72342b42b5c1b704f14634de022c7a7a85ad3e0289b5f6b45808d80b705d",
+      "bytes": 1154
+    },
+    {
+      "path": "15_AUTONOMY_SHADOW_AND_CERTIFICATION.md",
+      "sha256": "ad06a2c82f2c3ea9578b894042641f07ec29d032b735c8993a5b49e9b0fc4f72",
+      "bytes": 1350
+    },
+    {
+      "path": "16_ENTERPRISE_SCALE_AND_MULTI_FACILITY.md",
+      "sha256": "d2d021b60f78e98854289f86d38b682b8e25790351cd3bc285ef098fa82e85cf",
+      "bytes": 1405
+    },
+    {
+      "path": "17_FREIGHTOS_NETWORK_COMMUNICATION.md",
+      "sha256": "00112779878147b5ae5639787451045b8d791ca856026aff69c5d3e8e48b46b3",
+      "bytes": 1509
+    },
+    {
+      "path": "18_SECURITY_PRIVACY_AND_DATA_GOVERNANCE.md",
+      "sha256": "0bb7650549f80a04b7519733406b805f244d4e419b9432eea502df1254ae133a",
+      "bytes": 1463
+    },
+    {
+      "path": "19_OBSERVABILITY_AND_OUTCOMES.md",
+      "sha256": "7cca1e461ea706a962c44fea1b1291ab59c08fa030f155c7d04d9e1769bdfa05",
+      "bytes": 1137
+    },
+    {
+      "path": "20_CUSTOMER_IMPLEMENTATION_AND_GO_LIVE.md",
+      "sha256": "effa7cf9ad6d20c2152899686aa30596760e17c425390b41dccf44b068fe5b2c",
+      "bytes": 1298
+    },
+    {
+      "path": "21_ACCEPTANCE_GATES.md",
+      "sha256": "398ad23eca001fc1bab58198385abce3ebd195d134a3a3a40231be4b6c687ad5",
+      "bytes": 1669
+    },
+    {
+      "path": "22_IMPLEMENTATION_ROADMAP.md",
+      "sha256": "5cf4be55a8fad6ba136b58dd01f7b93365b3c380635ec8ff865fe191c311ce5e",
+      "bytes": 1475
+    },
+    {
+      "path": "23_CLAUDE_MASTER_IMPLEMENTATION_PROMPT.md",
+      "sha256": "01e3c769a153dbbbd82c1f5978911a1ddfc4ac6e5c18c17a7cf7e33c2841681e",
+      "bytes": 2957
+    },
+    {
+      "path": "COMBINED_HANDOFF.md",
+      "sha256": "ce6b29ceb531d99173fa38630d58d33c75416f90338fe40ec29fc39aec1a9165",
+      "bytes": 60800
+    },
+    {
+      "path": "README.md",
+      "sha256": "bed64070b22ebfe59c3ade50d815eeaf83c5eabf7b3bdfb4d1ae4b4b3680d463",
+      "bytes": 4002
+    },
+    {
+      "path": "SOURCE_REGISTRY.md",
+      "sha256": "4040832852de0133037e010344d6b093977591673fecbb107a0f579946b0606e",
+      "bytes": 1163
+    },
+    {
+      "path": "contracts/facility_agent_manifest.schema.json",
+      "sha256": "a6e1ef3909a117afc2f36d57908a64def06fe564e4e73ab3c43f47e7e59967ae",
+      "bytes": 1146
+    },
+    {
+      "path": "contracts/facility_graphs.yaml",
+      "sha256": "60a041443dc215ae4de2ae31be163f0eb22ee5611b350ba0aa14a40f0bd95705",
+      "bytes": 1505
+    },
+    {
+      "path": "contracts/facility_operational_twin.schema.json",
+      "sha256": "f0187b4f2b082ea14f8fc80dd546ed21a155240f3f8e54241cbfcd418217083a",
+      "bytes": 1269
+    },
+    {
+      "path": "contracts/transport_document.schema.json",
+      "sha256": "a9d5b9fbd1f6494a572419a835c87715b7ff3c382062458035c65a7bdceb3056",
+      "bytes": 2315
+    },
+    {
+      "path": "contracts/vehicle_visit.schema.json",
+      "sha256": "22f940fbee4d7c8e23c59f89ecb2cdac77b00d87c45658e783ec6516281965d1",
+      "bytes": 1699
+    },
+    {
+      "path": "diagrams/01_facilityos_network.mmd",
+      "sha256": "395bd70638519986560e2462f5e52f0c7b59fcadd795b3d0e2841a84c0534ef2",
+      "bytes": 401
+    },
+    {
+      "path": "diagrams/02_bol_submission.mmd",
+      "sha256": "38a14e34b3415cba59a9d09e73c8cbaeb8d7ab7c3f85a940aa230d8ed7ddf33b",
+      "bytes": 592
+    },
+    {
+      "path": "diagrams/03_vehicle_visit.mmd",
+      "sha256": "96f40d1dd48bf8af31938ed8b2ca9725656a045b6c99f8b1b85b3fad8e1517e3",
+      "bytes": 222
+    },
+    {
+      "path": "templates/bol_workflow_discovery.md",
+      "sha256": "36e41a96b77b5a259ed1d16401a1e0e82909b2c5172fef3072d9f909a52cdcbb",
+      "bytes": 731
+    },
+    {
+      "path": "templates/customer_go_live_checklist.md",
+      "sha256": "9bb29cdfdda77a31d23cd68c0d47f4e6a434e1c69f2719aa92beb1af5d133878",
+      "bytes": 869
+    },
+    {
+      "path": "templates/facility_intake.yaml",
+      "sha256": "ffb4c1f90b98fe352ecea3a5615a54d5959a2ae92bb330cc3031a05903853372",
+      "bytes": 634
+    }
+  ]
+}

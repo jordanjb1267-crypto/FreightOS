@@ -1,0 +1,3 @@
+name: shipper_direct_carrier
+faults: [routing-guide primary unavailable, counter changes service requirement]
+acceptance: [shipper-to-carrier legal route preserved, no brokerage authority implied]

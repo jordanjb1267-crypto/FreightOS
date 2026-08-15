@@ -1,0 +1,46 @@
+tenant:
+brokerage_entity:
+authority:
+  mc_number:
+  financial_responsibility_type:
+  boc3_status:
+  legal_review_owner:
+
+organization:
+  branches: []
+  teams: []
+  books: []
+
+shipper_accounts: []
+carrier_network:
+  onboarding_system:
+  qualification_policy:
+  preferred_carriers: []
+  prohibited_carriers: []
+
+systems:
+  tms: []
+  crm: []
+  load_boards: []
+  authority_sources: []
+  accounting: []
+  payments: []
+  communications: []
+  documents: []
+
+commercial_policy:
+  margin_floor:
+  margin_target:
+  quote_approval_threshold:
+  carrier_buy_limits:
+  credit_limits:
+
+workflow_priorities:
+  first_account:
+  first_workflow:
+  biggest_manual_burden:
+  biggest_exception:
+
+autonomy:
+  always_human: []
+  candidate_a4: []

@@ -1,0 +1,35 @@
+{
+  "department": "brokerage",
+  "slug": "carrier_qualification",
+  "name": "Carrier Qualification Agent",
+  "component": "hybrid_agent",
+  "mission": "Determine whether a carrier meets brokerage, shipper, cargo, identity, authority, fraud and capability requirements before allocation.",
+  "upstream": [
+    "Carrier Sourcing Agent"
+  ],
+  "downstream": [
+    "Broker Negotiation Agent",
+    "Allocation Agent",
+    "Compliance Supervisor Agent"
+  ],
+  "tools": [
+    "authority adapter",
+    "credential/insurance adapters",
+    "fraud signals",
+    "policy"
+  ],
+  "commands": [
+    "record_carrier_qualification",
+    "place_carrier_hold",
+    "request_qualification_review"
+  ],
+  "owns": [
+    "qualification evidence",
+    "deterministic pass/fail/hold"
+  ],
+  "non_scope": [
+    "commercial negotiation",
+    "allocation",
+    "waiver of compliance"
+  ]
+}

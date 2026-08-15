@@ -1,0 +1,33 @@
+{
+  "department": "carrier",
+  "slug": "profitability",
+  "name": "Profitability Engine",
+  "component": "deterministic_service",
+  "mission": "Compute carrier-specific economic truth using versioned deterministic formulas.",
+  "upstream": [
+    "Load Discovery Agent"
+  ],
+  "downstream": [
+    "Planning Agent",
+    "Carrier Negotiation Agent",
+    "Settlement/Reconciliation Agent"
+  ],
+  "tools": [
+    "versioned calculator",
+    "cost-profile store"
+  ],
+  "commands": [
+    "record_profitability_result"
+  ],
+  "owns": [
+    "cost/revenue calculations",
+    "break-even/target calculations",
+    "sensitivity outputs"
+  ],
+  "non_scope": [
+    "commercial negotiation",
+    "load acceptance",
+    "driver assignment",
+    "market prediction"
+  ]
+}

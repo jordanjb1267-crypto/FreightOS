@@ -1,0 +1,3 @@
+name: enterprise_carrier_dispatch
+faults: [simultaneous driver unavailability, appointment domino, regional outage, exception storm]
+acceptance: [unique ownership, region isolation, orchestrator cannot override feasibility or policy]

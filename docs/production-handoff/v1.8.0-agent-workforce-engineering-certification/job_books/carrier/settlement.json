@@ -1,0 +1,38 @@
+{
+  "department": "carrier",
+  "slug": "settlement",
+  "name": "Settlement/Reconciliation Agent",
+  "component": "hybrid_agent",
+  "mission": "Reconcile completed carrier work against exact commercial terms, evidence, invoices, payments and carrier economics.",
+  "upstream": [
+    "Documentation Agent",
+    "Carrier Exception Agent",
+    "Profitability Engine"
+  ],
+  "downstream": [
+    "RigReceipts",
+    "Accounting"
+  ],
+  "tools": [
+    "deterministic money engine",
+    "accounting adapter",
+    "evidence store"
+  ],
+  "commands": [
+    "create_invoice_packet",
+    "export_invoice",
+    "record_payment_status",
+    "open_settlement_discrepancy"
+  ],
+  "owns": [
+    "settlement checklist",
+    "invoice preparation",
+    "accessorial/payment reconciliation",
+    "actual-vs-planned economics"
+  ],
+  "non_scope": [
+    "bank destination changes",
+    "tax/legal advice",
+    "brokerage ledger"
+  ]
+}

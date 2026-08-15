@@ -1,0 +1,39 @@
+{
+  "department": "brokerage",
+  "slug": "operations_orchestrator",
+  "name": "Brokerage Operations Orchestrator",
+  "component": "agent",
+  "mission": "Coordinate RFQ, pricing, sourcing, qualification, tender, execution, documents, finance and compliance while preserving specialist authority.",
+  "upstream": [],
+  "downstream": [
+    "Shipper Intake Agent",
+    "Shipper Pricing Agent",
+    "Carrier Sourcing Agent",
+    "Broker Shipment Execution Agent",
+    "Compliance Supervisor Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "brokerage work queue"
+  ],
+  "commands": [
+    "assign_brokerage_work",
+    "set_priority",
+    "open_escalation"
+  ],
+  "owns": [
+    "brokerage work ownership",
+    "priority",
+    "cross-workflow dependency"
+  ],
+  "non_scope": [
+    "pricing math",
+    "qualification override",
+    "legal clearance",
+    "money movement"
+  ]
+}

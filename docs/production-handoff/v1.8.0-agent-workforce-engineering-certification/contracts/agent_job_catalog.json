@@ -1,0 +1,2337 @@
+{
+  "version": "1.8.0",
+  "job_count": 76,
+  "jobs": [
+    {
+      "department": "brokerage",
+      "slug": "accessorial",
+      "name": "Accessorial Agent",
+      "component": "hybrid_agent",
+      "mission": "Detect, evidence, calculate and route contractually permitted accessorials without inventing entitlement.",
+      "upstream": [
+        "Broker Shipment Execution Agent",
+        "Facility Coordination Agent"
+      ],
+      "downstream": [
+        "Shipper Billing Agent",
+        "Carrier Pay/Reconciliation Agent"
+      ],
+      "tools": [
+        "contract store",
+        "detention calculator",
+        "evidence store",
+        "policy"
+      ],
+      "commands": [
+        "open_accessorial",
+        "submit_accessorial_evidence",
+        "record_accessorial_decision"
+      ],
+      "owns": [
+        "accessorial candidate",
+        "evidence bundle",
+        "deterministic calculation",
+        "approval workflow"
+      ],
+      "non_scope": [
+        "contract amendment",
+        "claims liability",
+        "waiver outside policy"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "allocation",
+      "name": "Allocation Agent",
+      "component": "hybrid_agent",
+      "mission": "Rank and select among qualified carriers according to service, price, risk and customer policy within the Brokerage Plane.",
+      "upstream": [
+        "Carrier Qualification Agent",
+        "Broker Negotiation Agent"
+      ],
+      "downstream": [
+        "Tender/Booking Agent"
+      ],
+      "tools": [
+        "allocation scorer",
+        "policy",
+        "service history"
+      ],
+      "commands": [
+        "record_allocation_proposal"
+      ],
+      "owns": [
+        "candidate scoring",
+        "allocation proposal",
+        "tradeoff explanation"
+      ],
+      "non_scope": [
+        "qualification",
+        "tender execution",
+        "carrier acceptance"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "carrier_pay",
+      "name": "Carrier Pay/Reconciliation Agent",
+      "component": "hybrid_agent",
+      "mission": "Reconcile carrier payable against accepted tender, approved accessorials, documents and payment status while protecting payment-change controls.",
+      "upstream": [
+        "Broker Documentation Agent",
+        "Accessorial Agent"
+      ],
+      "downstream": [
+        "Finance/Payment System"
+      ],
+      "tools": [
+        "money engine",
+        "payment-status adapter",
+        "evidence"
+      ],
+      "commands": [
+        "create_carrier_payable",
+        "record_carrier_payment_status",
+        "open_pay_discrepancy"
+      ],
+      "owns": [
+        "carrier payable",
+        "prerequisite verification",
+        "reconciliation"
+      ],
+      "non_scope": [
+        "bank destination change",
+        "money movement without financial authorization"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "carrier_qualification",
+      "name": "Carrier Qualification Agent",
+      "component": "hybrid_agent",
+      "mission": "Determine whether a carrier meets brokerage, shipper, cargo, identity, authority, fraud and capability requirements before allocation.",
+      "upstream": [
+        "Carrier Sourcing Agent"
+      ],
+      "downstream": [
+        "Broker Negotiation Agent",
+        "Allocation Agent",
+        "Compliance Supervisor Agent"
+      ],
+      "tools": [
+        "authority adapter",
+        "credential/insurance adapters",
+        "fraud signals",
+        "policy"
+      ],
+      "commands": [
+        "record_carrier_qualification",
+        "place_carrier_hold",
+        "request_qualification_review"
+      ],
+      "owns": [
+        "qualification evidence",
+        "deterministic pass/fail/hold"
+      ],
+      "non_scope": [
+        "commercial negotiation",
+        "allocation",
+        "waiver of compliance"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "carrier_sourcing",
+      "name": "Carrier Sourcing Agent",
+      "component": "agent",
+      "mission": "Find potentially suitable carrier candidates from approved networks/sources without declaring them qualified or tendering freight.",
+      "upstream": [
+        "Requirements Agent"
+      ],
+      "downstream": [
+        "Carrier Qualification Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "carrier network",
+        "approved sourcing adapters"
+      ],
+      "commands": [
+        "invite_carrier_interest",
+        "record_carrier_candidate"
+      ],
+      "owns": [
+        "candidate discovery",
+        "carrier outreach invitation",
+        "source diversity"
+      ],
+      "non_scope": [
+        "qualification",
+        "allocation",
+        "binding tender"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "claims_evidence",
+      "name": "Claims/Evidence Agent",
+      "component": "human_supervised_agent",
+      "mission": "Assemble, preserve and organize claims/dispute evidence and deadlines without autonomously deciding legal liability or settlement.",
+      "upstream": [
+        "Broker Shipment Execution Agent",
+        "Broker Documentation Agent"
+      ],
+      "downstream": [
+        "Human Claims/Legal"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "claims case manager"
+      ],
+      "commands": [
+        "open_claim_case",
+        "request_claim_evidence",
+        "record_claim_outcome"
+      ],
+      "owns": [
+        "claims case intake",
+        "evidence chain",
+        "deadline/task management"
+      ],
+      "non_scope": [
+        "liability determination",
+        "settlement acceptance",
+        "legal advice"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "compliance_supervisor",
+      "name": "Compliance Supervisor Agent",
+      "component": "human_supervised_agent",
+      "mission": "Supervise brokerage authority, financial responsibility, carrier/commercial controls and recordkeeping; route high-risk decisions to authorized humans.",
+      "upstream": [
+        "Carrier Qualification Agent",
+        "Margin Risk Service",
+        "Broker Transaction Record Service"
+      ],
+      "downstream": [
+        "Human Compliance",
+        "Brokerage Operations Orchestrator"
+      ],
+      "tools": [
+        "authority/financial-responsibility adapters",
+        "record audit",
+        "policy"
+      ],
+      "commands": [
+        "place_brokerage_hold",
+        "open_compliance_case",
+        "request_human_compliance_decision"
+      ],
+      "owns": [
+        "compliance monitoring",
+        "hold/escalation",
+        "record completeness"
+      ],
+      "non_scope": [
+        "self-release legal hold",
+        "legal advice",
+        "authority filing changes"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "configuration_steward",
+      "name": "Broker Configuration Steward",
+      "component": "human_supervised_agent",
+      "mission": "Propose BOT, workflow, mapping and configuration changes from verified customer input without self-approving production authority.",
+      "upstream": [],
+      "downstream": [
+        "Human Admin/Architecture"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "configuration registry"
+      ],
+      "commands": [
+        "propose_configuration_change",
+        "request_recertification"
+      ],
+      "owns": [
+        "configuration proposals",
+        "impact analysis",
+        "recertification planning"
+      ],
+      "non_scope": [
+        "self-approval",
+        "production credential creation",
+        "legal-gate activation"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "documentation",
+      "name": "Broker Documentation Agent",
+      "component": "hybrid_agent",
+      "mission": "Track broker-required documents and transaction evidence across shipper, carrier and facility sources.",
+      "upstream": [
+        "Broker Shipment Execution Agent",
+        "FacilityOS",
+        "Carrier Documentation Agent"
+      ],
+      "downstream": [
+        "Accessorial Agent",
+        "Shipper Billing Agent",
+        "Carrier Pay/Reconciliation Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "document store"
+      ],
+      "commands": [
+        "record_broker_document_requirement",
+        "request_document"
+      ],
+      "owns": [
+        "document requirements",
+        "collection/correlation",
+        "transaction-record references"
+      ],
+      "non_scope": [
+        "facility document disposition",
+        "carrier original ownership",
+        "legal conclusion"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "facility_coordination",
+      "name": "Facility Coordination Agent",
+      "component": "agent",
+      "mission": "Coordinate brokerage-side appointments, readiness, BOL/POD, delay and facility exceptions through FreightOS/FacilityOS without owning facility state.",
+      "upstream": [
+        "Broker Shipment Execution Agent"
+      ],
+      "downstream": [
+        "FacilityOS",
+        "Tracking/Communication Agent"
+      ],
+      "tools": [
+        "FreightOS network",
+        "FacilityOS adapter",
+        "communications"
+      ],
+      "commands": [
+        "request_appointment",
+        "request_facility_update"
+      ],
+      "owns": [
+        "facility requests/changes",
+        "cross-party appointment/document coordination"
+      ],
+      "non_scope": [
+        "gate admission",
+        "dock authority",
+        "custody/goods receipt"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "margin_risk",
+      "name": "Margin Risk Service",
+      "component": "deterministic_service",
+      "mission": "Continuously calculate brokerage margin/exposure and flag threshold breaches from exact sell/buy/accessorial terms.",
+      "upstream": [
+        "Shipper Pricing Agent",
+        "Broker Negotiation Agent"
+      ],
+      "downstream": [
+        "Allocation Agent",
+        "Compliance Supervisor Agent"
+      ],
+      "tools": [
+        "deterministic money engine"
+      ],
+      "commands": [
+        "record_margin_snapshot",
+        "raise_margin_breach"
+      ],
+      "owns": [
+        "margin arithmetic",
+        "exposure thresholds"
+      ],
+      "non_scope": [
+        "negotiation strategy",
+        "qualification",
+        "policy changes"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "negotiation",
+      "name": "Broker Negotiation Agent",
+      "component": "agent",
+      "mission": "Negotiate shipper-side or carrier-side terms only within separately authorized deterministic envelopes and confidentiality boundaries.",
+      "upstream": [
+        "Shipper Pricing Agent",
+        "Carrier Qualification Agent"
+      ],
+      "downstream": [
+        "Allocation Agent",
+        "Tender/Booking Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "pricing/margin engine",
+        "negotiation state"
+      ],
+      "commands": [
+        "send_broker_counter",
+        "record_negotiated_terms"
+      ],
+      "owns": [
+        "counter strategy",
+        "message generation",
+        "concession selection within bounds"
+      ],
+      "non_scope": [
+        "rate math",
+        "margin policy",
+        "contract amendment",
+        "qualification"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "operations_orchestrator",
+      "name": "Brokerage Operations Orchestrator",
+      "component": "agent",
+      "mission": "Coordinate RFQ, pricing, sourcing, qualification, tender, execution, documents, finance and compliance while preserving specialist authority.",
+      "upstream": [],
+      "downstream": [
+        "Shipper Intake Agent",
+        "Shipper Pricing Agent",
+        "Carrier Sourcing Agent",
+        "Broker Shipment Execution Agent",
+        "Compliance Supervisor Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "brokerage work queue"
+      ],
+      "commands": [
+        "assign_brokerage_work",
+        "set_priority",
+        "open_escalation"
+      ],
+      "owns": [
+        "brokerage work ownership",
+        "priority",
+        "cross-workflow dependency"
+      ],
+      "non_scope": [
+        "pricing math",
+        "qualification override",
+        "legal clearance",
+        "money movement"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "relationship_support",
+      "name": "Customer/Carrier Relationship Support Agent",
+      "component": "agent",
+      "mission": "Handle authorized routine relationship communications, service follow-up and issue triage without changing contracts, qualification or commercial policy.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "CRM"
+      ],
+      "commands": [
+        "send_relationship_message",
+        "record_feedback",
+        "open_relationship_task"
+      ],
+      "owns": [
+        "routine relationship communication",
+        "feedback intake",
+        "task routing"
+      ],
+      "non_scope": [
+        "contract change",
+        "qualification override",
+        "unauthorized concession"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "requirements",
+      "name": "Requirements Agent",
+      "component": "agent",
+      "mission": "Translate a normalized RFQ and account contract into explicit service, equipment, timing, facility, document and risk requirements.",
+      "upstream": [
+        "Shipper Intake Agent"
+      ],
+      "downstream": [
+        "Shipper Pricing Agent",
+        "Carrier Sourcing Agent",
+        "Carrier Qualification Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "contract/routing-guide retrieval"
+      ],
+      "commands": [
+        "record_requirements",
+        "request_requirement_clarification"
+      ],
+      "owns": [
+        "requirements interpretation",
+        "conflict detection",
+        "explicit unknowns"
+      ],
+      "non_scope": [
+        "quote price",
+        "carrier qualification",
+        "contract amendment"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "shipment_execution",
+      "name": "Broker Shipment Execution Agent",
+      "component": "agent",
+      "mission": "Coordinate broker-side execution across carrier, facility, shipper, milestones, documents and service exceptions after coverage.",
+      "upstream": [
+        "Tender/Booking Agent"
+      ],
+      "downstream": [
+        "Tracking/Communication Agent",
+        "Facility Coordination Agent",
+        "Broker Documentation Agent",
+        "Accessorial Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "network subscriptions"
+      ],
+      "commands": [
+        "publish_broker_status",
+        "request_counterparty_update",
+        "open_broker_exception"
+      ],
+      "owns": [
+        "broker execution case",
+        "cross-party coordination",
+        "customer-facing execution status"
+      ],
+      "non_scope": [
+        "carrier dispatch authority",
+        "facility custody/receipt truth",
+        "claims liability"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "shipper_billing",
+      "name": "Shipper Billing Agent",
+      "component": "hybrid_agent",
+      "mission": "Prepare and reconcile shipper invoices from exact brokerage terms and approved accessorials.",
+      "upstream": [
+        "Broker Documentation Agent",
+        "Accessorial Agent"
+      ],
+      "downstream": [
+        "Accounting"
+      ],
+      "tools": [
+        "money engine",
+        "accounting adapter",
+        "evidence"
+      ],
+      "commands": [
+        "create_shipper_invoice",
+        "export_shipper_invoice"
+      ],
+      "owns": [
+        "invoice packet",
+        "deterministic billing arithmetic",
+        "export status"
+      ],
+      "non_scope": [
+        "bank instructions",
+        "write-offs outside policy",
+        "carrier pay"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "shipper_intake",
+      "name": "Shipper Intake Agent",
+      "component": "hybrid_agent",
+      "mission": "Convert inbound shipper demand into a canonical attributable RFQ without committing the brokerage.",
+      "upstream": [],
+      "downstream": [
+        "Requirements Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "email/API/EDI intake"
+      ],
+      "commands": [
+        "record_rfq",
+        "request_shipper_clarification"
+      ],
+      "owns": [
+        "RFQ capture",
+        "identity/account correlation",
+        "duplicate detection"
+      ],
+      "non_scope": [
+        "pricing",
+        "carrier sourcing",
+        "shipper commitment"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "shipper_pricing",
+      "name": "Shipper Pricing Agent",
+      "component": "hybrid_agent",
+      "mission": "Produce shipper-side quote recommendations and authorized quotes from deterministic pricing, credit and margin policy.",
+      "upstream": [
+        "Requirements Agent"
+      ],
+      "downstream": [
+        "Carrier Sourcing Agent"
+      ],
+      "tools": [
+        "pricing engine",
+        "market data",
+        "policy",
+        "communications"
+      ],
+      "commands": [
+        "send_shipper_quote",
+        "expire_quote",
+        "record_quote_acceptance"
+      ],
+      "owns": [
+        "quote construction",
+        "pricing rationale",
+        "quote validity"
+      ],
+      "non_scope": [
+        "carrier buy negotiation",
+        "pricing-policy modification",
+        "credit override"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "tender_booking",
+      "name": "Tender/Booking Agent",
+      "component": "hybrid_agent",
+      "mission": "Issue exact-version carrier tenders to an allocated qualified carrier, capture response and bind coverage idempotently.",
+      "upstream": [
+        "Allocation Agent"
+      ],
+      "downstream": [
+        "Broker Shipment Execution Agent",
+        "Carrier Agent Organization"
+      ],
+      "tools": [
+        "tender API/EDI",
+        "policy",
+        "booking service"
+      ],
+      "commands": [
+        "send_carrier_tender",
+        "bind_carrier_assignment",
+        "withdraw_tender"
+      ],
+      "owns": [
+        "tender construction",
+        "delivery",
+        "response correlation",
+        "coverage binding"
+      ],
+      "non_scope": [
+        "qualification",
+        "allocation decision",
+        "shipment execution after booking"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "tracking_communication",
+      "name": "Tracking/Communication Agent",
+      "component": "hybrid_agent",
+      "mission": "Maintain broker-visible shipment status and routine shipper/carrier communications from authoritative network events.",
+      "upstream": [
+        "Broker Shipment Execution Agent"
+      ],
+      "downstream": [
+        "Shipper",
+        "Broker Exception workflow"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "BOT retrieval",
+        "policy query",
+        "evidence retrieval",
+        "approved communications gateway",
+        "network event feed"
+      ],
+      "commands": [
+        "send_status_update",
+        "record_broker_status"
+      ],
+      "owns": [
+        "broker tracking read model",
+        "routine updates",
+        "staleness detection"
+      ],
+      "non_scope": [
+        "carrier/facility internal truth",
+        "exception resolution"
+      ]
+    },
+    {
+      "department": "brokerage",
+      "slug": "transaction_record",
+      "name": "Broker Transaction Record Service",
+      "component": "deterministic_service",
+      "mission": "Construct, retain and expose the required brokerage transaction record from authoritative shipment, carrier, compensation and payment evidence.",
+      "upstream": [
+        "Shipper Billing Agent",
+        "Carrier Pay/Reconciliation Agent"
+      ],
+      "downstream": [
+        "Compliance Supervisor Agent"
+      ],
+      "tools": [
+        "transaction ledger",
+        "record-access policy"
+      ],
+      "commands": [
+        "create_broker_transaction_record",
+        "export_authorized_transaction_record"
+      ],
+      "owns": [
+        "transaction-record completeness",
+        "retention metadata",
+        "party-access export"
+      ],
+      "non_scope": [
+        "legal advice",
+        "compensation policy",
+        "payment execution"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "capacity",
+      "name": "Capacity Agent",
+      "component": "hybrid_agent",
+      "mission": "Maintain an explainable current view of usable carrier capacity and surface capacity candidates without making final assignments.",
+      "upstream": [
+        "Chief Dispatch Orchestrator"
+      ],
+      "downstream": [
+        "Feasibility Engine",
+        "Planning Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "fleet/driver APIs",
+        "RigDesk readiness"
+      ],
+      "commands": [
+        "record_capacity_snapshot",
+        "invalidate_capacity_candidate"
+      ],
+      "owns": [
+        "availability synthesis",
+        "capacity candidate sets",
+        "capacity uncertainty/conflicts"
+      ],
+      "non_scope": [
+        "final dispatch assignment",
+        "HOS legality",
+        "load acceptance",
+        "cross-carrier sourcing"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "chief_dispatch_orchestrator",
+      "name": "Chief Dispatch Orchestrator",
+      "component": "agent",
+      "mission": "Maintain coherent carrier operations across intake, planning, dispatch, execution, exceptions, documents, maintenance readiness and settlement without stealing specialist authority.",
+      "upstream": [],
+      "downstream": [
+        "Load Discovery Agent",
+        "Planning Agent",
+        "Dispatch Agent",
+        "Carrier Exception Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "workflow registry",
+        "operations queue"
+      ],
+      "commands": [
+        "assign_work_owner",
+        "set_work_priority",
+        "open_escalation"
+      ],
+      "owns": [
+        "carrier work-queue prioritization",
+        "cross-workflow dependency coordination",
+        "work ownership/escalation routing"
+      ],
+      "non_scope": [
+        "profitability math",
+        "HOS/legal feasibility",
+        "direct assignment without Dispatch authority",
+        "settlement math",
+        "mechanical diagnosis"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "dispatch",
+      "name": "Dispatch Agent",
+      "component": "agent",
+      "mission": "Convert an approved feasible operating plan into a precise carrier assignment and driver/equipment dispatch with acknowledgement and recovery.",
+      "upstream": [
+        "Planning Agent",
+        "Feasibility Engine"
+      ],
+      "downstream": [
+        "Tracking Agent",
+        "Carrier Exception Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "TMS assignment adapter",
+        "driver communications"
+      ],
+      "commands": [
+        "assign_driver_equipment",
+        "send_dispatch_instruction",
+        "cancel_dispatch_instruction"
+      ],
+      "owns": [
+        "assignment preparation",
+        "dispatch communication",
+        "assignment side-effect orchestration"
+      ],
+      "non_scope": [
+        "feasibility override",
+        "commercial renegotiation",
+        "cross-carrier allocation"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "documentation",
+      "name": "Documentation Agent",
+      "component": "hybrid_agent",
+      "mission": "Ensure required shipment documents are expected, collected, correctly associated, validated and routed without equating document presence with business-state completion.",
+      "upstream": [
+        "Tracking Agent",
+        "FacilityOS Document/BOL Agent"
+      ],
+      "downstream": [
+        "Settlement/Reconciliation Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "document store",
+        "OCR sandbox"
+      ],
+      "commands": [
+        "record_document",
+        "request_document_correction",
+        "mark_document_requirement_satisfied"
+      ],
+      "owns": [
+        "document checklist",
+        "capture/chase",
+        "association",
+        "validation routing"
+      ],
+      "non_scope": [
+        "custody/receipt inference",
+        "legal-document interpretation",
+        "invoice approval"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "exception",
+      "name": "Carrier Exception Agent",
+      "component": "agent",
+      "mission": "Own carrier operational exceptions from detection through containment, coordination, replanning and verified resolution.",
+      "upstream": [
+        "Tracking Agent",
+        "Dispatch Agent",
+        "RigDesk",
+        "FacilityOS"
+      ],
+      "downstream": [
+        "Planning Agent",
+        "Documentation Agent",
+        "Settlement/Reconciliation Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "case manager"
+      ],
+      "commands": [
+        "open_exception",
+        "update_exception",
+        "request_replan",
+        "send_exception_notice",
+        "resolve_exception"
+      ],
+      "owns": [
+        "exception case ownership",
+        "triage",
+        "cross-specialist coordination",
+        "resolution plan"
+      ],
+      "non_scope": [
+        "safety/legal hold release",
+        "claims liability",
+        "payment settlement"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "feasibility",
+      "name": "Feasibility Engine",
+      "component": "hybrid_agent",
+      "mission": "Determine whether a proposed driver/equipment/mission combination is operationally eligible, keeping hard constraints deterministic and uncertainty explicit.",
+      "upstream": [
+        "Capacity Agent",
+        "Planning Agent"
+      ],
+      "downstream": [
+        "Planning Agent",
+        "Dispatch Agent"
+      ],
+      "tools": [
+        "HOS/ELD adapter",
+        "equipment capability service",
+        "RigDesk readiness",
+        "route/time service"
+      ],
+      "commands": [
+        "record_feasibility_result"
+      ],
+      "owns": [
+        "hard eligibility aggregation",
+        "feasibility evidence",
+        "unknown/conflict classification"
+      ],
+      "non_scope": [
+        "waive HOS/compliance",
+        "final dispatch",
+        "economic ranking"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "load_discovery",
+      "name": "Load Discovery Agent",
+      "component": "agent",
+      "mission": "Find and normalize work opportunities that fit the carrier's declared operating market without accepting freight.",
+      "upstream": [],
+      "downstream": [
+        "Profitability Engine",
+        "Feasibility Engine",
+        "Planning Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "approved load-source adapters",
+        "source registry"
+      ],
+      "commands": [
+        "record_opportunity",
+        "quarantine_opportunity",
+        "expire_opportunity"
+      ],
+      "owns": [
+        "opportunity discovery",
+        "normalization",
+        "duplicate/identity routing"
+      ],
+      "non_scope": [
+        "load acceptance",
+        "profitability decision",
+        "brokerage activity",
+        "final negotiation"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "maintenance_readiness",
+      "name": "Maintenance Readiness Agent",
+      "component": "hybrid_agent",
+      "mission": "Translate RigDesk/service evidence into mission-readiness implications for carrier planning without independently diagnosing or certifying safety.",
+      "upstream": [
+        "RigDesk"
+      ],
+      "downstream": [
+        "Capacity Agent",
+        "Feasibility Engine",
+        "Carrier Exception Agent"
+      ],
+      "tools": [
+        "RigDesk API/events",
+        "maintenance policy",
+        "evidence retrieval"
+      ],
+      "commands": [
+        "record_readiness_assertion",
+        "open_service_dependency",
+        "request_replan"
+      ],
+      "owns": [
+        "readiness synthesis",
+        "maintenance impact on dispatch",
+        "service dependency coordination"
+      ],
+      "non_scope": [
+        "definitive diagnosis",
+        "safety certification",
+        "repair authorization outside policy"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "negotiation",
+      "name": "Carrier Negotiation Agent",
+      "component": "agent",
+      "mission": "Negotiate or prepare carrier-side commercial responses inside deterministic carrier authority and profitability bounds.",
+      "upstream": [
+        "Planning Agent",
+        "Profitability Engine"
+      ],
+      "downstream": [
+        "Dispatch Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "communications gateway",
+        "negotiation state"
+      ],
+      "commands": [
+        "send_carrier_counter",
+        "send_carrier_acceptance",
+        "withdraw_carrier_offer"
+      ],
+      "owns": [
+        "counter strategy",
+        "message drafting",
+        "negotiation cadence"
+      ],
+      "non_scope": [
+        "brokerage-side representation",
+        "rate-floor override",
+        "binding acceptance outside authority"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "planning",
+      "name": "Planning Agent",
+      "component": "agent",
+      "mission": "Build ranked explainable shipment and multi-load plans from eligible capacity, feasibility and economics.",
+      "upstream": [
+        "Capacity Agent",
+        "Feasibility Engine",
+        "Profitability Engine"
+      ],
+      "downstream": [
+        "Carrier Negotiation Agent",
+        "Dispatch Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "route/distance service",
+        "planning optimizer"
+      ],
+      "commands": [
+        "record_plan_proposal",
+        "request_replan"
+      ],
+      "owns": [
+        "candidate plans",
+        "sequence/route strategy",
+        "soft-constraint tradeoffs"
+      ],
+      "non_scope": [
+        "HOS legality",
+        "final assignment",
+        "acceptance outside policy",
+        "maintenance override"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "profitability",
+      "name": "Profitability Engine",
+      "component": "deterministic_service",
+      "mission": "Compute carrier-specific economic truth using versioned deterministic formulas.",
+      "upstream": [
+        "Load Discovery Agent"
+      ],
+      "downstream": [
+        "Planning Agent",
+        "Carrier Negotiation Agent",
+        "Settlement/Reconciliation Agent"
+      ],
+      "tools": [
+        "versioned calculator",
+        "cost-profile store"
+      ],
+      "commands": [
+        "record_profitability_result"
+      ],
+      "owns": [
+        "cost/revenue calculations",
+        "break-even/target calculations",
+        "sensitivity outputs"
+      ],
+      "non_scope": [
+        "commercial negotiation",
+        "load acceptance",
+        "driver assignment",
+        "market prediction"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "risk_compliance",
+      "name": "Carrier Risk & Compliance Agent",
+      "component": "human_supervised_agent",
+      "mission": "Surface carrier-side identity, credential, insurance, fraud, compliance and operational risks without self-clearing regulated or safety holds.",
+      "upstream": [],
+      "downstream": [
+        "Carrier Exception Agent",
+        "Human Compliance"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "credential/authority adapters",
+        "risk case manager"
+      ],
+      "commands": [
+        "open_risk_case",
+        "recommend_hold",
+        "request_compliance_review"
+      ],
+      "owns": [
+        "risk case detection",
+        "evidence collection",
+        "hold/escalation recommendation"
+      ],
+      "non_scope": [
+        "legal clearance",
+        "safety hold release",
+        "authority expansion"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "settlement",
+      "name": "Settlement/Reconciliation Agent",
+      "component": "hybrid_agent",
+      "mission": "Reconcile completed carrier work against exact commercial terms, evidence, invoices, payments and carrier economics.",
+      "upstream": [
+        "Documentation Agent",
+        "Carrier Exception Agent",
+        "Profitability Engine"
+      ],
+      "downstream": [
+        "RigReceipts",
+        "Accounting"
+      ],
+      "tools": [
+        "deterministic money engine",
+        "accounting adapter",
+        "evidence store"
+      ],
+      "commands": [
+        "create_invoice_packet",
+        "export_invoice",
+        "record_payment_status",
+        "open_settlement_discrepancy"
+      ],
+      "owns": [
+        "settlement checklist",
+        "invoice preparation",
+        "accessorial/payment reconciliation",
+        "actual-vs-planned economics"
+      ],
+      "non_scope": [
+        "bank destination changes",
+        "tax/legal advice",
+        "brokerage ledger"
+      ]
+    },
+    {
+      "department": "carrier",
+      "slug": "tracking",
+      "name": "Tracking Agent",
+      "component": "hybrid_agent",
+      "mission": "Maintain current shipment execution state from authoritative observations and detect stale/missing milestones without fabricating location or ETA.",
+      "upstream": [
+        "Dispatch Agent"
+      ],
+      "downstream": [
+        "Carrier Exception Agent",
+        "Documentation Agent"
+      ],
+      "tools": [
+        "tenant-scoped read model",
+        "evidence retrieval",
+        "policy query",
+        "approved communications gateway",
+        "telematics adapter",
+        "FacilityOS events",
+        "ETA service"
+      ],
+      "commands": [
+        "record_shipment_status",
+        "publish_status_assertion",
+        "open_exception"
+      ],
+      "owns": [
+        "milestone state",
+        "freshness",
+        "ETA synthesis",
+        "routine status publication"
+      ],
+      "non_scope": [
+        "dispatch changes",
+        "exception resolution",
+        "facility receipt/custody truth"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "appointment",
+      "name": "Appointment Agent",
+      "component": "hybrid_agent",
+      "mission": "Schedule, recommend, revise and reconcile facility appointments within site capacity and policy.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "appointment state and conflict checks"
+      ],
+      "non_scope": [
+        "carrier dispatch; dock physical motion"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "capacity_labor",
+      "name": "Capacity/Labor Planning Agent",
+      "component": "agent",
+      "mission": "Forecast and recommend facility service capacity/labor allocations without directly commanding workforce systems.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "capacity forecast and staffing recommendation"
+      ],
+      "non_scope": [
+        "HR scheduling authority; industrial control"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "cargo_readiness",
+      "name": "Cargo/Order Readiness Agent",
+      "component": "hybrid_agent",
+      "mission": "Determine whether shipment/order cargo is operationally ready from authoritative ERP/WMS evidence.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "readiness synthesis"
+      ],
+      "non_scope": [
+        "inventory mutation; physical picking"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "configuration_steward",
+      "name": "Facility Integration/Configuration Steward",
+      "component": "human_supervised_agent",
+      "mission": "Propose FOT, mapping, workflow and integration changes with impact analysis without self-enabling production authority.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "configuration proposals"
+      ],
+      "non_scope": [
+        "self-approval; physical-control expansion"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "custody_evidence",
+      "name": "Custody/Evidence Agent",
+      "component": "human_supervised_agent",
+      "mission": "Prepare and record authorized custody transitions only when exact parties, objects, evidence and authority are satisfied.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "custody evidence package"
+      ],
+      "non_scope": [
+        "title/legal interpretation; unsupported transfer"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "customer_communication",
+      "name": "Facility Customer Communication Agent",
+      "component": "agent",
+      "mission": "Provide authorized routine status and exception communication to carriers, shippers, drivers and customers from facility truth.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "outbound facility communications"
+      ],
+      "non_scope": [
+        "change facility truth; commercial concessions"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "detention",
+      "name": "Detention Clock Service",
+      "component": "deterministic_service",
+      "mission": "Calculate detention timing/evidence from configured terms and authoritative visit timestamps.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "detention clock arithmetic"
+      ],
+      "non_scope": [
+        "contract interpretation beyond config; charge approval"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "discrepancy",
+      "name": "Discrepancy Agent",
+      "component": "agent",
+      "mission": "Own shortage, overage, damage, seal, document, quality and receiving discrepancy workflows through evidence and authorized disposition.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "discrepancy case coordination"
+      ],
+      "non_scope": [
+        "legal liability; quality-hold release"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "dock",
+      "name": "Dock Agent",
+      "component": "hybrid_agent",
+      "mission": "Coordinate dock readiness, compatibility, assignment targets and service state without actuating hardware.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "digital dock assignment/occupancy"
+      ],
+      "non_scope": [
+        "dock restraint/door/PLC control"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "document_bol",
+      "name": "Document/BOL Agent",
+      "component": "hybrid_agent",
+      "mission": "Ingest, secure, correlate, extract, validate, version and route BOL and facility transport documents.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "document evidence lifecycle"
+      ],
+      "non_scope": [
+        "custody/title/receipt inference"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "driver_coordination",
+      "name": "Carrier/Driver Coordination Agent",
+      "component": "agent",
+      "mission": "Provide drivers/carriers authorized instructions, document requests, queue updates and help for a visit.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "visit communication and acknowledgements"
+      ],
+      "non_scope": [
+        "gate admission; physical movement"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "facility_exception",
+      "name": "Facility Exception Agent",
+      "component": "agent",
+      "mission": "Own facility-side operational exceptions across visits, docks, documents, custody, receiving and systems.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "exception case coordination"
+      ],
+      "non_scope": [
+        "safety-hold release; physical control"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "gate",
+      "name": "Gate Agent",
+      "component": "hybrid_agent",
+      "mission": "Digitally coordinate visit identity, credential, document gate, check-in and queue/staging target under policy.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "digital check-in and credential workflow"
+      ],
+      "non_scope": [
+        "barrier/door/PLC actuation; safety override"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "load_unload_verification",
+      "name": "Load/Unload Verification Agent",
+      "component": "hybrid_agent",
+      "mission": "Coordinate checklist/evidence that loading or unloading reached a defined operational completion state.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "checklist/evidence completeness"
+      ],
+      "non_scope": [
+        "physical work control; custody/receipt authority"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "operations_orchestrator",
+      "name": "Facility Operations Orchestrator",
+      "component": "agent",
+      "mission": "Coordinate appointment, visit, gate, yard, dock, shipping, receiving, documents and exceptions across a site.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "facility work ownership and priority"
+      ],
+      "non_scope": [
+        "physical control; custody/receipt override"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "receiving_office",
+      "name": "Receiving Office Agent",
+      "component": "agent",
+      "mission": "Operate inbound receiving-office workflow from BOL presentation through unload, inspection, receipt/discrepancy evidence and departure.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "inbound receiving case"
+      ],
+      "non_scope": [
+        "physical unload; automatic goods acceptance"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "shipping_office",
+      "name": "Shipping Office Agent",
+      "component": "agent",
+      "mission": "Operate the outbound shipping-office queue from pickup readiness through document acceptance, loading evidence and release prerequisites.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "outbound office case"
+      ],
+      "non_scope": [
+        "physical loading; custody override"
+      ]
+    },
+    {
+      "department": "facility",
+      "slug": "yard",
+      "name": "Yard Orchestration Agent",
+      "component": "hybrid_agent",
+      "mission": "Recommend and coordinate non-safety-critical staging/queue work from current facility state.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "FOT retrieval",
+        "policy query",
+        "FacilityOS domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "facility_typed_command"
+      ],
+      "owns": [
+        "yard queue/staging proposals"
+      ],
+      "non_scope": [
+        "yard-tractor control; physical route command"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "appointment_dispatch",
+      "name": "Service Appointment/Dispatch Agent",
+      "component": "agent",
+      "mission": "Schedule or dispatch an accepted service case to an eligible provider resource/slot without controlling vehicle motion.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "service scheduling/dispatch"
+      ],
+      "non_scope": [
+        "roadside vehicle driving/control"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "capacity",
+      "name": "Service Capacity Agent",
+      "component": "hybrid_agent",
+      "mission": "Maintain current bay/mobile-unit/tow-resource capacity without assigning work by itself.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "capacity view"
+      ],
+      "non_scope": [
+        "final dispatch"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "customer_communication",
+      "name": "Service Customer Communication Agent",
+      "component": "agent",
+      "mission": "Keep driver/carrier/customer informed about intake, ETA, estimate, approvals, work status and completion from authoritative provider state.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "service communications"
+      ],
+      "non_scope": [
+        "invent work completion/diagnosis"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "eligibility",
+      "name": "Service Eligibility Engine",
+      "component": "hybrid_agent",
+      "mission": "Determine whether provider capability, geography, hours, credentials and policy make a request eligible for consideration.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "eligibility result"
+      ],
+      "non_scope": [
+        "final acceptance; technician assignment"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "estimate",
+      "name": "Estimate Agent",
+      "component": "hybrid_agent",
+      "mission": "Prepare service estimates from approved labor/parts/rate policies and available service evidence.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "estimate preparation"
+      ],
+      "non_scope": [
+        "safety diagnosis; unauthorized concession"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "evidence",
+      "name": "Service Evidence Agent",
+      "component": "hybrid_agent",
+      "mission": "Collect and preserve service evidence needed for completion, warranty, carrier readiness and invoicing.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "service evidence checklist"
+      ],
+      "non_scope": [
+        "safety certification beyond source"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "invoice_reconciliation",
+      "name": "Service Invoice/Reconciliation Agent",
+      "component": "hybrid_agent",
+      "mission": "Prepare and reconcile provider invoice against authorized estimate/work order, parts/labor evidence and completion state.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "service invoice packet"
+      ],
+      "non_scope": [
+        "bank changes; payment authorization outside policy"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "parts_dependency",
+      "name": "Parts & Dependency Agent",
+      "component": "agent",
+      "mission": "Coordinate parts/vendor/dependency availability that blocks service work without fabricating inventory or ordering outside authority.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "parts/dependency coordination"
+      ],
+      "non_scope": [
+        "unauthorized purchase"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "service_intake",
+      "name": "Service Intake Agent",
+      "component": "hybrid_agent",
+      "mission": "Convert roadside/repair/service requests into canonical service cases with exact asset, location, symptom, urgency and requester context.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "service-case intake"
+      ],
+      "non_scope": [
+        "mechanical diagnosis/certification"
+      ]
+    },
+    {
+      "department": "service_provider",
+      "slug": "work_status",
+      "name": "Work Status Agent",
+      "component": "hybrid_agent",
+      "mission": "Maintain service work-order status and ETA from authoritative provider/technician systems.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SPOT/RigDesk retrieval",
+        "policy query",
+        "provider domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "service_provider_typed_command"
+      ],
+      "owns": [
+        "service status read model"
+      ],
+      "non_scope": [
+        "perform repair; certify readiness"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "documentation",
+      "name": "Shipper Documentation Agent",
+      "component": "hybrid_agent",
+      "mission": "Track shipper-required transportation/commercial documents and authoritative references.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "document requirements"
+      ],
+      "non_scope": [
+        "custody/receipt inference"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "exception",
+      "name": "Shipper Exception Agent",
+      "component": "agent",
+      "mission": "Own shipper-side service exceptions, internal stakeholder coordination and approved counterparty actions.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "shipper exception case"
+      ],
+      "non_scope": [
+        "carrier/broker operational authority"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "facility_coordination",
+      "name": "Shipper Facility Coordination Agent",
+      "component": "agent",
+      "mission": "Coordinate shipper-owned origin/destination facility requirements and appointments through FacilityOS/network.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "shipper facility requests"
+      ],
+      "non_scope": [
+        "facility operational authority"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "invoice_audit",
+      "name": "Invoice Audit Engine",
+      "component": "hybrid_agent",
+      "mission": "Audit carrier/broker invoices against contracted/tendered terms, approved accessorials and execution evidence.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "invoice audit"
+      ],
+      "non_scope": [
+        "payment authorization beyond policy"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "provider_selection",
+      "name": "Provider/Carrier Selection Agent",
+      "component": "hybrid_agent",
+      "mission": "Select an eligible contracted carrier/broker/provider according to routing, service, cost and legal-plane policy.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "provider selection proposal"
+      ],
+      "non_scope": [
+        "carrier qualification beyond shipper policy; unauthorized brokerage"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "quote_analysis",
+      "name": "Quote Analysis Agent",
+      "component": "hybrid_agent",
+      "mission": "Compare authorized carrier/broker quotes against requirements, routing, price, service and policy.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "quote comparison/explanation"
+      ],
+      "non_scope": [
+        "brokerage representation; bid manipulation"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "requirements",
+      "name": "Shipper Requirements Agent",
+      "component": "agent",
+      "mission": "Translate order/contract needs into explicit transportation service requirements.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "requirements interpretation"
+      ],
+      "non_scope": [
+        "commercial quote/provider selection"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "routing_guide",
+      "name": "Routing Guide Engine",
+      "component": "deterministic_service",
+      "mission": "Apply shipper-approved routing-guide sequence and eligibility rules.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "routing-guide logic"
+      ],
+      "non_scope": [
+        "negotiation judgment"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "service_analytics",
+      "name": "Service Analytics Agent",
+      "component": "agent",
+      "mission": "Analyze transportation service performance, recurring exceptions, provider outcomes and improvement opportunities.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "analytics and improvement proposals"
+      ],
+      "non_scope": [
+        "automatic contract termination/change"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "shipment_intake",
+      "name": "Shipment Intake Agent",
+      "component": "hybrid_agent",
+      "mission": "Convert shipper orders/requests into canonical transportation demand with exact provenance.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "shipment-demand intake"
+      ],
+      "non_scope": [
+        "provider selection/commitment"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "tender",
+      "name": "Shipper Tender Agent",
+      "component": "hybrid_agent",
+      "mission": "Issue exact-version direct-carrier or broker tenders according to the chosen legal/contract path.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "shipper-side tender issuance"
+      ],
+      "non_scope": [
+        "carrier/broker internal allocation"
+      ]
+    },
+    {
+      "department": "shipper",
+      "slug": "tracking",
+      "name": "Shipper Tracking Agent",
+      "component": "hybrid_agent",
+      "mission": "Maintain shipper-visible execution state from broker/carrier/facility assertions.",
+      "upstream": [],
+      "downstream": [],
+      "tools": [
+        "tenant-scoped read model",
+        "SOT retrieval",
+        "policy query",
+        "shipper domain services",
+        "evidence retrieval",
+        "approved communications gateway"
+      ],
+      "commands": [
+        "shipper_typed_command"
+      ],
+      "owns": [
+        "shipper tracking read model"
+      ],
+      "non_scope": [
+        "counterparty internal state"
+      ]
+    }
+  ]
+}

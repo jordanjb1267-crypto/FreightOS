@@ -1,0 +1,35 @@
+{
+  "department": "brokerage",
+  "slug": "tracking_communication",
+  "name": "Tracking/Communication Agent",
+  "component": "hybrid_agent",
+  "mission": "Maintain broker-visible shipment status and routine shipper/carrier communications from authoritative network events.",
+  "upstream": [
+    "Broker Shipment Execution Agent"
+  ],
+  "downstream": [
+    "Shipper",
+    "Broker Exception workflow"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "network event feed"
+  ],
+  "commands": [
+    "send_status_update",
+    "record_broker_status"
+  ],
+  "owns": [
+    "broker tracking read model",
+    "routine updates",
+    "staleness detection"
+  ],
+  "non_scope": [
+    "carrier/facility internal truth",
+    "exception resolution"
+  ]
+}

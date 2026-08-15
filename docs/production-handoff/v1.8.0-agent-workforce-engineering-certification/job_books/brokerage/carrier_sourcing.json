@@ -1,0 +1,36 @@
+{
+  "department": "brokerage",
+  "slug": "carrier_sourcing",
+  "name": "Carrier Sourcing Agent",
+  "component": "agent",
+  "mission": "Find potentially suitable carrier candidates from approved networks/sources without declaring them qualified or tendering freight.",
+  "upstream": [
+    "Requirements Agent"
+  ],
+  "downstream": [
+    "Carrier Qualification Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "carrier network",
+    "approved sourcing adapters"
+  ],
+  "commands": [
+    "invite_carrier_interest",
+    "record_carrier_candidate"
+  ],
+  "owns": [
+    "candidate discovery",
+    "carrier outreach invitation",
+    "source diversity"
+  ],
+  "non_scope": [
+    "qualification",
+    "allocation",
+    "binding tender"
+  ]
+}

@@ -1,0 +1,4 @@
+name: owner_operator_day
+sequence: [Load Discovery Agent, Profitability Engine, Feasibility Engine, Planning Agent, Carrier Negotiation Agent, Dispatch Agent, Tracking Agent, Documentation Agent, Settlement/Reconciliation Agent]
+faults: [stale opportunity, readiness change after plan, duplicate dispatch, missing POD]
+acceptance: [no orphan work, no duplicate side effect, typed handoffs, exact owner approvals]

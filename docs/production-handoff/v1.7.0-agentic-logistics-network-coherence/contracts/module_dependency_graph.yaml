@@ -1,0 +1,44 @@
+version: 1.0.0
+
+foundation:
+  - security_resilience
+  - identity_tenancy_authority
+  - universal_freight_model
+  - network_kernel
+  - policy_audit
+  - workflow_runtime
+  - integration_conformance
+  - agent_runtime
+
+modules:
+  carrier_operations:
+    depends_on: [foundation]
+    status_source: current_module_state_registry
+
+  facilityos:
+    depends_on: [foundation, carrier_operations]
+    activation: promotion_or_customer_gate
+
+  brokerage_operations:
+    depends_on: [foundation, carrier_operations]
+    activation: legal_and_promotion_gate
+
+  shipper_operations:
+    depends_on: [foundation, carrier_operations]
+    activation: promotion_gate
+
+  service_provider_network:
+    depends_on: [foundation, rigdesk]
+    activation: promotion_gate
+
+  multimodal:
+    depends_on: [foundation]
+    activation: mode_specific_gate
+
+  exchange:
+    depends_on:
+      - foundation
+      - brokerage_operations
+      - shipper_operations
+      - network_identity_liquidity_fraud_settlement_maturity
+    activation: legal_liquidity_commercial_gate

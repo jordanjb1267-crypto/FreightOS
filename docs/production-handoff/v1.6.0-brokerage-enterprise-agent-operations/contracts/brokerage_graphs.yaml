@@ -1,0 +1,75 @@
+version: 1.0.0
+name: freightos-brokerage-enterprise-operations
+
+invariants:
+  - brokerage_plane_required_for_cross_carrier_allocation
+  - carrier_agent_plane_cannot_allocate_unrelated_carriers
+  - authority_before_brokerage_execution
+  - unqualified_carrier_cannot_receive_binding_tender
+  - model_cannot_override_rate_margin_credit_or_payment_policy
+  - every_external_write_idempotent_and_reconciled
+  - broker_must_not_misrepresent_as_carrier
+  - transaction_record_required_before_close
+  - proposed_transparency_rule_not_activated_as_current_law
+  - customer_specific_behavior_configuration_first
+
+graphs:
+  rfq_quote:
+    stages:
+      - intake
+      - normalize
+      - account_credit
+      - requirements
+      - deterministic_pricing
+      - recommendation
+      - approval_or_autonomy
+      - send_quote
+      - response
+      - commit_or_expire
+
+  carrier_coverage:
+    stages:
+      - source_candidates
+      - qualification
+      - fraud_risk
+      - negotiate
+      - score
+      - allocate
+      - approval_or_autonomy
+      - tender
+      - accept_reject_counter
+      - bind_assignment
+
+  execution:
+    stages:
+      - dispatch_confirm
+      - facility_coordinate
+      - milestone_track
+      - exception
+      - documents
+      - delivery
+      - pod
+      - close_execution
+
+  settlement:
+    stages:
+      - commercial_terms
+      - accessorials
+      - shipper_invoice
+      - carrier_payable
+      - payment_status
+      - transaction_record
+      - reconcile
+      - close
+
+  compliance_incident:
+    stages:
+      - authority_or_financial_alert
+      - classify
+      - block_new_exposure_if_required
+      - preserve_active_operations
+      - notify
+      - evidence
+      - remediation
+      - verification
+      - resume_gate
