@@ -1,0 +1,21 @@
+# Customer Go-Live Checklist
+
+- [ ] Tenant/security review complete
+- [ ] COT reviewed and approved
+- [ ] System-of-record matrix approved
+- [ ] Integration conformance complete
+- [ ] Agent manifests reviewed
+- [ ] Workflow graph reviewed
+- [ ] Authority/autonomy grants signed
+- [ ] Shadow evaluation passed
+- [ ] Exception scenarios tested
+- [ ] Duplicate/idempotency test passed
+- [ ] Reconciliation test passed
+- [ ] Connector outage test passed
+- [ ] Kill switches tested
+- [ ] Rollback tested
+- [ ] Customer Operations Console access verified
+- [ ] Escalation/on-call verified
+- [ ] Data retention/export/delete requirements configured
+- [ ] Production canary scope defined
+- [ ] Owner/customer approval recorded

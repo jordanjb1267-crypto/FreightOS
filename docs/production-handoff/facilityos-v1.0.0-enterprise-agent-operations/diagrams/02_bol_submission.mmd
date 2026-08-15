@@ -1,0 +1,21 @@
+flowchart TD
+  A[BOL Required] --> B{Submission Channel}
+  B --> C[Driver Mobile / QR]
+  B --> D[Office Paper Scan]
+  B --> E[API / EDI X12 211]
+  C --> F[Server Receipt + Hash]
+  D --> F
+  E --> F
+  F --> G[Security + Parse]
+  G --> H[Shipment / Visit Match]
+  H --> I{Unambiguous?}
+  I -->|No| J[Office Review Hold]
+  I -->|Yes| K[Policy Validation]
+  K --> L[Shipping / Receiving Office Queue]
+  J --> L
+  L --> M{Disposition}
+  M -->|Accept| N[Accepted for Operational Use]
+  M -->|Correct| O[Correction Requested]
+  M -->|Reject| P[Rejected]
+  N --> Q[Receipt + Network Event]
+  O --> B

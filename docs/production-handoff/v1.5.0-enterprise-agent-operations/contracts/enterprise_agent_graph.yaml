@@ -1,0 +1,82 @@
+version: 1.0.0
+name: freightos-enterprise-agent-operations
+
+invariants:
+  - no_side_effect_bypasses_policy
+  - no_agent_message_is_authority
+  - every_external_write_is_idempotent
+  - every_external_write_is_reconciled
+  - customer_specific_behavior_is_configuration_first
+  - approved_cot_only_for_authoritative_configuration
+  - autonomy_is_granted_per_workflow_action_scope
+  - mode_neutral_core
+  - tenant_scoped_context_and_memory
+
+graph_families:
+  company_discovery:
+    stages:
+      - source_inventory
+      - evidence_ingest
+      - candidate_assertions
+      - normalization
+      - conflict_detection
+      - customer_review
+      - cot_approval
+      - impact_analysis
+
+  dispatch:
+    stages:
+      - demand_intake
+      - normalize
+      - context
+      - capacity_discovery
+      - feasibility
+      - economics_priority
+      - candidate_plan
+      - policy
+      - approval_or_autonomy
+      - assignment_side_effect
+      - acknowledgement
+      - execution_monitor
+      - exception
+      - completion
+      - reconciliation
+
+  back_office:
+    stages:
+      - intake
+      - classify
+      - associate
+      - deadline_tasks
+      - communication
+      - document_completion
+      - billing_prepare
+      - reconciliation
+      - exception
+
+  maintenance_roadside:
+    stages:
+      - issue_intake
+      - severity
+      - safety_gate
+      - readiness
+      - provider_discovery
+      - estimate_availability
+      - policy
+      - approval_or_autonomy
+      - service_side_effect
+      - tracking
+      - completion
+      - readiness_reassess
+      - dispatch_replan
+
+  incident_recovery:
+    stages:
+      - classify
+      - contain
+      - pause_scope
+      - evidence
+      - recovery
+      - verify
+      - reconcile
+      - resume_gate

@@ -1,0 +1,198 @@
+{
+  "package": "FreightOS_Brokerage_Enterprise_Agent_Operations_Handoff_v1.6.0",
+  "version": "1.6.0",
+  "date": "2026-08-14",
+  "relationship": "additive; no existing FreightOS or FacilityOS artifact modified",
+  "files": [
+    {
+      "path": "00_MASTER_HANDOFF.md",
+      "sha256": "6c03d06bd364b104e946e5722498bbae629d10d201d415aa0134284d1bb796dc",
+      "bytes": 4676
+    },
+    {
+      "path": "01_BROKERAGE_AGENT_CONSTITUTION.md",
+      "sha256": "499486ac77c78a830e3b1eec5c65467dc7bfd31d7c0907e6e2451c4661db7964",
+      "bytes": 3096
+    },
+    {
+      "path": "02_BROKER_OPERATIONAL_TWIN.md",
+      "sha256": "56b6ff28fa4c9ca32cf2f134b9857639462b80d3680e2f1728768ee95207594a",
+      "bytes": 2115
+    },
+    {
+      "path": "03_BROKER_AGENT_ORGANIZATION_FACTORY.md",
+      "sha256": "37b036c34ab45fea8e180def80414fca7d75e29383b418b0f6cbe05939cd3124",
+      "bytes": 1687
+    },
+    {
+      "path": "04_BROKERAGE_WORKFLOW_GRAPH_STANDARD.md",
+      "sha256": "c5648f2df095d832b25fa81a1ce1e95154e0a51143f9763869ba0da5b60bf598",
+      "bytes": 1638
+    },
+    {
+      "path": "05_SHIPPER_INTAKE_RFQ_AND_QUOTING.md",
+      "sha256": "8dcd5e313350c5a07bec5ee61ed6c6e8d6f995152bbde4af97b5fb27546861e6",
+      "bytes": 1433
+    },
+    {
+      "path": "06_CARRIER_NETWORK_SOURCING_AND_QUALIFICATION.md",
+      "sha256": "261486276d7411ea93d936648569334bae1896de1d2d557b6d486b59950b752d",
+      "bytes": 1478
+    },
+    {
+      "path": "07_PRICING_MARGIN_AND_NEGOTIATION.md",
+      "sha256": "945ff7457509d12bf23171f0bc5da7bafbd579cfb23c5bacdfa1bedee2abc0ba",
+      "bytes": 1475
+    },
+    {
+      "path": "08_ALLOCATION_TENDER_AND_BOOKING.md",
+      "sha256": "a42f5e663ccce86da7019929b61b25396af77e7999911349e5e6bcc1db3ecdf1",
+      "bytes": 1316
+    },
+    {
+      "path": "09_SHIPMENT_EXECUTION_AND_COMMUNICATION.md",
+      "sha256": "b9329df0b54964c171ce7b2b1369993e8523c51c17ef9d71200d4fbb2a28f5d0",
+      "bytes": 1075
+    },
+    {
+      "path": "10_FACILITY_APPOINTMENT_AND_DOCUMENT_COORDINATION.md",
+      "sha256": "311de03bc0baf223033b18cc0c223ca98fc8704bc4c30ec6c138710c52159694",
+      "bytes": 999
+    },
+    {
+      "path": "11_ACCESSORIAL_EXCEPTION_AND_CLAIMS_EVIDENCE.md",
+      "sha256": "9770e093440d90af6f6c8db7e3798607192af2268686bad4980e16a660dc6a23",
+      "bytes": 1116
+    },
+    {
+      "path": "12_INVOICING_CARRIER_PAY_AND_RECONCILIATION.md",
+      "sha256": "94fe5152ec3905306f071fd956e3aca9a69119d92f3f3a0d8501ddee6b7fc640",
+      "bytes": 1148
+    },
+    {
+      "path": "13_BROKER_TRANSACTION_RECORD_AND_TRANSPARENCY.md",
+      "sha256": "e5f4993effb366d5f8b721e01cdbbb31d65a95048b7a578f48a6e5fff12bcd59",
+      "bytes": 1797
+    },
+    {
+      "path": "14_AUTHORITY_FINANCIAL_RESPONSIBILITY_AND_COMPLIANCE.md",
+      "sha256": "42bdd72ca9987375c85485ed2fe3bf7d47de1aa93b61e8c205262e8f68bea5ed",
+      "bytes": 2143
+    },
+    {
+      "path": "15_CUSTOMER_CONTROL_AND_EXPLAINABILITY.md",
+      "sha256": "b0fcfc2bb79eb2eb1752d8897d7c42b92ac7f2120bc116d4aefcec8779bf275b",
+      "bytes": 1267
+    },
+    {
+      "path": "16_AUTONOMY_SHADOW_AND_CERTIFICATION.md",
+      "sha256": "a71cc2d71ec3d7a48b548e8e2fbc156a48e7a0f795bed1478a21363977a02e4f",
+      "bytes": 1590
+    },
+    {
+      "path": "17_ENTERPRISE_SCALE_BRANCH_AND_BOOK_ARCHITECTURE.md",
+      "sha256": "77a5d2d0daa9e7e08fe1d1680a57215eee340a9e641b6c47f4646a8de090aedf",
+      "bytes": 1147
+    },
+    {
+      "path": "18_FREIGHTOS_NETWORK_COMMUNICATION.md",
+      "sha256": "1c638e5fa1f1dfef67bbb8a485d301d822e9e6264c65831df1bdce213d661e79",
+      "bytes": 1296
+    },
+    {
+      "path": "19_SECURITY_PRIVACY_CONFLICTS_AND_DATA_GOVERNANCE.md",
+      "sha256": "ff239268dc98bbc8b11a93cd6b9786c119ce2a730a59eaff7ff85e0ff6c622f1",
+      "bytes": 1538
+    },
+    {
+      "path": "20_OBSERVABILITY_AND_BROKERAGE_OUTCOMES.md",
+      "sha256": "c8abb129a8464094d7f27552ab82f2cdd56c095f475d54a842b4ec9e27e1d1d3",
+      "bytes": 1199
+    },
+    {
+      "path": "21_CUSTOMER_IMPLEMENTATION_AND_GO_LIVE.md",
+      "sha256": "59eb86fdfc019ac510c705ba2785d1487f73fb77402ca8c86363445edb0c58e3",
+      "bytes": 1414
+    },
+    {
+      "path": "22_ACCEPTANCE_GATES.md",
+      "sha256": "dd57183b575200bf7192d737d48a11a13f6810140c7965b40df8adf78d3a0818",
+      "bytes": 2310
+    },
+    {
+      "path": "23_IMPLEMENTATION_ROADMAP.md",
+      "sha256": "f44aefeafb4b3c250d9a0169d1477d4051aaba2a176cd1dd36fcdd1cae181f86",
+      "bytes": 1566
+    },
+    {
+      "path": "24_CLAUDE_MASTER_IMPLEMENTATION_PROMPT.md",
+      "sha256": "97e9856790a2cc801c369c1c26a931bc92c546bdf3dac09fca015efea7dc5a20",
+      "bytes": 3230
+    },
+    {
+      "path": "COMBINED_HANDOFF.md",
+      "sha256": "8d478026b80ecd48e8863396f3f59b7d0407587f06e68440d6bbe16db4059912",
+      "bytes": 61879
+    },
+    {
+      "path": "README.md",
+      "sha256": "4ce479fccacefa092b08f89860c55c98356e412ac16ecf4aa22b8a335371c706",
+      "bytes": 3982
+    },
+    {
+      "path": "SOURCE_REGISTRY.md",
+      "sha256": "b1e86d532e0448ec3df5e34f75668d1de8d6423ef8d23936fc05fd5ced7ae5fb",
+      "bytes": 2286
+    },
+    {
+      "path": "contracts/broker_agent_manifest.schema.json",
+      "sha256": "a9fd6ff8438cb907c59cfdcd10858187b0c7ef41790d343cf0e43369bf59c8a1",
+      "bytes": 1190
+    },
+    {
+      "path": "contracts/broker_operational_twin.schema.json",
+      "sha256": "f86fc9664b81c48c43a2acc979ae18e6a747155f97c42150a53a7ac6f80a16e2",
+      "bytes": 1300
+    },
+    {
+      "path": "contracts/broker_transaction_record.schema.json",
+      "sha256": "f59c1a90f8fe1294de027509c56449e5ced501a8c5f95af41c0f1ccc465a07b5",
+      "bytes": 1465
+    },
+    {
+      "path": "contracts/brokerage_graphs.yaml",
+      "sha256": "ea52bc0c8bda152571768edd494a916d5cd8544424ddf26e73b61ecfb2bb09c4",
+      "bytes": 1755
+    },
+    {
+      "path": "diagrams/01_closed_network.mmd",
+      "sha256": "cc91efc1033b89e91451bb6f3149d19b4da3db113f7df729e8dbb03a05b2092e",
+      "bytes": 277
+    },
+    {
+      "path": "diagrams/02_brokerage_lifecycle.mmd",
+      "sha256": "c5029c074faeb2b0f05060ad61794bc198dd95988305b5d102b9117e78e491d1",
+      "bytes": 480
+    },
+    {
+      "path": "diagrams/03_autonomous_brokerage.mmd",
+      "sha256": "d57d2d69681a5568bc16b28e4208d2593936227cefab18218e32c4ce78dcd3cc",
+      "bytes": 348
+    },
+    {
+      "path": "templates/brokerage_go_live_checklist.md",
+      "sha256": "9ba90fbd50b615006d95596c1dfed54a6def355315a0da633babb65d6ded12d4",
+      "bytes": 1050
+    },
+    {
+      "path": "templates/brokerage_intake.yaml",
+      "sha256": "8a510be9acde45154456d2a0a9ceeaf1d8ec6e86e01537bd451a42801e5764c5",
+      "bytes": 722
+    },
+    {
+      "path": "templates/brokerage_workflow_discovery.md",
+      "sha256": "0a7575e7cad44d2cf85b4507ff1981b3845691682c2da98045dae69e129e9ec4",
+      "bytes": 681
+    }
+  ]
+}

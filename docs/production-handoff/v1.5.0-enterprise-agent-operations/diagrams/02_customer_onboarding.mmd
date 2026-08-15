@@ -1,0 +1,14 @@
+flowchart LR
+  A[Create Tenant] --> B[Company Discovery]
+  B --> C[Connect Read-Only Sources]
+  C --> D[Build Candidate Operational Twin]
+  D --> E[Customer Review + Corrections]
+  E --> F[Approve COT]
+  F --> G[Map Workflows]
+  G --> H[Instantiate Agent Organization]
+  H --> I[Shadow Mode]
+  I --> J{Meets Gates?}
+  J -->|No| E
+  J -->|Yes| K[Approval-to-Execute]
+  K --> L[Policy-Bounded Autonomy]
+  L --> M[Expand Workflow / Fleet / Region / Mode]

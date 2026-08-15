@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "facilityos://schemas/facility-operational-twin/v1",
+  "title": "FacilityOperationalTwin",
+  "type": "object",
+  "required": [
+    "tenantId",
+    "siteId",
+    "version",
+    "status",
+    "topology",
+    "systems",
+    "policies",
+    "assertions"
+  ],
+  "properties": {
+    "tenantId": {
+      "type": "string"
+    },
+    "siteId": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "PROPOSED",
+        "APPROVED",
+        "DEPRECATED"
+      ]
+    },
+    "topology": {
+      "type": "object"
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "systems": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "vocabulary": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,20 @@
+flowchart TD
+  A[Demand / Shipment / Movement] --> B[Normalize]
+  B --> C[Operating + Legal Context]
+  C --> D[Capacity / Resource Eligibility]
+  D --> E[Feasibility + Readiness]
+  E --> F[Economics / Priority / Service]
+  F --> G[Candidate Plans]
+  G --> H[Deterministic Policy]
+  H --> I{Autonomy Grant}
+  I -->|Approval required| J[Human Approval]
+  I -->|Authorized| K[Idempotency]
+  J --> K
+  K --> L[Assignment / Tender / Booking]
+  L --> M[External Acknowledgement]
+  M --> N[Execution Monitor]
+  N --> O{Exception?}
+  O -->|Yes| P[Exception Graph]
+  O -->|No| Q[Completion + Evidence]
+  P --> N
+  Q --> R[Reconciliation]

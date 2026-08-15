@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/capability-pack/v1",
+  "title": "CapabilityPack",
+  "type": "object",
+  "required": [
+    "packId",
+    "version",
+    "mode",
+    "objects",
+    "events",
+    "commands",
+    "workflows",
+    "conformanceSuite"
+  ],
+  "properties": {
+    "packId": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "core",
+        "road",
+        "rail",
+        "ocean",
+        "air",
+        "facility",
+        "service"
+      ]
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "specializedObjects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "agentSpecializations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "standards": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "conformanceSuite": {
+      "type": "string"
+    },
+    "riskProfile": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

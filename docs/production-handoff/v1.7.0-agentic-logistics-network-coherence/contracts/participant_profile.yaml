@@ -1,0 +1,63 @@
+version: 1.0.0
+
+participant_profiles:
+  carrier:
+    twin: CompanyOperationalTwin
+    legal_planes: [carrier_agent]
+    native_surfaces: [carrier_operations, rigdesk, driver]
+    primary_workflows:
+      - planning
+      - dispatch
+      - execution
+      - documents
+      - maintenance_roadside
+
+  broker:
+    twin: BrokerOperationalTwin
+    legal_planes: [brokerage]
+    native_surfaces: [brokerage_operations]
+    primary_workflows:
+      - rfq_quote
+      - carrier_source_qualify
+      - negotiate_allocate_tender
+      - execution
+      - settlement
+
+  facility:
+    twin: FacilityOperationalTwin
+    legal_planes: [facility]
+    native_surfaces: [facilityos]
+    primary_workflows:
+      - readiness
+      - appointment
+      - vehicle_visit
+      - bol_document
+      - gate_yard_dock
+      - shipping_receiving
+      - custody_discrepancy
+
+  shipper:
+    twin: ShipperOperationalTwin
+    status: architecture_only
+    legal_planes: [shipper]
+    native_surfaces: [shipper_control_tower]
+    primary_workflows:
+      - shipment_intake
+      - routing
+      - tender
+      - tracking
+      - exception
+      - invoice_audit
+
+  service_provider:
+    twin: ServiceProviderOperationalTwin
+    status: architecture_only
+    legal_planes: [service_provider]
+    native_surfaces: [rigdesk_provider]
+    primary_workflows:
+      - service_intake
+      - eligibility
+      - estimate
+      - schedule
+      - service_execution
+      - evidence_invoice

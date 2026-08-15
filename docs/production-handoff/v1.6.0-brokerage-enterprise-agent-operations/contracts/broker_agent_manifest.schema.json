@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/broker-agent-manifest/v1",
+  "title": "BrokerAgentManifest",
+  "type": "object",
+  "required": [
+    "agentId",
+    "tenantId",
+    "brokerageEntityId",
+    "role",
+    "manifestVersion",
+    "scope",
+    "tools",
+    "commands",
+    "policyVersion",
+    "autonomy",
+    "killSwitch"
+  ],
+  "properties": {
+    "agentId": {
+      "type": "string"
+    },
+    "tenantId": {
+      "type": "string"
+    },
+    "brokerageEntityId": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "manifestVersion": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "object"
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "financialLimits": {
+      "type": "object"
+    },
+    "policyVersion": {
+      "type": "string"
+    },
+    "autonomy": {
+      "type": "object"
+    },
+    "evaluationVersion": {
+      "type": "string"
+    },
+    "killSwitch": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

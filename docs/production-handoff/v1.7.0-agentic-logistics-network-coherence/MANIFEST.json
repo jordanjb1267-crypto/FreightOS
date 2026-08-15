@@ -1,0 +1,163 @@
+{
+  "package": "FreightOS_Agentic_Logistics_Network_Coherence_Handoff_v1.7.0",
+  "version": "1.7.0",
+  "date": "2026-08-14",
+  "relationship": "additive coherence layer; no prior artifact modified",
+  "files": [
+    {
+      "path": "00_MASTER_COHERENCE_HANDOFF.md",
+      "sha256": "5af55db5bc295427ed1d541e566762bd1339f1df841f66972e69c01b6663bc7e",
+      "bytes": 6184
+    },
+    {
+      "path": "01_PRODUCT_CATEGORY_AND_POSITIONING.md",
+      "sha256": "63849969bda5acd8994d52d9fdb03e2315657a9a5fdfc0f466e6eebe8d3dc31e",
+      "bytes": 1898
+    },
+    {
+      "path": "02_UNIFIED_PLATFORM_ARCHITECTURE.md",
+      "sha256": "ab3884ee8e7d4d12f9a13e30253983505539dd42df804a86270b8dcdcbfd2ba4",
+      "bytes": 1990
+    },
+    {
+      "path": "03_PARTICIPANT_OPERATIONAL_TWIN_STANDARD.md",
+      "sha256": "1fa321549778e6b90a09b7a41ea6e824c91115ec8dc317a96111a93614847f72",
+      "bytes": 1577
+    },
+    {
+      "path": "04_UNIFIED_AGENT_ORGANIZATION_STANDARD.md",
+      "sha256": "74b59a51bc3affc22c1b2fb6ee81a3182d0f12de1dac58a0f296885071c88ea6",
+      "bytes": 1360
+    },
+    {
+      "path": "05_FREIGHTOS_NETWORK_PROTOCOL.md",
+      "sha256": "a3ba9413542db030fb98ab2e05e518604e33363214278a7b5cd3d9a3348d3c93",
+      "bytes": 1657
+    },
+    {
+      "path": "06_CUSTOMER_ENTRY_POINTS_AND_PRODUCT_SURFACES.md",
+      "sha256": "0b2a51cf6c6144232a414bc108dfea10200ebcaf9c7b9486e72362a3d4893c0f",
+      "bytes": 1215
+    },
+    {
+      "path": "07_CARRIER_OPERATIONS_ROUTE.md",
+      "sha256": "f7026b4d9eccfe1f627689d9ddee47f28d31e374ad05062398d838755b4278eb",
+      "bytes": 1009
+    },
+    {
+      "path": "08_BROKERAGE_OPERATIONS_ROUTE.md",
+      "sha256": "20c23aa89dfd516b303b7353697ef2822ea695447c8a4c924f37b156b90f4d39",
+      "bytes": 891
+    },
+    {
+      "path": "09_FACILITY_OPERATIONS_ROUTE.md",
+      "sha256": "85b4b0c438a228d7eb4c3e2d91cd01a0b26c06c204db07ccf79af47714cf71bf",
+      "bytes": 877
+    },
+    {
+      "path": "10_SHIPPER_OPERATIONS_ROUTE.md",
+      "sha256": "df910eb8d99fbdea0c3b00e11a7a073f105d9b98d9cff9256a44cf997d92b5b7",
+      "bytes": 1166
+    },
+    {
+      "path": "11_SERVICE_PROVIDER_OPERATIONS_ROUTE.md",
+      "sha256": "ba734b55409fdc01ec0fa4d286abba4a27b7f2479e67f2e361da83d2bf550a51",
+      "bytes": 1027
+    },
+    {
+      "path": "12_END_TO_END_NETWORK_WORKFLOW.md",
+      "sha256": "4b25dab90517b22f1c1306d68f8db0d594445040bf3aaae83cba9b67d19bd298",
+      "bytes": 1687
+    },
+    {
+      "path": "13_AUTHORITY_AND_LEGAL_PLANE_MATRIX.md",
+      "sha256": "cc41e40e024677b2f9eeae277648ac7a90dcfb09c853ac9de2b63386e3460817",
+      "bytes": 1265
+    },
+    {
+      "path": "14_ADOPTION_AND_ONBOARDING_FACTORY.md",
+      "sha256": "502688d50e07fd284e024a7007a9e85aea63fe44009e3bfbfd5ad56bf61ec1f5",
+      "bytes": 1234
+    },
+    {
+      "path": "15_INTEGRATION_AND_COUNTERPARTY_ADOPTION.md",
+      "sha256": "68fa9b5b929c2b35086f57c8bc5004263b4bc4b7bf07752d89e10961b47e394e",
+      "bytes": 1147
+    },
+    {
+      "path": "16_COMMERCIAL_AND_DEPLOYMENT_MODEL.md",
+      "sha256": "92c843b2e5db22d9eff87dfa74a9c209e113faa482bbf66c9466a8e60183547b",
+      "bytes": 1385
+    },
+    {
+      "path": "17_NETWORK_FLYWHEEL_AND_MOAT.md",
+      "sha256": "aa57e63d8c19e1385b3a49eba51adaf7bd32b3ba6bd288a839389c586dc49cb7",
+      "bytes": 1402
+    },
+    {
+      "path": "18_COHERENT_IMPLEMENTATION_SEQUENCE.md",
+      "sha256": "d5f22274e2589f1b5fbcd21b48a30a76962aa368eb2f81d7f736f7a2bc139f84",
+      "bytes": 1739
+    },
+    {
+      "path": "19_GOVERNANCE_AND_NON_REGRESSION.md",
+      "sha256": "bc8051a3f801d5d1386c95d416f24bd2269f72e15dbfc7c2ef533ddaedf2d574",
+      "bytes": 1364
+    },
+    {
+      "path": "20_COHERENCE_ACCEPTANCE_GATES.md",
+      "sha256": "cdaf2d25642d26001ee8f6ae50bb1b46b18144bb2422a838f6c548b57966ff70",
+      "bytes": 1774
+    },
+    {
+      "path": "21_CLAUDE_COHERENCE_INTEGRATION_PROMPT.md",
+      "sha256": "800d0192feeae2a1f06776bd50edd2398a3ca1ee85399c151518e24e2fc2a5bb",
+      "bytes": 2342
+    },
+    {
+      "path": "COMBINED_HANDOFF.md",
+      "sha256": "3d471a5b3c8dc76b7e165e5ba76052050b1004aae29a38c45a4918f85ee6cd64",
+      "bytes": 46153
+    },
+    {
+      "path": "README.md",
+      "sha256": "e7917ea305498bff376f2f77b8216cfc69cade48fcec499bcfd5219a6401a153",
+      "bytes": 2737
+    },
+    {
+      "path": "contracts/module_dependency_graph.yaml",
+      "sha256": "9036fc082717d0d6c256ad9bd8011318b0e385ec1303d7e6c75fd6abf65d4244",
+      "bytes": 1039
+    },
+    {
+      "path": "contracts/network_artifacts.yaml",
+      "sha256": "823e299fc8c62c40415c1e764541084469f4ad562e0f106bc37deffebb3e6d97",
+      "bytes": 972
+    },
+    {
+      "path": "contracts/participant_profile.yaml",
+      "sha256": "c635d1f70c9fe55c24c87d6da40ffec170b9fb20eced6983ba3bb9c87b80fb6a",
+      "bytes": 1452
+    },
+    {
+      "path": "diagrams/01_coherent_stack.mmd",
+      "sha256": "01b4df917bb85a59163c30fb080fdf72001211beb9b25f928919026495b99d08",
+      "bytes": 427
+    },
+    {
+      "path": "diagrams/02_network_participants.mmd",
+      "sha256": "ce07ef7d1513fc264895bb4a09736d7636437d0afe8c5ad6770ce147b500aefe",
+      "bytes": 212
+    },
+    {
+      "path": "diagrams/03_adoption_flywheel.mmd",
+      "sha256": "6babb1932c16fa81272ff00e866f88f98bf202bbe813eb8bb58d707c5686f002",
+      "bytes": 227
+    },
+    {
+      "path": "templates/coherence_review_checklist.md",
+      "sha256": "5e3d600107222028d779d7746e0b7eac5c7e36fca9ef766629e417a76bd4e40e",
+      "bytes": 848
+    }
+  ]
+}

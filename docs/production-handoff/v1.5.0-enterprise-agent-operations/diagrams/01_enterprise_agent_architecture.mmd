@@ -1,0 +1,23 @@
+flowchart TB
+  CUSTOMER[Customer People + Existing Systems] --> INTAKE[Discovery / Integration]
+  INTAKE --> COT[Company Operational Twin]
+  COT --> FACTORY[Agent Organization Factory]
+  COT --> WFG[Workflow Graph Registry]
+  POLICY[Identity / Policy / Delegation] --> FACTORY
+  POLICY --> WFG
+  PACKS[Capability Packs: Road / Rail / Ocean] --> FACTORY
+  PACKS --> WFG
+
+  FACTORY --> AGENTS[Tenant-Isolated Agent Organization]
+  AGENTS --> WFG
+  WFG --> CMD[Typed Command Gateway]
+  CMD --> EFFECT[External Side-Effect Adapters]
+  EFFECT --> SYSTEMS[TMS / ELD / ERP / Email / Maintenance / Rail / Ocean]
+  SYSTEMS --> RECON[Verification + Reconciliation]
+  RECON --> LEDGER[Audit / Event / Evidence Ledger]
+  WFG --> LEDGER
+
+  CONSOLE[Customer Operations Console] --> COT
+  CONSOLE --> POLICY
+  CONSOLE --> WFG
+  CONSOLE --> AGENTS

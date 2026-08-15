@@ -1,0 +1,12 @@
+flowchart TB
+  SHIP[Shipper / ERP / WMS] --> FOS[FacilityOS]
+  FOS --> NET[FreightOS Network]
+  NET --> CAR[Carrier Agent Organization]
+  CAR --> DRIVER[Driver / RigDesk]
+  DRIVER --> FOS
+  FOS --> OFFICE[Shipping / Receiving Office]
+  OFFICE --> DOC[BOL / Documents / Evidence]
+  DOC --> FOS
+  FOS --> GYD[Gate / Yard / Dock Digital Coordination]
+  GYD --> WH[Existing WMS / YMS / WES]
+  FOS --> NET
