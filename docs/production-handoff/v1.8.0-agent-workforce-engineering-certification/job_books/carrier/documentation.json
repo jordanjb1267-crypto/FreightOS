@@ -1,0 +1,38 @@
+{
+  "department": "carrier",
+  "slug": "documentation",
+  "name": "Documentation Agent",
+  "component": "hybrid_agent",
+  "mission": "Ensure required shipment documents are expected, collected, correctly associated, validated and routed without equating document presence with business-state completion.",
+  "upstream": [
+    "Tracking Agent",
+    "FacilityOS Document/BOL Agent"
+  ],
+  "downstream": [
+    "Settlement/Reconciliation Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "document store",
+    "OCR sandbox"
+  ],
+  "commands": [
+    "record_document",
+    "request_document_correction",
+    "mark_document_requirement_satisfied"
+  ],
+  "owns": [
+    "document checklist",
+    "capture/chase",
+    "association",
+    "validation routing"
+  ],
+  "non_scope": [
+    "custody/receipt inference",
+    "legal-document interpretation",
+    "invoice approval"
+  ]
+}

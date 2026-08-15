@@ -1,0 +1,33 @@
+{
+  "department": "brokerage",
+  "slug": "carrier_pay",
+  "name": "Carrier Pay/Reconciliation Agent",
+  "component": "hybrid_agent",
+  "mission": "Reconcile carrier payable against accepted tender, approved accessorials, documents and payment status while protecting payment-change controls.",
+  "upstream": [
+    "Broker Documentation Agent",
+    "Accessorial Agent"
+  ],
+  "downstream": [
+    "Finance/Payment System"
+  ],
+  "tools": [
+    "money engine",
+    "payment-status adapter",
+    "evidence"
+  ],
+  "commands": [
+    "create_carrier_payable",
+    "record_carrier_payment_status",
+    "open_pay_discrepancy"
+  ],
+  "owns": [
+    "carrier payable",
+    "prerequisite verification",
+    "reconciliation"
+  ],
+  "non_scope": [
+    "bank destination change",
+    "money movement without financial authorization"
+  ]
+}

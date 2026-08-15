@@ -1,0 +1,35 @@
+{
+  "department": "carrier",
+  "slug": "maintenance_readiness",
+  "name": "Maintenance Readiness Agent",
+  "component": "hybrid_agent",
+  "mission": "Translate RigDesk/service evidence into mission-readiness implications for carrier planning without independently diagnosing or certifying safety.",
+  "upstream": [
+    "RigDesk"
+  ],
+  "downstream": [
+    "Capacity Agent",
+    "Feasibility Engine",
+    "Carrier Exception Agent"
+  ],
+  "tools": [
+    "RigDesk API/events",
+    "maintenance policy",
+    "evidence retrieval"
+  ],
+  "commands": [
+    "record_readiness_assertion",
+    "open_service_dependency",
+    "request_replan"
+  ],
+  "owns": [
+    "readiness synthesis",
+    "maintenance impact on dispatch",
+    "service dependency coordination"
+  ],
+  "non_scope": [
+    "definitive diagnosis",
+    "safety certification",
+    "repair authorization outside policy"
+  ]
+}

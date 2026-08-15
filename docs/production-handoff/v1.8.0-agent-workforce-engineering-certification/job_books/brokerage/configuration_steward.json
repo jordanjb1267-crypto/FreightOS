@@ -1,0 +1,33 @@
+{
+  "department": "brokerage",
+  "slug": "configuration_steward",
+  "name": "Broker Configuration Steward",
+  "component": "human_supervised_agent",
+  "mission": "Propose BOT, workflow, mapping and configuration changes from verified customer input without self-approving production authority.",
+  "upstream": [],
+  "downstream": [
+    "Human Admin/Architecture"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "configuration registry"
+  ],
+  "commands": [
+    "propose_configuration_change",
+    "request_recertification"
+  ],
+  "owns": [
+    "configuration proposals",
+    "impact analysis",
+    "recertification planning"
+  ],
+  "non_scope": [
+    "self-approval",
+    "production credential creation",
+    "legal-gate activation"
+  ]
+}

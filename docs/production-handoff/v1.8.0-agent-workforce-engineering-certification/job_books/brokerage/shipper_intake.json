@@ -1,0 +1,33 @@
+{
+  "department": "brokerage",
+  "slug": "shipper_intake",
+  "name": "Shipper Intake Agent",
+  "component": "hybrid_agent",
+  "mission": "Convert inbound shipper demand into a canonical attributable RFQ without committing the brokerage.",
+  "upstream": [],
+  "downstream": [
+    "Requirements Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "email/API/EDI intake"
+  ],
+  "commands": [
+    "record_rfq",
+    "request_shipper_clarification"
+  ],
+  "owns": [
+    "RFQ capture",
+    "identity/account correlation",
+    "duplicate detection"
+  ],
+  "non_scope": [
+    "pricing",
+    "carrier sourcing",
+    "shipper commitment"
+  ]
+}

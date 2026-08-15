@@ -1,0 +1,26 @@
+{
+  "department": "service_provider",
+  "slug": "invoice_reconciliation",
+  "name": "Service Invoice/Reconciliation Agent",
+  "component": "hybrid_agent",
+  "mission": "Prepare and reconcile provider invoice against authorized estimate/work order, parts/labor evidence and completion state.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SPOT/RigDesk retrieval",
+    "policy query",
+    "provider domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "service_provider_typed_command"
+  ],
+  "owns": [
+    "service invoice packet"
+  ],
+  "non_scope": [
+    "bank changes; payment authorization outside policy"
+  ]
+}

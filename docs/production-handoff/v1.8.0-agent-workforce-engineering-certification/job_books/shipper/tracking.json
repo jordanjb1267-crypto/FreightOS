@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "tracking",
+  "name": "Shipper Tracking Agent",
+  "component": "hybrid_agent",
+  "mission": "Maintain shipper-visible execution state from broker/carrier/facility assertions.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "shipper tracking read model"
+  ],
+  "non_scope": [
+    "counterparty internal state"
+  ]
+}

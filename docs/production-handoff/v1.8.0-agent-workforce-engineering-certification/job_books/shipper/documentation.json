@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "documentation",
+  "name": "Shipper Documentation Agent",
+  "component": "hybrid_agent",
+  "mission": "Track shipper-required transportation/commercial documents and authoritative references.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "document requirements"
+  ],
+  "non_scope": [
+    "custody/receipt inference"
+  ]
+}

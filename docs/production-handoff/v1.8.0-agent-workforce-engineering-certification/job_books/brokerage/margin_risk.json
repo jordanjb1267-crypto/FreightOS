@@ -1,0 +1,31 @@
+{
+  "department": "brokerage",
+  "slug": "margin_risk",
+  "name": "Margin Risk Service",
+  "component": "deterministic_service",
+  "mission": "Continuously calculate brokerage margin/exposure and flag threshold breaches from exact sell/buy/accessorial terms.",
+  "upstream": [
+    "Shipper Pricing Agent",
+    "Broker Negotiation Agent"
+  ],
+  "downstream": [
+    "Allocation Agent",
+    "Compliance Supervisor Agent"
+  ],
+  "tools": [
+    "deterministic money engine"
+  ],
+  "commands": [
+    "record_margin_snapshot",
+    "raise_margin_breach"
+  ],
+  "owns": [
+    "margin arithmetic",
+    "exposure thresholds"
+  ],
+  "non_scope": [
+    "negotiation strategy",
+    "qualification",
+    "policy changes"
+  ]
+}

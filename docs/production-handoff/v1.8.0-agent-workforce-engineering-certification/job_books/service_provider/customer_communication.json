@@ -1,0 +1,26 @@
+{
+  "department": "service_provider",
+  "slug": "customer_communication",
+  "name": "Service Customer Communication Agent",
+  "component": "agent",
+  "mission": "Keep driver/carrier/customer informed about intake, ETA, estimate, approvals, work status and completion from authoritative provider state.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SPOT/RigDesk retrieval",
+    "policy query",
+    "provider domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "service_provider_typed_command"
+  ],
+  "owns": [
+    "service communications"
+  ],
+  "non_scope": [
+    "invent work completion/diagnosis"
+  ]
+}

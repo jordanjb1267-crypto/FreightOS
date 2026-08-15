@@ -1,0 +1,26 @@
+{
+  "department": "service_provider",
+  "slug": "appointment_dispatch",
+  "name": "Service Appointment/Dispatch Agent",
+  "component": "agent",
+  "mission": "Schedule or dispatch an accepted service case to an eligible provider resource/slot without controlling vehicle motion.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SPOT/RigDesk retrieval",
+    "policy query",
+    "provider domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "service_provider_typed_command"
+  ],
+  "owns": [
+    "service scheduling/dispatch"
+  ],
+  "non_scope": [
+    "roadside vehicle driving/control"
+  ]
+}

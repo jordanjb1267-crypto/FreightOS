@@ -1,0 +1,39 @@
+{
+  "department": "brokerage",
+  "slug": "documentation",
+  "name": "Broker Documentation Agent",
+  "component": "hybrid_agent",
+  "mission": "Track broker-required documents and transaction evidence across shipper, carrier and facility sources.",
+  "upstream": [
+    "Broker Shipment Execution Agent",
+    "FacilityOS",
+    "Carrier Documentation Agent"
+  ],
+  "downstream": [
+    "Accessorial Agent",
+    "Shipper Billing Agent",
+    "Carrier Pay/Reconciliation Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "document store"
+  ],
+  "commands": [
+    "record_broker_document_requirement",
+    "request_document"
+  ],
+  "owns": [
+    "document requirements",
+    "collection/correlation",
+    "transaction-record references"
+  ],
+  "non_scope": [
+    "facility document disposition",
+    "carrier original ownership",
+    "legal conclusion"
+  ]
+}

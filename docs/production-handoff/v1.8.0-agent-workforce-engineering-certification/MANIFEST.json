@@ -1,0 +1,961 @@
+{
+  "package": "FreightOS_Agent_Workforce_Engineering_Certification_v1.8.0",
+  "version": "1.8.0",
+  "date": "2026-08-14",
+  "job_count": 76,
+  "department_counts": {
+    "brokerage": 22,
+    "carrier": 14,
+    "facility": 18,
+    "service_provider": 10,
+    "shipper": 12
+  },
+  "component_counts": {
+    "hybrid_agent": 37,
+    "agent": 28,
+    "human_supervised_agent": 6,
+    "deterministic_service": 5
+  },
+  "files": [
+    {
+      "path": "00_MASTER_WORKFORCE_HANDOFF.md",
+      "sha256": "0353cde6e7ff1ddfb8c4c2b497a5cb0ad381ec4b633fd733661bcb22b355258d",
+      "bytes": 1468
+    },
+    {
+      "path": "01_ROLE_DECOMPOSITION_AND_AGENT_MINIMIZATION.md",
+      "sha256": "cc3bd19deb64e884ba3c6ea64291b3201be15e57f0d2131a002dbc5fdf3de7b5",
+      "bytes": 920
+    },
+    {
+      "path": "02_JOB_BOOK_STANDARD.md",
+      "sha256": "a42980f45b7af4acd58153fb27b06299b4ff1218cee3b2c6181820f71784ea43",
+      "bytes": 651
+    },
+    {
+      "path": "03_WORK_UNIT_AND_RESPONSIBILITY_MODEL.md",
+      "sha256": "be449e2de824010d64793b584dad1795881f0cef31bc4b385a1b2ad8125e84cd",
+      "bytes": 736
+    },
+    {
+      "path": "04_AGENT_INTERACTION_ATLAS.md",
+      "sha256": "60101fa423fda3aa3947c2fe7c49e2199f28729c6d6f9d86c8d3329d7b586891",
+      "bytes": 706
+    },
+    {
+      "path": "05_EXCEPTION_OWNERSHIP_STANDARD.md",
+      "sha256": "05e686f5113b70d27b6fb61900caf4ea8e28c757163317e7141cbc265ed7a313",
+      "bytes": 494
+    },
+    {
+      "path": "06_JOB_CERTIFICATION_AND_EVALUATION.md",
+      "sha256": "c95254b94c1b37fdaed39cc5cbeacf2b166a505727636f9b53aad49887e234be",
+      "bytes": 837
+    },
+    {
+      "path": "07_SELLABILITY_AND_CLAIM_STANDARD.md",
+      "sha256": "2e00df874d6ee749fa617b70e446153bc101cc5a4684f7bc60cd13859ed3128e",
+      "bytes": 839
+    },
+    {
+      "path": "08_END_TO_END_WORKFORCE_SIMULATION_STANDARD.md",
+      "sha256": "698ee473d78c448bda40cd34b7403e6cd55da54625ad0e209c43a0c3048ddf15",
+      "bytes": 566
+    },
+    {
+      "path": "09_IMPLEMENTATION_SEQUENCE.md",
+      "sha256": "e5f477856b12a110d99a63e4e3f69f50845f37b9c59c81059d08a74683bcb82a",
+      "bytes": 1090
+    },
+    {
+      "path": "10_CLAUDE_MASTER_WORKFORCE_ENGINEERING_PROMPT.md",
+      "sha256": "ed27aeb22aec7107131043a524f60f733660ecebe792212e0585d45fefbbd6a3",
+      "bytes": 1508
+    },
+    {
+      "path": "11_WORKFORCE_CLASSIFICATION_REPORT.md",
+      "sha256": "e64634867789944ab381c0e88967c2588bace5c75d72bd0871ee1627b71b4c0c",
+      "bytes": 464
+    },
+    {
+      "path": "12_WORKFORCE_ACCEPTANCE_GATES.md",
+      "sha256": "9f95f4839318da275496cee29f9ea7410593f39a597dbb6b3c556f448cac4e81",
+      "bytes": 2529
+    },
+    {
+      "path": "COMBINED_HANDOFF.md",
+      "sha256": "bed8d9e32253ce670720e0d012cb8b78334841df2193986dc4689a39ef98eb18",
+      "bytes": 543303
+    },
+    {
+      "path": "README.md",
+      "sha256": "4debcb01d990f0bd445c610c24fe2b073aa9e20469073beb3ee253bae10562a0",
+      "bytes": 1408
+    },
+    {
+      "path": "contracts/agent_job_book.schema.json",
+      "sha256": "566049871868a3f0229a7bfb0a1c6d27dabc68bff762cede13c973ff5def7954",
+      "bytes": 1862
+    },
+    {
+      "path": "contracts/agent_job_catalog.json",
+      "sha256": "3bc93dcb5866ae307be44044318c18888297eba7d43aafc945b20b007a719df4",
+      "bytes": 66778
+    },
+    {
+      "path": "contracts/job_certification.schema.json",
+      "sha256": "143af6e37246bae42f68f9c2b8e42bf13eb96dcd41024115733a8265c1e8c1e3",
+      "bytes": 1245
+    },
+    {
+      "path": "contracts/job_handoff.schema.json",
+      "sha256": "d0ee05399f992a5be0db5e690592e68e9aaf64941cd12269f85e0f162ecd620c",
+      "bytes": 1249
+    },
+    {
+      "path": "contracts/work_unit.schema.json",
+      "sha256": "bbe767cd97f4bd1f3c3016f677f6a088d848e9a439f9ce7995e875fd995a8985",
+      "bytes": 1396
+    },
+    {
+      "path": "diagrams/brokerage_interaction_atlas.mmd",
+      "sha256": "b7d27ae5eba977a91a4221e246ba643fb15f42ffb54fbf62890c5281f60ec52f",
+      "bytes": 1195
+    },
+    {
+      "path": "diagrams/carrier_interaction_atlas.mmd",
+      "sha256": "14fbbfdd3481d187fb2cebbca7f94d6f6ea8130fc8272314e1576a4576c98bf4",
+      "bytes": 799
+    },
+    {
+      "path": "diagrams/cross_participant_workforce.mmd",
+      "sha256": "5e7e76b651b926f5c5b8e732dbc809b87e8798f65f4315a26fe537763e15dd58",
+      "bytes": 204
+    },
+    {
+      "path": "diagrams/facility_interaction_atlas.mmd",
+      "sha256": "ee835aebb5a6e44f1564a92753b991c1169a162d2ea9d0955238a2ea8833b04b",
+      "bytes": 621
+    },
+    {
+      "path": "diagrams/service_provider_interaction_atlas.mmd",
+      "sha256": "f52413f1cb3ba7cf1b96346becc5f63303881133d7959b6b4e72f48e4f22b503",
+      "bytes": 354
+    },
+    {
+      "path": "diagrams/shipper_interaction_atlas.mmd",
+      "sha256": "ddb69b5b64fe4a87fdd50ec5aaa714ca75a965b7339bdb938517c175f7ded0d3",
+      "bytes": 412
+    },
+    {
+      "path": "job_books/brokerage/accessorial.json",
+      "sha256": "f41e786a53167089c3a85f0965fcb6b90575f818de534fae2b274808bd59494f",
+      "bytes": 868
+    },
+    {
+      "path": "job_books/brokerage/accessorial.md",
+      "sha256": "32bc99cb15f0d1749678b5c53f1d630ce6a2a18b3c51bd887f20b8f8edf8e353",
+      "bytes": 4619
+    },
+    {
+      "path": "job_books/brokerage/allocation.json",
+      "sha256": "a56ca46c1cb3fb3e84c61593e96d4c7e189b82051f14f4f4c8ad208e17d45c6b",
+      "bytes": 713
+    },
+    {
+      "path": "job_books/brokerage/allocation.md",
+      "sha256": "0f9b7b6da06239b5290e923d1e0b11bcd5d22c1a14c9ffe4d527d8a92cf64c1c",
+      "bytes": 4556
+    },
+    {
+      "path": "job_books/brokerage/carrier_pay.json",
+      "sha256": "8d27c4631753ebcac7761bf16be07ce8bb3cf959184d217b093d7b7502a33b2e",
+      "bytes": 823
+    },
+    {
+      "path": "job_books/brokerage/carrier_pay.md",
+      "sha256": "07bcc87b96f2d104d1c8d1a84a2ef2af45f193c49bcd4e336971caa8663d8aef",
+      "bytes": 4613
+    },
+    {
+      "path": "job_books/brokerage/carrier_qualification.json",
+      "sha256": "fc60c5dea4e7493b385fc7224cfde55d39a7b43d208a504588538df8a7ab885e",
+      "bytes": 863
+    },
+    {
+      "path": "job_books/brokerage/carrier_qualification.md",
+      "sha256": "2efe4b91d9698d3e776bd3bcc56eb36e9824f034a83e18a209005a27301227eb",
+      "bytes": 4693
+    },
+    {
+      "path": "job_books/brokerage/carrier_sourcing.json",
+      "sha256": "6434b80aec9f2421533920fd873c50f8441cd92c63267dc2cec0313726393762",
+      "bytes": 850
+    },
+    {
+      "path": "job_books/brokerage/carrier_sourcing.md",
+      "sha256": "d146cd18c573921de9a0caa97fb9dfe2234bd53ab42903dadd301ce2c655bffa",
+      "bytes": 4649
+    },
+    {
+      "path": "job_books/brokerage/claims_evidence.json",
+      "sha256": "3351055e116e595ba10ebd01be27acc25203181d1714d2d764a983b333debb54",
+      "bytes": 904
+    },
+    {
+      "path": "job_books/brokerage/claims_evidence.md",
+      "sha256": "b986d1d915fde0e8b917a6b557e5573d7bf251aba2c74459320908ce27ade643",
+      "bytes": 4688
+    },
+    {
+      "path": "job_books/brokerage/compliance_supervisor.json",
+      "sha256": "b75f635b7e46bf8471800e4ea61c2ab572bf7e3d0024303b533f36ac8265089e",
+      "bytes": 944
+    },
+    {
+      "path": "job_books/brokerage/compliance_supervisor.md",
+      "sha256": "bc99ee4f5a4f55a051c1205688518c683ed429a1b65ce63e311091b79ec86b07",
+      "bytes": 4780
+    },
+    {
+      "path": "job_books/brokerage/configuration_steward.json",
+      "sha256": "fbe72af5a57b4c63b811fdf7dab048a4c9e9bb2142ae72852aea68b27edfe150",
+      "bytes": 851
+    },
+    {
+      "path": "job_books/brokerage/configuration_steward.md",
+      "sha256": "ec11d6dc9e690944ee7a05cc2ff6c1138ac52f62765cc1d00ae4cc946a2d15a6",
+      "bytes": 4649
+    },
+    {
+      "path": "job_books/brokerage/documentation.json",
+      "sha256": "29236e9e8a8f3b9946202370a413ab15cb43e399d8211285b32b563af52b2a4d",
+      "bytes": 967
+    },
+    {
+      "path": "job_books/brokerage/documentation.md",
+      "sha256": "8ab74e8a9c3cf19f75fad0309752b97bd6ffca3538e2c394213d13a5aadc88d3",
+      "bytes": 4656
+    },
+    {
+      "path": "job_books/brokerage/facility_coordination.json",
+      "sha256": "dcf65d258cca8cf92fab2767f3e782d12169666ba7b62e9211746a5414368daf",
+      "bytes": 796
+    },
+    {
+      "path": "job_books/brokerage/facility_coordination.md",
+      "sha256": "6fb7020f6f28bf5c495ff786dbe482a741284013a7dc37a218c7d3f967a7c29b",
+      "bytes": 4581
+    },
+    {
+      "path": "job_books/brokerage/margin_risk.json",
+      "sha256": "d244c8241811320a62e8debf8c7018941d4ffa1cee2c679f50aea357a99ef49f",
+      "bytes": 711
+    },
+    {
+      "path": "job_books/brokerage/margin_risk.md",
+      "sha256": "0e26184676a2e2d0778d477a57c5d6d45f94d752d6c8b43226d5a334e966388d",
+      "bytes": 4313
+    },
+    {
+      "path": "job_books/brokerage/negotiation.json",
+      "sha256": "220add9ee167471a14774a17d0928dd179174a8045d291fb58f35062b346f7ed",
+      "bytes": 928
+    },
+    {
+      "path": "job_books/brokerage/negotiation.md",
+      "sha256": "4ea30e3f40f1b331f923f0a427b08b9e400b9bd619673d3fc59f7f2b6d92989f",
+      "bytes": 4793
+    },
+    {
+      "path": "job_books/brokerage/operations_orchestrator.json",
+      "sha256": "23cf5c0b7969004be5587290cfa7df189ce10230ad16d80b1ef019eda7a12778",
+      "bytes": 986
+    },
+    {
+      "path": "job_books/brokerage/operations_orchestrator.md",
+      "sha256": "c3b64079eef64a33234424e1b3796c38777e5485903f70f6845a24627f3750d2",
+      "bytes": 4700
+    },
+    {
+      "path": "job_books/brokerage/relationship_support.json",
+      "sha256": "ce9e8a5c788fb5b1d9fb0b0da65f03e0fc797031ed52f9d060ea547cb77ee3ce",
+      "bytes": 832
+    },
+    {
+      "path": "job_books/brokerage/relationship_support.md",
+      "sha256": "d1cfd23572132efc945ee58476f1363317f72a7b7df303140a55c378df2c966c",
+      "bytes": 4602
+    },
+    {
+      "path": "job_books/brokerage/requirements.json",
+      "sha256": "87a487fdaf0b818ff38aa5641db52ec5c3f13f5479c88b9245482684a81faee6",
+      "bytes": 905
+    },
+    {
+      "path": "job_books/brokerage/requirements.md",
+      "sha256": "af3e8b50d0b6c9e48f8c33cee46a3a93bf3358ad0ba644f3a4aac74035966241",
+      "bytes": 4654
+    },
+    {
+      "path": "job_books/brokerage/shipment_execution.json",
+      "sha256": "6acc4cbaef3503f2818b37a8c32d9c62ca56f2820851e1fa9d98fb766334e710",
+      "bytes": 1008
+    },
+    {
+      "path": "job_books/brokerage/shipment_execution.md",
+      "sha256": "118c6635263c1e4ff565b422b6c2b54bc20d4f43d1976c2bc713ad0c53545a83",
+      "bytes": 4845
+    },
+    {
+      "path": "job_books/brokerage/shipper_billing.json",
+      "sha256": "154f24b505d2a9c0af04869af9867d3f403f3b007d54e6500fad9ee5e9a0110c",
+      "bytes": 710
+    },
+    {
+      "path": "job_books/brokerage/shipper_billing.md",
+      "sha256": "97b499bd496f85c930c65412fb4bb7f87ab9f2cc04637ccb452bfb88de938587",
+      "bytes": 4400
+    },
+    {
+      "path": "job_books/brokerage/shipper_intake.json",
+      "sha256": "e4daa39667a3a3f37079efb5f92fcd40a4bf46e3dc30e661f0e1fe4af5adeabe",
+      "bytes": 747
+    },
+    {
+      "path": "job_books/brokerage/shipper_intake.md",
+      "sha256": "bc6dcdef0fc458123d9482d253e06ba1accd43daa9df0c238344cb635c82c4c5",
+      "bytes": 4424
+    },
+    {
+      "path": "job_books/brokerage/shipper_pricing.json",
+      "sha256": "90bc830e066a3587fa2d43cef3f6ac58f1ad45815162ce327269caba2e1b8cad",
+      "bytes": 749
+    },
+    {
+      "path": "job_books/brokerage/shipper_pricing.md",
+      "sha256": "bed9f84fa167959e581374a8e8b718fc7603292df76f8fdbdf3f1208370f00e3",
+      "bytes": 4473
+    },
+    {
+      "path": "job_books/brokerage/tender_booking.json",
+      "sha256": "9bbdbe9c665a1d4fa9efaa2374cfdfbe30965d87e60010c62695437ce11779f8",
+      "bytes": 796
+    },
+    {
+      "path": "job_books/brokerage/tender_booking.md",
+      "sha256": "8789a0f22772fe3556ea3a486e6b76309aac487fd10ddadda30a51775fd59dcb",
+      "bytes": 4656
+    },
+    {
+      "path": "job_books/brokerage/tracking_communication.json",
+      "sha256": "6b465e80963c33f4f8991f2b94229454aaa0716be2e49c04efeac84092e416a4",
+      "bytes": 846
+    },
+    {
+      "path": "job_books/brokerage/tracking_communication.md",
+      "sha256": "761a9ae571cdc032cdf6bc27a9a8f933eedbc688f8926920c98a1422aaac1166",
+      "bytes": 4565
+    },
+    {
+      "path": "job_books/brokerage/transaction_record.json",
+      "sha256": "833308317926afebb721b1191510cc471fe4874b45b9618e59e45a9c0936ae4e",
+      "bytes": 832
+    },
+    {
+      "path": "job_books/brokerage/transaction_record.md",
+      "sha256": "fcd4a9d43b1840339baa14b14edf3c73f8a0dbbb97f63699454dc4ccb4f66168",
+      "bytes": 4729
+    },
+    {
+      "path": "job_books/carrier/capacity.json",
+      "sha256": "a9686103e8ab03adf43bbef365b0261f60b39b9163bee84e8db9d2bf4940a09e",
+      "bytes": 896
+    },
+    {
+      "path": "job_books/carrier/capacity.md",
+      "sha256": "2f80b46217d98d861eb9107fecb08c71af43def2047cbc87342787e6ea484770",
+      "bytes": 4916
+    },
+    {
+      "path": "job_books/carrier/chief_dispatch_orchestrator.json",
+      "sha256": "37bf418e5abf195bea8655777439ad6ff5178149ac421f6e3ac8356704287f5f",
+      "bytes": 1075
+    },
+    {
+      "path": "job_books/carrier/chief_dispatch_orchestrator.md",
+      "sha256": "b3ecfe94defdcc34b26128b49485ecba9097ab750d9c421150f1d1ca29d98211",
+      "bytes": 5149
+    },
+    {
+      "path": "job_books/carrier/dispatch.json",
+      "sha256": "995f6eeec4d7c0f5124be40914eccecc0cbdf4a3b6bb964e63edd11db25a9166",
+      "bytes": 950
+    },
+    {
+      "path": "job_books/carrier/dispatch.md",
+      "sha256": "5c1e52b8cc9871acbbfea536b6e70b5f19bd8b3f5f97df1272ac43631ba47cf2",
+      "bytes": 5066
+    },
+    {
+      "path": "job_books/carrier/documentation.json",
+      "sha256": "cffffe21ce72f2ecb93711a49cc3a46b7dd0f42c398d51fbfbc7bab8ddccb067",
+      "bytes": 965
+    },
+    {
+      "path": "job_books/carrier/documentation.md",
+      "sha256": "a36e04108c3a285b1416cad1f0c40d8e63af8763bfe232dc71a31651a274ae70",
+      "bytes": 4944
+    },
+    {
+      "path": "job_books/carrier/exception.json",
+      "sha256": "b9774ac3840d35c7e4aefc4ff290575f53a647eb80eaa0e6852736c2dab3f3ba",
+      "bytes": 979
+    },
+    {
+      "path": "job_books/carrier/exception.md",
+      "sha256": "267d66a0479b468ea5e4fe2fc3143f2c1f6299a48d9da4688c486f83f19bd457",
+      "bytes": 4956
+    },
+    {
+      "path": "job_books/carrier/feasibility.json",
+      "sha256": "c709057b3b917ee7c255ae0b0a09b5f41bec136bd4140af2c81d4a5b0fe06e6c",
+      "bytes": 815
+    },
+    {
+      "path": "job_books/carrier/feasibility.md",
+      "sha256": "21da2076e02a3b960fbfe45b4511ce062342461e42f041ebf0b8fc42c2fbf663",
+      "bytes": 4830
+    },
+    {
+      "path": "job_books/carrier/load_discovery.json",
+      "sha256": "ebebb214bf2005a7d17b8c1eeb2393b37556f011e6cea49215097ce36fc15b8d",
+      "bytes": 882
+    },
+    {
+      "path": "job_books/carrier/load_discovery.md",
+      "sha256": "bd1fd6354e1949f641b6011f4f0a236f652299c98e022060e184d0c3911647ba",
+      "bytes": 4893
+    },
+    {
+      "path": "job_books/carrier/maintenance_readiness.json",
+      "sha256": "ec0c14aafc0c3c13cfb187139cf4b7863ec32abbb1254644419846be954e2472",
+      "bytes": 877
+    },
+    {
+      "path": "job_books/carrier/maintenance_readiness.md",
+      "sha256": "c1ac868ee6c9d2ebb135f767814dfc2766d75ee8a911262d07362cf0eeade88a",
+      "bytes": 4798
+    },
+    {
+      "path": "job_books/carrier/negotiation.json",
+      "sha256": "c12e4ef3de330315a20ef88293c0953d0f15c84036fb9de6c61076d14634bb9f",
+      "bytes": 885
+    },
+    {
+      "path": "job_books/carrier/negotiation.md",
+      "sha256": "2b1faa8172f9c3ecbcbfc1241107d585a8a372172bcf9267004a3910d5b88a71",
+      "bytes": 4921
+    },
+    {
+      "path": "job_books/carrier/planning.json",
+      "sha256": "872047b361878f4ac803193b12b9e70a7a11c70505b513a02228f7a85d2dfb16",
+      "bytes": 887
+    },
+    {
+      "path": "job_books/carrier/planning.md",
+      "sha256": "0c2f2b22e193c3a6994deaa9c4f629e687f7d9ae8e0b414273f9ef4b616b212e",
+      "bytes": 4915
+    },
+    {
+      "path": "job_books/carrier/profitability.json",
+      "sha256": "65e6a40d2abf940b411a7a078c2b5c6330325dc1e039e62bb58f847013ef0595",
+      "bytes": 754
+    },
+    {
+      "path": "job_books/carrier/profitability.md",
+      "sha256": "c4faa11fa432632fe163c04d2c7be095324aa338b9626cb6be12a9141f05c7bb",
+      "bytes": 4700
+    },
+    {
+      "path": "job_books/carrier/risk_compliance.json",
+      "sha256": "a904b164d1bca8971e05e66809a8812370520fd146c64df3a05f19d8424eecdc",
+      "bytes": 897
+    },
+    {
+      "path": "job_books/carrier/risk_compliance.md",
+      "sha256": "804fc1c245f120707635f87cb685b213fb61d7f177b076643955aebd43af56a3",
+      "bytes": 4821
+    },
+    {
+      "path": "job_books/carrier/settlement.json",
+      "sha256": "29bf5480530bb740fbd885c55b6ce9027b552fde0af475f5f720a6296e5c5137",
+      "bytes": 910
+    },
+    {
+      "path": "job_books/carrier/settlement.md",
+      "sha256": "0ba2b6afd08ffc6284f1b8206876ef52ab43fd97c2a98ea32d52aa548f7fa309",
+      "bytes": 4890
+    },
+    {
+      "path": "job_books/carrier/tracking.json",
+      "sha256": "9f763e0b0d7f929a86d52634546044108aeff53fcf409c320533b31d3db206ee",
+      "bytes": 925
+    },
+    {
+      "path": "job_books/carrier/tracking.md",
+      "sha256": "40bf40820ce33ff6e31e6f39ebd4237a35a588d5749eabfde4c78498fabc9484",
+      "bytes": 4859
+    },
+    {
+      "path": "job_books/facility/appointment.json",
+      "sha256": "3b1efacd8570c3a60e16fbc02cefd1bd0f3a63bb60ad6eb7b58841b3c8d39efd",
+      "bytes": 635
+    },
+    {
+      "path": "job_books/facility/appointment.md",
+      "sha256": "42abd6eeffe0a48178d985dc0611c285e569224100ebe6e23fd10984f3bfbcd0",
+      "bytes": 4364
+    },
+    {
+      "path": "job_books/facility/capacity_labor.json",
+      "sha256": "9d8e1aaf2ed717bc9b7401143f0a022b2a42419ccc4ff2a387a547bd6a932e0c",
+      "bytes": 673
+    },
+    {
+      "path": "job_books/facility/capacity_labor.md",
+      "sha256": "c4478e2fe68244542baa9e6b49561f2ed5e20934994ecb76d87c227bc945624f",
+      "bytes": 4451
+    },
+    {
+      "path": "job_books/facility/cargo_readiness.json",
+      "sha256": "36b5a3d3c2d80e964528ad2664b10328d4c3a61558a182546744e08b6a3effb0",
+      "bytes": 631
+    },
+    {
+      "path": "job_books/facility/cargo_readiness.md",
+      "sha256": "ebea636dd44069c01b2cc9ed63b8f335ccffec4f9b9c67d9ef0dbfffa17337d6",
+      "bytes": 4328
+    },
+    {
+      "path": "job_books/facility/configuration_steward.json",
+      "sha256": "c3648393c68da9047643d0eaa9e02099634f3d045f6a42f7fe2efed7ba51b01d",
+      "bytes": 692
+    },
+    {
+      "path": "job_books/facility/configuration_steward.md",
+      "sha256": "619e975da90242ddf96959dc5d031169baa848088d2acc9d955b88f7033604c7",
+      "bytes": 4395
+    },
+    {
+      "path": "job_books/facility/custody_evidence.json",
+      "sha256": "8e175043f598ed7b48def9c327b3ae1fedbe7f50347df27b020016d62f5707b4",
+      "bytes": 677
+    },
+    {
+      "path": "job_books/facility/custody_evidence.md",
+      "sha256": "a6832ceadfa846127423d445aea638c54684a94e30ddba26fb164688948f2eb5",
+      "bytes": 4508
+    },
+    {
+      "path": "job_books/facility/customer_communication.json",
+      "sha256": "8e32f5b83e6defe6beeead7f9cafd299b37890c1e416e52e8fe947aceda8b3e5",
+      "bytes": 692
+    },
+    {
+      "path": "job_books/facility/customer_communication.md",
+      "sha256": "d81d46430675e6793345caa4142f0e572be266633efb84d0675ad064c48ec410",
+      "bytes": 4394
+    },
+    {
+      "path": "job_books/facility/detention.json",
+      "sha256": "b16bdfe00b62a62cbf89160eda26574fc8e0553f059064db43b3bb9955d1b6ed",
+      "bytes": 650
+    },
+    {
+      "path": "job_books/facility/detention.md",
+      "sha256": "1829cf03cccbb76a2b7df8fd0a9c6432a05f90b02b285fe8b544d60dd59bb918",
+      "bytes": 4325
+    },
+    {
+      "path": "job_books/facility/discrepancy.json",
+      "sha256": "a741a9183b7883512c1895a4b478fb90855e93b01a393c1e2ca6501ee55b3596",
+      "bytes": 658
+    },
+    {
+      "path": "job_books/facility/discrepancy.md",
+      "sha256": "e91c6c6aa4f6b9ff3f6773f714b33b75d7900b9a5e0414848ce0761e342f234d",
+      "bytes": 4409
+    },
+    {
+      "path": "job_books/facility/dock.json",
+      "sha256": "c82a5879681669098ae71e3ef37c302f80099bb57b00f12a35909129a54144b9",
+      "bytes": 620
+    },
+    {
+      "path": "job_books/facility/dock.md",
+      "sha256": "50c5e9b632b97b542d9573ab6110d606c1a923c10c322c7fecc91f9072ae39a2",
+      "bytes": 4398
+    },
+    {
+      "path": "job_books/facility/document_bol.json",
+      "sha256": "275e4d21c495096938be6d173afc9eb21d4691b3828e9b0aa7256533135830c1",
+      "bytes": 625
+    },
+    {
+      "path": "job_books/facility/document_bol.md",
+      "sha256": "86ea3b025a6556d218ecbb6e43534d5cb34cbcd312c5e802997463ee3b750dec",
+      "bytes": 4408
+    },
+    {
+      "path": "job_books/facility/driver_coordination.json",
+      "sha256": "0b910db1c4ea20c55ffb66450fb9c62fe84f5329356659cf5397656c620f4c31",
+      "bytes": 658
+    },
+    {
+      "path": "job_books/facility/driver_coordination.md",
+      "sha256": "f010679eb2d7550c0359141c8a95b9eb4780635536e715a9ca4aa355cad0e6e8",
+      "bytes": 4437
+    },
+    {
+      "path": "job_books/facility/facility_exception.json",
+      "sha256": "8eae535f0ea1817b716f1bf58a3e882d384d9fa49a9b06de54fc6f7960b7479c",
+      "bytes": 640
+    },
+    {
+      "path": "job_books/facility/facility_exception.md",
+      "sha256": "ee206a5cefe3fe82454184327588b1d03beb078f9e452120906c70676e13310f",
+      "bytes": 4337
+    },
+    {
+      "path": "job_books/facility/gate.json",
+      "sha256": "6f295b135b6c19a30fb2eca849d375abe57951e5242f88db400c2a9f546338c8",
+      "bytes": 644
+    },
+    {
+      "path": "job_books/facility/gate.md",
+      "sha256": "639e17a17f6606ef9cbfbba4c4fa4d8356270d62c5028367a305c0073c15fd36",
+      "bytes": 4437
+    },
+    {
+      "path": "job_books/facility/load_unload_verification.json",
+      "sha256": "e5de9b67dcc8d14e8525e1644be6df6ffacc59ca62125398de864ccea33bc052",
+      "bytes": 672
+    },
+    {
+      "path": "job_books/facility/load_unload_verification.md",
+      "sha256": "9fbc07d1d2e5f9c383910285ba368e5e54bac4709730f814ad7749927825346b",
+      "bytes": 4389
+    },
+    {
+      "path": "job_books/facility/operations_orchestrator.json",
+      "sha256": "6f06acbfe33a2ad04a6631e8178cccf0be783edd7b5e5560c78de01627c047a5",
+      "bytes": 671
+    },
+    {
+      "path": "job_books/facility/operations_orchestrator.md",
+      "sha256": "b9d389aadc719e5f04ef5622646044ec6d6f99428c4961b150a1385fc989cba8",
+      "bytes": 4372
+    },
+    {
+      "path": "job_books/facility/receiving_office.json",
+      "sha256": "9008ded0aed28651fffe651875e7bf00583854ac025692997926ebaa9fad0598",
+      "bytes": 667
+    },
+    {
+      "path": "job_books/facility/receiving_office.md",
+      "sha256": "11880f115c03b6c44f2f0793f1d5465408251e57c28d993c489757db2d50834d",
+      "bytes": 4473
+    },
+    {
+      "path": "job_books/facility/shipping_office.json",
+      "sha256": "508db8f6ddee6df921a26f535ac599014f3b252fb4226f322e5af2ef205865d8",
+      "bytes": 656
+    },
+    {
+      "path": "job_books/facility/shipping_office.md",
+      "sha256": "435657ebbf0f160da4ce3a271731f935d223e0a70cd56396cb1d9729f2f6be6c",
+      "bytes": 4498
+    },
+    {
+      "path": "job_books/facility/yard.json",
+      "sha256": "e8e95fe98b4ac530612247e787e37f061d96a2aa5e588957aa539ddc58f53498",
+      "bytes": 628
+    },
+    {
+      "path": "job_books/facility/yard.md",
+      "sha256": "6b510ab1123e390abd414838e3dc7699a113c2476f8520450764df8a4ce22479",
+      "bytes": 4378
+    },
+    {
+      "path": "job_books/service_provider/appointment_dispatch.json",
+      "sha256": "6dfd5d285a4c8224e0e75bee0062bb87c23ab52d4abe0734db913f300adf90db",
+      "bytes": 684
+    },
+    {
+      "path": "job_books/service_provider/appointment_dispatch.md",
+      "sha256": "c11c7577a4d4eafaadd903983e9af3d6ac075745b787d99f871560cf418d5d75",
+      "bytes": 4332
+    },
+    {
+      "path": "job_books/service_provider/capacity.json",
+      "sha256": "e463491628ab1d718b067207f3b7a33dd23770ce267d218942a944148f0db1d6",
+      "bytes": 604
+    },
+    {
+      "path": "job_books/service_provider/capacity.md",
+      "sha256": "7a7f11a4be84c569453862bbcbde8b6ca9dd09780976ab1a3003675113d0df9a",
+      "bytes": 4206
+    },
+    {
+      "path": "job_books/service_provider/customer_communication.json",
+      "sha256": "879bf3826846b75ed79794053a9de1d83819e9ac258a07b5bc29f7c351fd27a3",
+      "bytes": 703
+    },
+    {
+      "path": "job_books/service_provider/customer_communication.md",
+      "sha256": "201564538a68114d7fe12e2236ecf3a4dd5b4ad40427904039638cfbae76a5e4",
+      "bytes": 4304
+    },
+    {
+      "path": "job_books/service_provider/eligibility.json",
+      "sha256": "18054b2046e389da11119e3d2b022c56ca127234e38a82461fe8aa239ff4588c",
+      "bytes": 675
+    },
+    {
+      "path": "job_books/service_provider/eligibility.md",
+      "sha256": "65fe98dd26fe69496224c2a1e5fd35102a8261eb0f4ce79f2325b4cf532b50c1",
+      "bytes": 4326
+    },
+    {
+      "path": "job_books/service_provider/estimate.json",
+      "sha256": "f06e79aebc720dfef144ce98dab941152ae975f8c290f36dff95bef0ed44d803",
+      "bytes": 639
+    },
+    {
+      "path": "job_books/service_provider/estimate.md",
+      "sha256": "20d5f67cdab8f6e6cee50737691397e8969fdf30f1cfbabf47e6ed11371b5e3b",
+      "bytes": 4275
+    },
+    {
+      "path": "job_books/service_provider/evidence.json",
+      "sha256": "9cd1f06fc8192bd68b47feda37416908ede894fb495c4c7ccd5c7f24abe21a09",
+      "bytes": 652
+    },
+    {
+      "path": "job_books/service_provider/evidence.md",
+      "sha256": "519fcd6ffc09b7a6e1f2e981f704dcd29ca6a8087341d999fc64509f18eba749",
+      "bytes": 4264
+    },
+    {
+      "path": "job_books/service_provider/invoice_reconciliation.json",
+      "sha256": "7b66ca319a7b9863fe6d6f766b68707f30ec115d75035e74226ff758b898c77d",
+      "bytes": 710
+    },
+    {
+      "path": "job_books/service_provider/invoice_reconciliation.md",
+      "sha256": "17fe7d63ea1afcfcdd078f1072eeebf0277b8c0c61c1f247745c782fed30324f",
+      "bytes": 4360
+    },
+    {
+      "path": "job_books/service_provider/parts_dependency.json",
+      "sha256": "2c8c3c467a9f8222cee1ea2f9036cee2b3c0185d886051889b95086996f750ca",
+      "bytes": 675
+    },
+    {
+      "path": "job_books/service_provider/parts_dependency.md",
+      "sha256": "acb1ff88134c06758193bb4d15f773f203422b6745bb13f58fd19370c14035b0",
+      "bytes": 4423
+    },
+    {
+      "path": "job_books/service_provider/service_intake.json",
+      "sha256": "767ff4bf8915d633da96b33f9eaed768d817ac403bd992d978726fffd58c6598",
+      "bytes": 683
+    },
+    {
+      "path": "job_books/service_provider/service_intake.md",
+      "sha256": "89cfae79e99dd5e7fff8c23012bc602eb3d708f94182e5a86d390a7426142a49",
+      "bytes": 4295
+    },
+    {
+      "path": "job_books/service_provider/work_status.json",
+      "sha256": "4bc8cd0220a09e0bf1693e1226f012e9a58483193c274f417e1a9707182de589",
+      "bytes": 635
+    },
+    {
+      "path": "job_books/service_provider/work_status.md",
+      "sha256": "beafaed2ddbd6087be25b9a523b8d8afc6e5f5d79cb921a86168a89c6410715f",
+      "bytes": 4225
+    },
+    {
+      "path": "job_books/shipper/documentation.json",
+      "sha256": "02db1e118e950cc7b60af5b8a40a7f31e74f7eda4c319c3e50566190dc32a975",
+      "bytes": 605
+    },
+    {
+      "path": "job_books/shipper/documentation.md",
+      "sha256": "4efd3c9165bffc82e7878ed3b2a083fa540fb9bed840800f078b556eec42facc",
+      "bytes": 4170
+    },
+    {
+      "path": "job_books/shipper/exception.json",
+      "sha256": "3ba92ab6be9318462db9903f9e2aec5f78c990ad3af83210c67441d4bef4efff",
+      "bytes": 619
+    },
+    {
+      "path": "job_books/shipper/exception.md",
+      "sha256": "486cab9aa99922c1e5beb5508dccaa0098cea4aacbf8850e2ca0cc799d43d0ef",
+      "bytes": 4326
+    },
+    {
+      "path": "job_books/shipper/facility_coordination.json",
+      "sha256": "9e21dc0319bde2bbf0d0b192757a5309ec1ba406a1da1d19afaa80e5ed0e1e11",
+      "bytes": 645
+    },
+    {
+      "path": "job_books/shipper/facility_coordination.md",
+      "sha256": "3356683f8c492f5f34e94ae4bca524fe1b40e98ba663776d2dbe2d6488cf0204",
+      "bytes": 4221
+    },
+    {
+      "path": "job_books/shipper/invoice_audit.json",
+      "sha256": "e30f29031140dc94be58266bff66e693b029e169ad40beb970736e907513ce28",
+      "bytes": 622
+    },
+    {
+      "path": "job_books/shipper/invoice_audit.md",
+      "sha256": "2868608b72f7e4d74c38d7d5c327e71217e95e09a17134bdece71202f96271e2",
+      "bytes": 4268
+    },
+    {
+      "path": "job_books/shipper/provider_selection.json",
+      "sha256": "a990edb95b01e6d55684ec7a4a46ed984be6600ab98c14ea63d9546a803674b0",
+      "bytes": 688
+    },
+    {
+      "path": "job_books/shipper/provider_selection.md",
+      "sha256": "5ed27024dfb9248d5907a208c535ee26aa68abf342c4c9691ea9ed429a1f5662",
+      "bytes": 4278
+    },
+    {
+      "path": "job_books/shipper/quote_analysis.json",
+      "sha256": "31ee3a15594c80b9e6b558a064d424db326594dd02f69d2bc65ee5f51876eac3",
+      "bytes": 633
+    },
+    {
+      "path": "job_books/shipper/quote_analysis.md",
+      "sha256": "ae829129eacc0fec939a7f9401ee1d68e418f370a86b67f801d05a851e3885b4",
+      "bytes": 4268
+    },
+    {
+      "path": "job_books/shipper/requirements.json",
+      "sha256": "e730414d025a79306c8e3adb7f6e4504cb9f2291b5c56338c1d7925aa348d0e1",
+      "bytes": 605
+    },
+    {
+      "path": "job_books/shipper/requirements.md",
+      "sha256": "2d392074e7460985383cae8c6235d4212867d8c906cbebfd59acccaf1633c474",
+      "bytes": 4204
+    },
+    {
+      "path": "job_books/shipper/routing_guide.json",
+      "sha256": "4e256dc821d89b4977ef294b46dc94bc7866272e929d583263e4dacd49810c59",
+      "bytes": 580
+    },
+    {
+      "path": "job_books/shipper/routing_guide.md",
+      "sha256": "217ddd655152abbbb0287bc3b15137f496279d90009584965d8791c13a5bc8d3",
+      "bytes": 4114
+    },
+    {
+      "path": "job_books/shipper/service_analytics.json",
+      "sha256": "cc21d801ef95c7766dc92ede0a13a606e7f912b0bd3b744e4a82cadef52dc34a",
+      "bytes": 650
+    },
+    {
+      "path": "job_books/shipper/service_analytics.md",
+      "sha256": "d5c61ece23040617729b0bbe87927725bebdaa78787311d333ceef326358e1f3",
+      "bytes": 4297
+    },
+    {
+      "path": "job_books/shipper/shipment_intake.json",
+      "sha256": "1315fabbe6bb0b63ec7a98df9ddef899c62a7cdf8e4820234d7a037210cc785d",
+      "bytes": 609
+    },
+    {
+      "path": "job_books/shipper/shipment_intake.md",
+      "sha256": "f3d3395d565bd3cfba15ee4b5c3c206701d4b6aaf389ebb16fae661f206ffe04",
+      "bytes": 4194
+    },
+    {
+      "path": "job_books/shipper/tender.json",
+      "sha256": "97951ceea42acdd131243ba4e8c5044e64d0756cd28b020e69f8e882da6c6118",
+      "bytes": 616
+    },
+    {
+      "path": "job_books/shipper/tender.md",
+      "sha256": "620316f5eb6844055a8522427e06e0dd2af3bbd5912b834bca94b47bfdc516b3",
+      "bytes": 4247
+    },
+    {
+      "path": "job_books/shipper/tracking.json",
+      "sha256": "c5d142207882c6e2e4475af7338616483eb4d33b56fa63e0ac6e0cc29df30905",
+      "bytes": 596
+    },
+    {
+      "path": "job_books/shipper/tracking.md",
+      "sha256": "65c6b605e3612a9965378f6e6689051255adb3285b0d4963cdfe10191393176f",
+      "bytes": 4169
+    },
+    {
+      "path": "matrices/interaction_matrix.csv",
+      "sha256": "456cbc6aace491e78e0c4528f4804f98bfed99f32f113fc1d49844387f2a6553",
+      "bytes": 9794
+    },
+    {
+      "path": "matrices/role_classification.csv",
+      "sha256": "26506520e4eae81128ef4c94b69f8216c438f2ca270b7ffd90cf37bf5d72d861",
+      "bytes": 12806
+    },
+    {
+      "path": "matrices/tool_command_matrix.csv",
+      "sha256": "3e3ed6789cabb97b71ded22dc62457bd4fd05c7587a37fb1f1525c62d321b0b5",
+      "bytes": 15800
+    },
+    {
+      "path": "simulations/01_owner_operator_day.yaml",
+      "sha256": "d70189b348d86aa23857d462ecf41e797e3ad8a35bfe39be5c8a0ab99326b195",
+      "bytes": 413
+    },
+    {
+      "path": "simulations/02_enterprise_carrier_dispatch.yaml",
+      "sha256": "e5204d3ce5d6dbdd850197775e8d696ef641e7896108e936acfaa40d613ff727",
+      "bytes": 234
+    },
+    {
+      "path": "simulations/03_broker_quote_to_settlement.yaml",
+      "sha256": "9b3dfcce0f0e52cbeebf606470105659ef64ac49c5eae6f51bbf45b8e1a6b8a7",
+      "bytes": 285
+    },
+    {
+      "path": "simulations/04_facility_driver_bol_receiving.yaml",
+      "sha256": "b62f551d9f801ef38b347bb584f49cc9f74c8ad8d46a1757e34ceb1ad72a81cb",
+      "bytes": 238
+    },
+    {
+      "path": "simulations/05_breakdown_network_exception.yaml",
+      "sha256": "d460ee1b66e46775bdc9106e4c0c1cf791c9f6e24f80068289dd4c1747eb2ecc",
+      "bytes": 365
+    },
+    {
+      "path": "simulations/06_shipper_direct_carrier.yaml",
+      "sha256": "18797406ea671bdb2d86381ec589bd72bcd94c792809d0be07bbdc8932b96fe2",
+      "bytes": 197
+    },
+    {
+      "path": "simulations/07_cross_tenant_adversarial.yaml",
+      "sha256": "bf81993d501f1c950233712277342e96565f28094287296e6e85871db7632961",
+      "bytes": 238
+    }
+  ]
+}

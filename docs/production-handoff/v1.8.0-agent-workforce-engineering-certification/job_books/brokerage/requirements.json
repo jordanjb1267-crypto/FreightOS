@@ -1,0 +1,37 @@
+{
+  "department": "brokerage",
+  "slug": "requirements",
+  "name": "Requirements Agent",
+  "component": "agent",
+  "mission": "Translate a normalized RFQ and account contract into explicit service, equipment, timing, facility, document and risk requirements.",
+  "upstream": [
+    "Shipper Intake Agent"
+  ],
+  "downstream": [
+    "Shipper Pricing Agent",
+    "Carrier Sourcing Agent",
+    "Carrier Qualification Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "BOT retrieval",
+    "policy query",
+    "evidence retrieval",
+    "approved communications gateway",
+    "contract/routing-guide retrieval"
+  ],
+  "commands": [
+    "record_requirements",
+    "request_requirement_clarification"
+  ],
+  "owns": [
+    "requirements interpretation",
+    "conflict detection",
+    "explicit unknowns"
+  ],
+  "non_scope": [
+    "quote price",
+    "carrier qualification",
+    "contract amendment"
+  ]
+}

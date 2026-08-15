@@ -1,0 +1,26 @@
+{
+  "department": "facility",
+  "slug": "driver_coordination",
+  "name": "Carrier/Driver Coordination Agent",
+  "component": "agent",
+  "mission": "Provide drivers/carriers authorized instructions, document requests, queue updates and help for a visit.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "FOT retrieval",
+    "policy query",
+    "FacilityOS domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "facility_typed_command"
+  ],
+  "owns": [
+    "visit communication and acknowledgements"
+  ],
+  "non_scope": [
+    "gate admission; physical movement"
+  ]
+}

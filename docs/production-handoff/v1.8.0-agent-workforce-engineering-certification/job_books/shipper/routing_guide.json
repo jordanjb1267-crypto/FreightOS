@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "routing_guide",
+  "name": "Routing Guide Engine",
+  "component": "deterministic_service",
+  "mission": "Apply shipper-approved routing-guide sequence and eligibility rules.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "routing-guide logic"
+  ],
+  "non_scope": [
+    "negotiation judgment"
+  ]
+}

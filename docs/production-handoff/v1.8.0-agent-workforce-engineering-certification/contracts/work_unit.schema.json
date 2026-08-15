@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/work-unit/v1",
+  "title": "WorkUnit",
+  "type": "object",
+  "required": [
+    "workUnitId",
+    "tenantId",
+    "jobType",
+    "jobVersion",
+    "subjectRefs",
+    "state",
+    "currentOwner",
+    "createdAt",
+    "deadline"
+  ],
+  "properties": {
+    "workUnitId": {
+      "type": "string"
+    },
+    "tenantId": {
+      "type": "string"
+    },
+    "legalPlane": {
+      "type": "string"
+    },
+    "jobType": {
+      "type": "string"
+    },
+    "jobVersion": {
+      "type": "string"
+    },
+    "subjectRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "state": {
+      "type": "string"
+    },
+    "currentOwner": {
+      "type": "string"
+    },
+    "contributors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "deadline": {
+      "type": "string"
+    },
+    "artifactRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approvalRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "exceptionRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

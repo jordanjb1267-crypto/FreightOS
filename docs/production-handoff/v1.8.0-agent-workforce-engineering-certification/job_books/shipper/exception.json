@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "exception",
+  "name": "Shipper Exception Agent",
+  "component": "agent",
+  "mission": "Own shipper-side service exceptions, internal stakeholder coordination and approved counterparty actions.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "shipper exception case"
+  ],
+  "non_scope": [
+    "carrier/broker operational authority"
+  ]
+}

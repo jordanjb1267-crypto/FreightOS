@@ -1,0 +1,37 @@
+{
+  "department": "brokerage",
+  "slug": "accessorial",
+  "name": "Accessorial Agent",
+  "component": "hybrid_agent",
+  "mission": "Detect, evidence, calculate and route contractually permitted accessorials without inventing entitlement.",
+  "upstream": [
+    "Broker Shipment Execution Agent",
+    "Facility Coordination Agent"
+  ],
+  "downstream": [
+    "Shipper Billing Agent",
+    "Carrier Pay/Reconciliation Agent"
+  ],
+  "tools": [
+    "contract store",
+    "detention calculator",
+    "evidence store",
+    "policy"
+  ],
+  "commands": [
+    "open_accessorial",
+    "submit_accessorial_evidence",
+    "record_accessorial_decision"
+  ],
+  "owns": [
+    "accessorial candidate",
+    "evidence bundle",
+    "deterministic calculation",
+    "approval workflow"
+  ],
+  "non_scope": [
+    "contract amendment",
+    "claims liability",
+    "waiver outside policy"
+  ]
+}

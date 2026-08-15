@@ -1,0 +1,35 @@
+{
+  "department": "carrier",
+  "slug": "risk_compliance",
+  "name": "Carrier Risk & Compliance Agent",
+  "component": "human_supervised_agent",
+  "mission": "Surface carrier-side identity, credential, insurance, fraud, compliance and operational risks without self-clearing regulated or safety holds.",
+  "upstream": [],
+  "downstream": [
+    "Carrier Exception Agent",
+    "Human Compliance"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "credential/authority adapters",
+    "risk case manager"
+  ],
+  "commands": [
+    "open_risk_case",
+    "recommend_hold",
+    "request_compliance_review"
+  ],
+  "owns": [
+    "risk case detection",
+    "evidence collection",
+    "hold/escalation recommendation"
+  ],
+  "non_scope": [
+    "legal clearance",
+    "safety hold release",
+    "authority expansion"
+  ]
+}

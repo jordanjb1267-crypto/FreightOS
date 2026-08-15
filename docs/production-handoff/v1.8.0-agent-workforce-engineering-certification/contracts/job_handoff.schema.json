@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/job-handoff/v1",
+  "title": "JobHandoff",
+  "type": "object",
+  "required": [
+    "handoffId",
+    "tenantId",
+    "fromJob",
+    "toJob",
+    "workUnitId",
+    "artifactRef",
+    "artifactVersion",
+    "expectedNextState",
+    "deadline",
+    "createdAt"
+  ],
+  "properties": {
+    "handoffId": {
+      "type": "string"
+    },
+    "tenantId": {
+      "type": "string"
+    },
+    "legalPlane": {
+      "type": "string"
+    },
+    "fromJob": {
+      "type": "string"
+    },
+    "toJob": {
+      "type": "string"
+    },
+    "workUnitId": {
+      "type": "string"
+    },
+    "artifactRef": {
+      "type": "string"
+    },
+    "artifactVersion": {
+      "type": "string"
+    },
+    "expectedNextState": {
+      "type": "string"
+    },
+    "deadline": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "acceptanceState": {
+      "enum": [
+        "PENDING",
+        "ACCEPTED",
+        "REJECTED",
+        "EXPIRED"
+      ]
+    },
+    "rejectionReason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

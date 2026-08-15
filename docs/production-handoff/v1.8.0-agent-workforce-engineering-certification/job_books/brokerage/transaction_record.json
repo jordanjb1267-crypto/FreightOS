@@ -1,0 +1,32 @@
+{
+  "department": "brokerage",
+  "slug": "transaction_record",
+  "name": "Broker Transaction Record Service",
+  "component": "deterministic_service",
+  "mission": "Construct, retain and expose the required brokerage transaction record from authoritative shipment, carrier, compensation and payment evidence.",
+  "upstream": [
+    "Shipper Billing Agent",
+    "Carrier Pay/Reconciliation Agent"
+  ],
+  "downstream": [
+    "Compliance Supervisor Agent"
+  ],
+  "tools": [
+    "transaction ledger",
+    "record-access policy"
+  ],
+  "commands": [
+    "create_broker_transaction_record",
+    "export_authorized_transaction_record"
+  ],
+  "owns": [
+    "transaction-record completeness",
+    "retention metadata",
+    "party-access export"
+  ],
+  "non_scope": [
+    "legal advice",
+    "compensation policy",
+    "payment execution"
+  ]
+}

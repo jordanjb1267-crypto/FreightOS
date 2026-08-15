@@ -1,0 +1,39 @@
+{
+  "department": "carrier",
+  "slug": "chief_dispatch_orchestrator",
+  "name": "Chief Dispatch Orchestrator",
+  "component": "agent",
+  "mission": "Maintain coherent carrier operations across intake, planning, dispatch, execution, exceptions, documents, maintenance readiness and settlement without stealing specialist authority.",
+  "upstream": [],
+  "downstream": [
+    "Load Discovery Agent",
+    "Planning Agent",
+    "Dispatch Agent",
+    "Carrier Exception Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "workflow registry",
+    "operations queue"
+  ],
+  "commands": [
+    "assign_work_owner",
+    "set_work_priority",
+    "open_escalation"
+  ],
+  "owns": [
+    "carrier work-queue prioritization",
+    "cross-workflow dependency coordination",
+    "work ownership/escalation routing"
+  ],
+  "non_scope": [
+    "profitability math",
+    "HOS/legal feasibility",
+    "direct assignment without Dispatch authority",
+    "settlement math",
+    "mechanical diagnosis"
+  ]
+}

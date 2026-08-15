@@ -1,0 +1,37 @@
+{
+  "department": "carrier",
+  "slug": "load_discovery",
+  "name": "Load Discovery Agent",
+  "component": "agent",
+  "mission": "Find and normalize work opportunities that fit the carrier's declared operating market without accepting freight.",
+  "upstream": [],
+  "downstream": [
+    "Profitability Engine",
+    "Feasibility Engine",
+    "Planning Agent"
+  ],
+  "tools": [
+    "tenant-scoped read model",
+    "evidence retrieval",
+    "policy query",
+    "approved communications gateway",
+    "approved load-source adapters",
+    "source registry"
+  ],
+  "commands": [
+    "record_opportunity",
+    "quarantine_opportunity",
+    "expire_opportunity"
+  ],
+  "owns": [
+    "opportunity discovery",
+    "normalization",
+    "duplicate/identity routing"
+  ],
+  "non_scope": [
+    "load acceptance",
+    "profitability decision",
+    "brokerage activity",
+    "final negotiation"
+  ]
+}

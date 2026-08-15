@@ -1,0 +1,3 @@
+name: breakdown_network_exception
+sequence: [Maintenance Readiness Agent, Carrier Exception Agent, Service Intake Agent, Service Eligibility Engine, Service Capacity Agent, Service Appointment/Dispatch Agent, Tracking Agent, Facility Coordination Agent]
+acceptance: [one accountable owner per participant, independent authority, purpose-limited network disclosure]

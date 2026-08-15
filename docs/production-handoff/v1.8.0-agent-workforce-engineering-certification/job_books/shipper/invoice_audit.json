@@ -1,0 +1,26 @@
+{
+  "department": "shipper",
+  "slug": "invoice_audit",
+  "name": "Invoice Audit Engine",
+  "component": "hybrid_agent",
+  "mission": "Audit carrier/broker invoices against contracted/tendered terms, approved accessorials and execution evidence.",
+  "upstream": [],
+  "downstream": [],
+  "tools": [
+    "tenant-scoped read model",
+    "SOT retrieval",
+    "policy query",
+    "shipper domain services",
+    "evidence retrieval",
+    "approved communications gateway"
+  ],
+  "commands": [
+    "shipper_typed_command"
+  ],
+  "owns": [
+    "invoice audit"
+  ],
+  "non_scope": [
+    "payment authorization beyond policy"
+  ]
+}
