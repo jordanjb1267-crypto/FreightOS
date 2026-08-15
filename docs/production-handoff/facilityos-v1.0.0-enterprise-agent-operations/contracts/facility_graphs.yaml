@@ -1,0 +1,76 @@
+version: 1.0.0
+name: facilityos-enterprise-operations
+
+invariants:
+  - no_side_effect_bypasses_policy
+  - no_document_implies_custody
+  - no_bol_implies_goods_receipt
+  - all_external_writes_idempotent_and_reconciled
+  - no_physical_control_surface
+  - driver_access_is_visit_scoped
+  - original_documents_are_immutable
+  - customer_specific_behavior_is_configuration_first
+
+graphs:
+  bol_submission:
+    stages:
+      - document_expected
+      - driver_or_office_submit
+      - server_receipt
+      - malware_media_validation
+      - immutable_hash
+      - extract
+      - match
+      - deterministic_validation
+      - office_review
+      - accept_correct_reject
+      - submitter_receipt
+      - network_event
+
+  vehicle_visit:
+    stages:
+      - pre_arrival
+      - credential
+      - arrival
+      - check_in
+      - document_gate
+      - staging
+      - dock
+      - service
+      - release
+      - departure
+      - reconcile
+
+  shipping:
+    stages:
+      - cargo_readiness
+      - appointment
+      - pre_arrival
+      - office_document_check
+      - loading
+      - seal_evidence
+      - custody
+      - release
+      - departure
+
+  receiving:
+    stages:
+      - inbound_notice
+      - receiving_readiness
+      - arrival
+      - bol_presentation
+      - unload
+      - inspection
+      - receipt_or_discrepancy
+      - pod
+      - departure
+
+  facility_exception:
+    stages:
+      - detect
+      - evidence
+      - classify
+      - contain
+      - escalate
+      - resolve
+      - reconcile

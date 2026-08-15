@@ -1,0 +1,11 @@
+flowchart TB
+  S[Shipper] --> B[Brokerage Agent Organization]
+  B --> N[FreightOS Network]
+  N --> C[Carrier Agent Organization]
+  C --> D[Driver / Asset / RigDesk]
+  D --> F[FacilityOS]
+  F --> N
+  C --> N
+  N --> B
+  B --> S
+  B --> L[Broker Transaction / Settlement Ledger]

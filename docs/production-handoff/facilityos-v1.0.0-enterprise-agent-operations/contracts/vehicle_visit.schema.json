@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "facilityos://schemas/vehicle-visit/v1",
+  "title": "VehicleVisit",
+  "type": "object",
+  "required": [
+    "visitId",
+    "tenantId",
+    "siteId",
+    "state",
+    "appointmentRef"
+  ],
+  "properties": {
+    "visitId": {
+      "type": "string"
+    },
+    "tenantId": {
+      "type": "string"
+    },
+    "siteId": {
+      "type": "string"
+    },
+    "appointmentRef": {
+      "type": "string"
+    },
+    "shipmentRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "carrierRef": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "driverRef": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "vehicleRef": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "equipmentRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "state": {
+      "enum": [
+        "PRE_ARRIVAL",
+        "ARRIVED",
+        "CHECKED_IN",
+        "STAGING",
+        "DOCK_ASSIGNED",
+        "SERVICE_STARTED",
+        "SERVICE_COMPLETED",
+        "RELEASED",
+        "DEPARTED",
+        "CANCELLED",
+        "EXCEPTION"
+      ]
+    },
+    "credentialRef": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "documentRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "custodyRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "receiptRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "timestamps": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

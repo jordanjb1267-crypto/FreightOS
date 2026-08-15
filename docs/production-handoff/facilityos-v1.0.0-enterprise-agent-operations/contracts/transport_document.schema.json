@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "facilityos://schemas/transport-document/v1",
+  "title": "TransportDocument",
+  "type": "object",
+  "required": [
+    "documentId",
+    "tenantId",
+    "documentType",
+    "state",
+    "receivedAt",
+    "sourceChannel",
+    "originalHash",
+    "associations"
+  ],
+  "properties": {
+    "documentId": {
+      "type": "string"
+    },
+    "tenantId": {
+      "type": "string"
+    },
+    "siteId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "documentType": {
+      "enum": [
+        "BOL",
+        "POD",
+        "RATE_CONFIRMATION",
+        "PACKING_LIST",
+        "RECEIVING_DOCUMENT",
+        "OTHER"
+      ]
+    },
+    "state": {
+      "enum": [
+        "EXPECTED",
+        "RECEIVED",
+        "MALWARE_SCAN_PASSED",
+        "PARSED",
+        "MATCH_CANDIDATE",
+        "MATCHED",
+        "VALIDATION_REQUIRED",
+        "ACCEPTED_FOR_OPERATIONAL_USE",
+        "CORRECTION_REQUESTED",
+        "REJECTED",
+        "SUPERSEDED",
+        "VOIDED",
+        "ARCHIVED"
+      ]
+    },
+    "sourceChannel": {
+      "enum": [
+        "DRIVER_MOBILE",
+        "DRIVER_SCOPED_WEB",
+        "OFFICE_SCAN",
+        "API",
+        "EDI_X12_211",
+        "EMAIL",
+        "FREIGHTOS_REFERENCE",
+        "EXTERNAL_PLATFORM"
+      ]
+    },
+    "submittedBy": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "capturedBy": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "receivedAt": {
+      "type": "string"
+    },
+    "originalObjectRef": {
+      "type": "string"
+    },
+    "originalHash": {
+      "type": "string"
+    },
+    "mimeType": {
+      "type": "string"
+    },
+    "associations": {
+      "type": "object"
+    },
+    "extractedFields": {
+      "type": "object"
+    },
+    "validation": {
+      "type": "object"
+    },
+    "officeDisposition": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "signatureRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supersedes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "supersededBy": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dataClassification": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

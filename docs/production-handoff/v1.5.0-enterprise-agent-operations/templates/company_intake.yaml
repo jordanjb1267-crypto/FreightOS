@@ -1,0 +1,49 @@
+tenant:
+  legal_name:
+  operating_name:
+  modes: []
+  truck_count:
+  other_asset_counts: {}
+  operating_regions: []
+  timezones: []
+
+desired_outcomes:
+  - dispatch_automation
+  - back_office
+  - documentation
+  - maintenance_roadside
+
+organization:
+  roles: []
+  terminals: []
+  fleets: []
+  escalation_contacts: []
+
+systems:
+  tms: []
+  eld_telematics: []
+  accounting: []
+  maintenance: []
+  email_messaging: []
+  document_storage: []
+  rail: []
+  ocean: []
+
+workflow_priorities:
+  first_workflow:
+  current_process_owner:
+  biggest_manual_burden:
+  biggest_exception:
+  current_sla:
+
+autonomy_preferences:
+  always_approval: []
+  candidate_auto_actions: []
+  spending_limits: {}
+  communication_limits: {}
+
+security:
+  sso_required:
+  data_residency:
+  retention_requirements:
+  vendor_review_required:

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/agent-manifest/v1",
+  "title": "AgentManifest",
+  "type": "object",
+  "required": [
+    "agentId",
+    "tenantId",
+    "role",
+    "manifestVersion",
+    "scope",
+    "tools",
+    "commands",
+    "policyVersion",
+    "autonomy",
+    "killSwitch"
+  ],
+  "properties": {
+    "agentId": {
+      "type": "string"
+    },
+    "tenantId": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "manifestVersion": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "object"
+    },
+    "readScopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "financialLimits": {
+      "type": "object"
+    },
+    "policyVersion": {
+      "type": "string"
+    },
+    "autonomy": {
+      "type": "object"
+    },
+    "modelPolicy": {
+      "type": "object"
+    },
+    "evaluationVersion": {
+      "type": "string"
+    },
+    "effectiveAt": {
+      "type": "string"
+    },
+    "expiresAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "killSwitch": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

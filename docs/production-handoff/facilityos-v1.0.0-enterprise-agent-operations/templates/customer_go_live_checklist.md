@@ -1,0 +1,26 @@
+# FacilityOS Customer Go-Live Checklist
+
+- [ ] Facility Operational Twin approved
+- [ ] Shipping/receiving offices mapped
+- [ ] Systems of record approved
+- [ ] Driver access tested
+- [ ] BOL mobile submission tested
+- [ ] Paper BOL office scan tested
+- [ ] API/EDI BOL path tested if enabled
+- [ ] Ambiguous BOL match holds
+- [ ] Duplicate/supersession tested
+- [ ] BOL does not imply custody
+- [ ] BOL does not imply goods receipt
+- [ ] Appointment revision tested
+- [ ] Gate/staging/dock conflict tests pass
+- [ ] Custody evidence tested
+- [ ] Receipt/discrepancy tested
+- [ ] Detention evidence tested
+- [ ] WMS/YMS outage mode tested
+- [ ] Cross-tenant/site access denied
+- [ ] Kill switches tested
+- [ ] Shadow evaluation passed
+- [ ] A3/A4 grants recorded
+- [ ] FreightOS network messages reconciled
+- [ ] Rollback/restore tested
+- [ ] Customer signoff recorded

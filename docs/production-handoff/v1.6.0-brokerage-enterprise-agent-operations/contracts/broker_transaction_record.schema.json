@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/broker-transaction-record/v1",
+  "title": "BrokerTransactionRecord",
+  "type": "object",
+  "required": [
+    "recordId",
+    "tenantId",
+    "brokerageEntityId",
+    "shipmentId",
+    "consignor",
+    "originatingCarrier",
+    "bolOrFreightBillNumber",
+    "brokerCompensation",
+    "createdAt"
+  ],
+  "properties": {
+    "recordId": {
+      "type": "string"
+    },
+    "tenantId": {
+      "type": "string"
+    },
+    "brokerageEntityId": {
+      "type": "string"
+    },
+    "shipmentId": {
+      "type": "string"
+    },
+    "consignor": {
+      "type": "object"
+    },
+    "originatingCarrier": {
+      "type": "object"
+    },
+    "bolOrFreightBillNumber": {
+      "type": "string"
+    },
+    "brokerCompensation": {
+      "type": "object"
+    },
+    "nonBrokerageServices": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "freightChargesCollected": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "carrierPaymentDate": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "closedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "retentionUntil": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

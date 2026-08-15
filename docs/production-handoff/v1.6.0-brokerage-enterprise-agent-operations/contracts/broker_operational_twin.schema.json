@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/broker-operational-twin/v1",
+  "title": "BrokerOperationalTwin",
+  "type": "object",
+  "required": [
+    "tenantId",
+    "brokerageEntityId",
+    "version",
+    "status",
+    "businessTopology",
+    "shipperAccounts",
+    "carrierPolicy",
+    "systems",
+    "assertions"
+  ],
+  "properties": {
+    "tenantId": {
+      "type": "string"
+    },
+    "brokerageEntityId": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "PROPOSED",
+        "APPROVED",
+        "DEPRECATED"
+      ]
+    },
+    "businessTopology": {
+      "type": "object"
+    },
+    "shipperAccounts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "carrierPolicy": {
+      "type": "object"
+    },
+    "pricingPolicies": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "systems": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": false
+}

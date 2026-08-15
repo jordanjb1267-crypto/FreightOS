@@ -1,0 +1,22 @@
+# FreightOS Coherence Review Checklist
+
+- [ ] Customer-facing problem is clear
+- [ ] Participant profile identified
+- [ ] Operational Twin specialization identified
+- [ ] Agent manifests canonical/configurable
+- [ ] Workflow is typed/durable
+- [ ] Legal plane identified
+- [ ] Authority is deterministic
+- [ ] External side effects isolated
+- [ ] Idempotency/reconciliation defined
+- [ ] Network artifacts used instead of ad hoc messages
+- [ ] Existing-system adapter path exists
+- [ ] Counterparty can participate without native app
+- [ ] Data disclosure is purpose-limited
+- [ ] Product domain ownership is not duplicated
+- [ ] Autonomy level/scoped promotion defined
+- [ ] Small-customer path works
+- [ ] Enterprise topology path works
+- [ ] Module-state gate respected
+- [ ] Rollback/degraded mode defined
+- [ ] Acceptance/evidence gates exist

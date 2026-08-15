@@ -1,0 +1,46 @@
+tenant:
+site:
+facility_type:
+modes_supported: [road]
+
+offices:
+  shipping:
+  receiving:
+
+topology:
+  gates: []
+  staging_areas: []
+  docks: []
+  operational_zones: []
+
+hours:
+appointment_rules:
+driver_instructions:
+document_requirements:
+  origin_bol:
+  destination_bol:
+  pod:
+  other: []
+
+systems:
+  erp: []
+  wms: []
+  yms: []
+  wes: []
+  tms: []
+  document_management: []
+  edi: []
+
+authority:
+  appointment_approvers: []
+  document_disposition_roles: []
+  custody_roles: []
+  goods_receipt_system_or_roles: []
+  release_roles: []
+
+autonomy_preferences:
+  candidate_a4_actions: []
+  always_human: []
+
+exceptions:
+  escalation: []

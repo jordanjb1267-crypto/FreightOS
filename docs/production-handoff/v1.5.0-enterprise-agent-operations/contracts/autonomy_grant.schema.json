@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/autonomy-grant/v1",
+  "title": "AutonomyGrant",
+  "type": "object",
+  "required": [
+    "tenantId",
+    "workflowId",
+    "actionClass",
+    "scope",
+    "level",
+    "policyVersion",
+    "evidenceRef",
+    "approvedBy",
+    "effectiveAt"
+  ],
+  "properties": {
+    "tenantId": {
+      "type": "string"
+    },
+    "workflowId": {
+      "type": "string"
+    },
+    "actionClass": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "object"
+    },
+    "level": {
+      "enum": [
+        "A0",
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5"
+      ]
+    },
+    "limits": {
+      "type": "object"
+    },
+    "policyVersion": {
+      "type": "string"
+    },
+    "evidenceRef": {
+      "type": "string"
+    },
+    "approvedBy": {
+      "type": "string"
+    },
+    "effectiveAt": {
+      "type": "string"
+    },
+    "expiresAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "revokedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
