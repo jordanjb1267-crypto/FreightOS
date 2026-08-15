@@ -35,12 +35,19 @@ import {
   collectManifests,
   collectSqlFiles,
   collectTsFiles,
+  resolveScanRoot,
   scanManifest,
   scanSqlFile,
   scanTsFile,
 } from './lib/network-primitives.mjs';
 
-const MANIFEST_PATH = join(REPO_ROOT, 'config', 'network', 'egress-allowlist.json');
+// N7B-G1. One resolved root, shared semantics with the zero-capability gate: default is the real
+// repository, override fails closed, and EVERYTHING this gate reads — the governed manifest, the
+// entries it resolves, the trees it scans — comes from the same root. A gate that scanned a
+// fixture tree against the real manifest would be grading one thing by another's configuration.
+const SCAN_ROOT = resolveScanRoot();
+
+const MANIFEST_PATH = join(SCAN_ROOT, 'config', 'network', 'egress-allowlist.json');
 
 const fail = (lines) => {
   console.error('NETWORK_EGRESS_ALLOWLIST=FAIL');
@@ -112,7 +119,7 @@ if (modules.length !== manifest.expectedCount) {
 }
 
 for (const entry of modules) {
-  if (typeof entry === 'string' && !existsSync(join(REPO_ROOT, entry))) {
+  if (typeof entry === 'string' && !existsSync(join(SCAN_ROOT, entry))) {
     problems.push(`- manifest entry '${entry}' does not resolve to a file that exists.`);
   }
 }
@@ -123,9 +130,9 @@ if (problems.length > 0) fail(problems);
 
 const allowed = new Set(modules);
 
-const tsFiles = collectTsFiles();
-const sqlFiles = collectSqlFiles();
-const manifests = collectManifests();
+const tsFiles = collectTsFiles(SCAN_ROOT);
+const sqlFiles = collectSqlFiles(SCAN_ROOT);
+const manifests = collectManifests(SCAN_ROOT);
 
 // A run that scanned nothing must not report success — the failure mode this repository has already
 // met once, in a governance check that walked an empty tree and printed PASS.
@@ -141,7 +148,7 @@ const violations = [];
 const exercised = new Set();
 
 for (const file of tsFiles) {
-  const found = scanTsFile(file);
+  const found = scanTsFile(file, SCAN_ROOT);
   if (found.length === 0) continue;
   const relPath = found[0].file;
   if (allowed.has(relPath)) exercised.add(relPath);
@@ -153,8 +160,8 @@ for (const file of tsFiles) {
 // The database itself does not talk to the network — N7's egress lives in an application process,
 // and no migration may change that. A dependency is a capability granted repository-wide, not to
 // one file, so it cannot be bounded by a per-file allowlist.
-for (const file of sqlFiles) violations.push(...scanSqlFile(file).findings);
-for (const file of manifests) violations.push(...scanManifest(file));
+for (const file of sqlFiles) violations.push(...scanSqlFile(file, SCAN_ROOT).findings);
+for (const file of manifests) violations.push(...scanManifest(file, SCAN_ROOT));
 
 const stale = modules.filter((m) => !exercised.has(m));
 
@@ -180,6 +187,7 @@ if (violations.length > 0 || stale.length > 0) {
   fail(lines);
 }
 
+if (SCAN_ROOT !== REPO_ROOT) console.log(`  scan root override: ${SCAN_ROOT}`);
 console.log('NETWORK_EGRESS_ALLOWLIST=PASS');
 console.log(`  approved egress modules: ${modules.length}`);
 console.log(`  source files scanned: ${tsFiles.length}`);

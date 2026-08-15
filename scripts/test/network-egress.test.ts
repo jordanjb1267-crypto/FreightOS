@@ -1,8 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { createEgressFixture, type EgressFixture } from './egress-fixture.ts';
 
 /**
  * N4 — the egress gate has to be able to recognise egress.
@@ -16,65 +19,81 @@ import { afterEach, describe, expect, it } from 'vitest';
  * NOTHING HERE PERFORMS NETWORK I/O. Every mutation is static source text that is scanned and then
  * removed; no probe file is ever imported, compiled or executed, and the detector reads bytes.
  *
+ * EVERY MUTATION TARGETS AN ISOLATED COPIED TREE — N7B-G1. These controls used to plant their
+ * primitives in the REAL repository files and restore them afterwards, and restoring was never the
+ * problem: the WINDOW was. A migration file is executable input, and a concurrent process loading
+ * the real migration directory during the window observed — and would have executed — the planted
+ * `COPY … TO PROGRAM`. Now each test copies the scan surface into a disposable temp tree
+ * (`createEgressFixture`), mutates only the copy, and points the SAME detector at it through
+ * `FREIGHTOS_EGRESS_SCAN_ROOT`. The real tree is byte-identical for the entire run, which the
+ * guard in `afterEach` measures rather than assumes.
+ *
  * THE SECOND HALF MATTERS AS MUCH AS THE FIRST. A gate that greps for `http` would pass every
  * mutation below and also reject the durable schema identities the network protocol is built on.
  * The false-positive control asserts that documentation URLs, `https://schemas.rigreceipts.com/…`
  * `$id`s, prose comments and a denied module name appearing OUTSIDE import position all remain
  * legal — that is the difference between a detector and a string search.
- *
- * The mutations restore in `afterEach` rather than at the end of each test, so a failing assertion
- * cannot leave an egress primitive behind.
  */
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const DETECTOR = join(ROOT, 'scripts', 'check-network-egress.mjs');
-const SRC = join(ROOT, 'packages', 'database', 'src');
-const MIGRATION = join(
-  ROOT,
-  'packages',
-  'database',
-  'migrations',
-  '0030_network_transport_intent.up.sql',
+
+/** Repo-relative paths of everything the controls historically mutated for real. */
+const REAL_MIGRATION = 'packages/database/migrations/0030_network_transport_intent.up.sql';
+const REAL_DB_MANIFEST = 'packages/database/package.json';
+/** A generated probe that exists only inside a fixture, never in the repository. */
+const PROBE = 'packages/database/src/egress-probe.generated.ts';
+
+const sha256 = (abs: string): string =>
+  createHash('sha256').update(readFileSync(abs)).digest('hex');
+
+/** The real files' bytes, pinned at load. The afterEach guard holds every test to them. */
+const REAL_SHAS = new Map(
+  [REAL_MIGRATION, REAL_DB_MANIFEST].map((p) => [p, sha256(join(ROOT, p))]),
 );
-const DB_MANIFEST = join(ROOT, 'packages', 'database', 'package.json');
-/** A file that does not exist until a test creates it, and never survives one. */
-const PROBE = join(SRC, 'egress-probe.generated.ts');
 
 interface Run {
   ok: boolean;
   output: string;
 }
 
-function runDetector(): Run {
+/** The REAL gate, as a subprocess — `root` only chooses where the same scanner starts walking. */
+function runDetector(root?: string): Run {
+  const env =
+    root === undefined ? process.env : { ...process.env, FREIGHTOS_EGRESS_SCAN_ROOT: root };
   try {
-    return { ok: true, output: execFileSync('node', [DETECTOR], { encoding: 'utf8' }) };
+    return { ok: true, output: execFileSync('node', [DETECTOR], { encoding: 'utf8', env }) };
   } catch (error) {
     const e = error as { stdout?: string; stderr?: string };
     return { ok: false, output: `${e.stdout ?? ''}${e.stderr ?? ''}` };
   }
 }
 
-const restore: { path: string; content: Buffer | null }[] = [];
+let fixture: EgressFixture;
 
-function mutate(path: string, next: string | null): void {
-  restore.push({ path, content: existsSync(path) ? readFileSync(path) : null });
-  if (next === null) execFileSync('rm', ['-f', path]);
-  else writeFileSync(path, next);
-}
-
-const append = (path: string, text: string): void =>
-  mutate(path, `${readFileSync(path, 'utf8')}${text}`);
+beforeEach(() => {
+  fixture = createEgressFixture();
+});
 
 afterEach(() => {
-  while (restore.length > 0) {
-    const entry = restore.pop()!;
-    if (entry.content === null) execFileSync('rm', ['-f', entry.path]);
-    else writeFileSync(entry.path, entry.content);
+  // Teardown is unconditional — a failing assertion must not leak a fixture tree (§11).
+  fixture.dispose();
+  // THE G1 GUARD, run after every single test: the real files these controls used to mutate are
+  // byte-identical to what they were before any test ran. If any control regressed into writing
+  // the repository again, this fails the very test that did it, by name.
+  for (const [p, sha] of REAL_SHAS) {
+    expect(sha256(join(ROOT, p)), `${p} was mutated in the real repository`).toBe(sha);
   }
 });
 
+const mutateFixture = (repoRelative: string, content: string): void =>
+  writeFileSync(fixture.path(repoRelative), content);
+const appendFixture = (repoRelative: string, text: string): void =>
+  appendFileSync(fixture.path(repoRelative), text);
+
 describe('the network egress gate', () => {
   it('passes on the unmodified repository and reports a non-trivial scan', () => {
+    // NO override: this is the production/CI invocation, scanning the real repository.
     const run = runDetector();
     expect(run.output).toContain('NETWORK_EGRESS=PASS');
     expect(run.ok).toBe(true);
@@ -89,17 +108,35 @@ describe('the network egress gate', () => {
     expect(Number(sources![1])).toBeGreaterThanOrEqual(20);
     expect(Number(migrations![1])).toBeGreaterThanOrEqual(50);
     expect(Number(manifests![1])).toBeGreaterThanOrEqual(5);
+    // And the default run never names an override, because there is none.
+    expect(run.output).not.toContain('scan root override');
+  });
+
+  it('scans the fixture with the same coverage it scans the repository — the copy is complete', () => {
+    // If the fixture copied less than the real scan surface, every negative control below would be
+    // exercising a smaller gate than CI runs. Same counts, same PASS, plus the override named.
+    const real = runDetector();
+    const copied = runDetector(fixture.root);
+    expect(copied.ok).toBe(true);
+    expect(copied.output).toContain(`scan root override: ${fixture.root}`);
+    for (const counter of [
+      /source files scanned: \d+/,
+      /migrations scanned: \d+/,
+      /package manifests scanned: \d+/,
+    ]) {
+      expect(counter.exec(copied.output)![0]).toBe(counter.exec(real.output)![0]);
+    }
   });
 
   it('fails on an outbound HTTP call in runtime source', () => {
-    mutate(
+    mutateFixture(
       PROBE,
       'export async function publishAccepted(url: string, body: string): Promise<void> {\n' +
         '  await fetch(url, { method: "POST", body });\n' +
         '}\n',
     );
 
-    const run = runDetector();
+    const run = runDetector(fixture.root);
     expect(run.ok, 'an outbound fetch() did not fail the egress gate').toBe(false);
     expect(run.output).toContain('NETWORK_EGRESS=FAIL');
     expect(run.output).toContain('outbound HTTP: fetch()');
@@ -107,29 +144,29 @@ describe('the network egress gate', () => {
   });
 
   it('fails on an import of a network-capable core module', () => {
-    mutate(PROBE, "import { request } from 'node:https';\nexport const send = request;\n");
+    mutateFixture(PROBE, "import { request } from 'node:https';\nexport const send = request;\n");
 
-    const run = runDetector();
+    const run = runDetector(fixture.root);
     expect(run.ok, "importing 'node:https' did not fail the egress gate").toBe(false);
     expect(run.output).toContain("network-capable module: 'node:https'");
   });
 
   it('fails on a broker client import', () => {
-    mutate(PROBE, "import { Kafka } from 'kafkajs';\nexport const client = Kafka;\n");
+    mutateFixture(PROBE, "import { Kafka } from 'kafkajs';\nexport const client = Kafka;\n");
 
-    const run = runDetector();
+    const run = runDetector(fixture.root);
     expect(run.ok, 'a broker client import did not fail the egress gate').toBe(false);
     expect(run.output).toContain("broker/queue client: 'kafkajs'");
   });
 
   it('fails on a broker client declared as a dependency', () => {
-    const manifest = JSON.parse(readFileSync(DB_MANIFEST, 'utf8')) as {
+    const manifest = JSON.parse(readFileSync(fixture.path(REAL_DB_MANIFEST), 'utf8')) as {
       dependencies: Record<string, string>;
     };
     manifest.dependencies['@aws-sdk/client-sns'] = '^3.0.0';
-    mutate(DB_MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
+    mutateFixture(REAL_DB_MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
 
-    const run = runDetector();
+    const run = runDetector(fixture.root);
     expect(run.ok, 'a declared broker dependency did not fail the egress gate').toBe(false);
     expect(run.output).toContain(
       "broker/queue client declared in dependencies: '@aws-sdk/client-sns'",
@@ -137,29 +174,38 @@ describe('the network egress gate', () => {
   });
 
   it('fails on an external database connection in migration SQL', () => {
-    append(
-      MIGRATION,
+    appendFixture(
+      REAL_MIGRATION,
       "\nDO $$ BEGIN PERFORM dblink_connect('publisher', 'dbname=downstream'); END $$;\n",
     );
 
-    const run = runDetector();
+    const run = runDetector(fixture.root);
     expect(run.ok, 'a dblink call did not fail the egress gate').toBe(false);
     expect(run.output).toContain('external database connection: dblink');
     expect(run.output).toContain('0030_network_transport_intent.up.sql');
   });
 
   it('fails on process execution from SQL', () => {
-    append(MIGRATION, "\nCOPY network_transport_intents TO PROGRAM 'send-to-broker';\n");
+    // THE control the G1 isolation exists for. This exact statement, planted in the exact real
+    // file this test used to plant it in, is what a concurrent migration run once executed.
+    appendFixture(
+      REAL_MIGRATION,
+      "\nCOPY network_transport_intents TO PROGRAM 'send-to-broker';\n",
+    );
 
-    const run = runDetector();
+    const run = runDetector(fixture.root);
     expect(run.ok, 'COPY … TO PROGRAM did not fail the egress gate').toBe(false);
     expect(run.output).toContain('process execution: COPY');
+    // And the REAL file does not contain it, at the precise moment the fixture copy does.
+    expect(readFileSync(join(ROOT, REAL_MIGRATION), 'utf8')).not.toContain(
+      "TO PROGRAM 'send-to-broker'",
+    );
   });
 
   it('fails on an HTTP extension being installed', () => {
-    append(MIGRATION, '\nCREATE EXTENSION IF NOT EXISTS http;\n');
+    appendFixture(REAL_MIGRATION, '\nCREATE EXTENSION IF NOT EXISTS http;\n');
 
-    const run = runDetector();
+    const run = runDetector(fixture.root);
     expect(run.ok, 'installing an HTTP extension did not fail the egress gate').toBe(false);
     expect(run.output).toContain('external-capability extension');
   });
@@ -170,7 +216,7 @@ describe('the network egress gate', () => {
     // migrations and ADRs discuss the primitives they forbid by name, and tests assert their
     // absence — a gate that cannot tell a prohibition from its own statement would have to be
     // worked around, and a gate that is worked around is not a gate.
-    mutate(
+    mutateFixture(
       PROBE,
       [
         '// A comment naming fetch(), kafkajs, dblink and node:https, none of which run.',
@@ -186,7 +232,7 @@ describe('the network egress gate', () => {
       ].join('\n'),
     );
 
-    const run = runDetector();
+    const run = runDetector(fixture.root);
     expect(run.output, 'the gate rejected legal documentation or data').toContain(
       'NETWORK_EGRESS=PASS',
     );
@@ -197,12 +243,12 @@ describe('the network egress gate', () => {
     // THE DISTINCTION THIS GATE MUST NOT BLUR. `pg_notify` crosses no boundary this database does
     // not already own, so it is reported and counted rather than rejected. The purity of the N4
     // coupling function is a separate assertion, in the integration suite, where it belongs.
-    const clean = runDetector();
+    const clean = runDetector(fixture.root);
     expect(clean.output).toMatch(/database-local signalling occurrences \(not egress\): 0/);
 
-    append(MIGRATION, "\nDO $$ BEGIN PERFORM pg_notify('transport', 'x'); END $$;\n");
+    appendFixture(REAL_MIGRATION, "\nDO $$ BEGIN PERFORM pg_notify('transport', 'x'); END $$;\n");
 
-    const run = runDetector();
+    const run = runDetector(fixture.root);
     expect(run.ok, 'pg_notify was treated as external egress').toBe(true);
     expect(run.output).toContain('NETWORK_EGRESS=PASS');
     expect(run.output).toMatch(/database-local signalling occurrences \(not egress\): [1-9]/);

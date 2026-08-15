@@ -22,8 +22,45 @@ import { fileURLToPath } from 'node:url';
 
 export const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
-/** Repo-relative POSIX path, so output is identical on any checkout. */
-export const rel = (abs) => relative(REPO_ROOT, abs).split(sep).join('/');
+/**
+ * Resolve the root the gates scan — N7B-G1.
+ *
+ * The default is, and must remain, the real repository: production and CI call the gates with no
+ * override and get exactly the behaviour they always had. The override exists for ONE reason: the
+ * negative-control tests used to prove the gates can say FAIL by planting primitives in REAL
+ * repository files and restoring them afterwards, and that pattern is unsafe under concurrent
+ * execution — another process loading the real migration directory during the window observes the
+ * planted `COPY … TO PROGRAM`. With an explicit root, a test copies the scan surface into a
+ * disposable temporary tree and mutates only the copy; the real tree stays byte-identical for the
+ * entire run.
+ *
+ * The override FAILS CLOSED. A root that does not exist, is not a directory, or does not contain
+ * the structure the scanners walk is refused loudly — a mistyped path must not degrade into a scan
+ * of nothing, because a scan of nothing is the "walked an empty tree and printed PASS" failure this
+ * repository has already met once. (The gates' own scanned-nothing guard would also catch it; this
+ * refuses earlier and names the actual mistake.)
+ */
+export function resolveScanRoot(override = process.env.FREIGHTOS_EGRESS_SCAN_ROOT) {
+  if (override === undefined || override === '') return REPO_ROOT;
+  if (!existsSync(override) || !statSync(override).isDirectory()) {
+    throw new Error(
+      `FREIGHTOS_EGRESS_SCAN_ROOT='${override}' does not exist or is not a directory. ` +
+        'Refusing to scan: a missing root must fail, not pass over nothing.',
+    );
+  }
+  const migrations = join(override, 'packages', 'database', 'migrations');
+  if (!existsSync(migrations) || !statSync(migrations).isDirectory()) {
+    throw new Error(
+      `FREIGHTOS_EGRESS_SCAN_ROOT='${override}' has no packages/database/migrations directory. ` +
+        'The scan root must mirror the repository layout the gates walk.',
+    );
+  }
+  return override;
+}
+
+/** Root-relative POSIX path, so output is identical on any checkout — and identical between a real
+ * scan and a fixture scan of the same content, which is what lets one assertion serve both. */
+export const rel = (abs, root = REPO_ROOT) => relative(root, abs).split(sep).join('/');
 
 /** Line number of an offset, 1-based, for output that points at something. */
 export const lineOf = (text, index) => text.slice(0, index).split('\n').length;
@@ -253,26 +290,34 @@ export const SIGNALLING_PATTERNS = [
 
 export const PACKAGES_DIR = join(REPO_ROOT, 'packages');
 
+// The collectors and scanners take the root as a PARAMETER, defaulting to the real repository, so
+// a fixture scan runs through byte-for-byte the same code as a production scan — the only variation
+// anywhere is which directory the walk starts from. A test-only collector or a fixture-aware branch
+// here would be a second scanner wearing the first one's name, and the gate that CI runs would no
+// longer be the gate the negative controls prove.
+
 /** Runtime TypeScript/JavaScript. Test trees and `*.test.*` files excluded, as they always were. */
-export function collectTsFiles() {
-  if (!existsSync(PACKAGES_DIR)) return [];
-  return readdirSync(PACKAGES_DIR)
+export function collectTsFiles(root = REPO_ROOT) {
+  const packagesDir = join(root, 'packages');
+  if (!existsSync(packagesDir)) return [];
+  return readdirSync(packagesDir)
     .sort()
-    .flatMap((pkg) => walk(join(PACKAGES_DIR, pkg, 'src'), (f) => /\.(ts|mts|cts|js|mjs)$/.test(f)))
+    .flatMap((pkg) => walk(join(packagesDir, pkg, 'src'), (f) => /\.(ts|mts|cts|js|mjs)$/.test(f)))
     .filter((f) => !/\.test\.[cm]?[tj]s$/.test(f));
 }
 
-export function collectSqlFiles() {
-  return walk(join(REPO_ROOT, 'packages', 'database', 'migrations'), (f) => f.endsWith('.sql'));
+export function collectSqlFiles(root = REPO_ROOT) {
+  return walk(join(root, 'packages', 'database', 'migrations'), (f) => f.endsWith('.sql'));
 }
 
-export function collectManifests() {
+export function collectManifests(root = REPO_ROOT) {
+  const packagesDir = join(root, 'packages');
   return [
-    join(REPO_ROOT, 'package.json'),
-    ...(existsSync(PACKAGES_DIR)
-      ? readdirSync(PACKAGES_DIR)
+    join(root, 'package.json'),
+    ...(existsSync(packagesDir)
+      ? readdirSync(packagesDir)
           .sort()
-          .map((p) => join(PACKAGES_DIR, p, 'package.json'))
+          .map((p) => join(packagesDir, p, 'package.json'))
           .filter(existsSync)
       : []),
   ];
@@ -281,7 +326,7 @@ export function collectManifests() {
 // ── Scanners — return findings; the CALLER decides what a finding means ─────────────────────────
 
 /** @returns {{surface: string, file: string, line: number, detail: string}[]} */
-export function scanTsFile(file) {
+export function scanTsFile(file, root = REPO_ROOT) {
   const out = [];
   const raw = readFileSync(file, 'utf8');
 
@@ -295,7 +340,7 @@ export function scanTsFile(file) {
       if (why)
         out.push({
           surface: 'typescript',
-          file: rel(file),
+          file: rel(file, root),
           line: lineOf(raw, m.index),
           detail: `${why}: '${m[1]}'`,
         });
@@ -308,7 +353,7 @@ export function scanTsFile(file) {
     for (const m of code.matchAll(pattern))
       out.push({
         surface: 'typescript',
-        file: rel(file),
+        file: rel(file, root),
         line: lineOf(code, m.index),
         detail: label,
       });
@@ -317,7 +362,7 @@ export function scanTsFile(file) {
 }
 
 /** @returns {{findings: object[], signalling: number}} */
-export function scanSqlFile(file) {
+export function scanSqlFile(file, root = REPO_ROOT) {
   const findings = [];
   let signalling = 0;
   const code = stripSql(readFileSync(file, 'utf8'));
@@ -326,7 +371,7 @@ export function scanSqlFile(file) {
     for (const m of code.matchAll(pattern))
       findings.push({
         surface: 'sql',
-        file: rel(file),
+        file: rel(file, root),
         line: lineOf(code, m.index),
         detail: label,
       });
@@ -338,7 +383,7 @@ export function scanSqlFile(file) {
   return { findings, signalling };
 }
 
-export function scanManifest(file) {
+export function scanManifest(file, root = REPO_ROOT) {
   const out = [];
   const manifest = JSON.parse(readFileSync(file, 'utf8'));
   for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
@@ -347,7 +392,7 @@ export function scanManifest(file) {
       if (why)
         out.push({
           surface: 'dependency',
-          file: rel(file),
+          file: rel(file, root),
           line: 0,
           detail: `${why} declared in ${field}: '${name}'`,
         });
