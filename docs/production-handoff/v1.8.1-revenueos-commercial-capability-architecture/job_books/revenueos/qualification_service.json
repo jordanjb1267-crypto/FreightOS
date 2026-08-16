@@ -1,0 +1,21 @@
+{
+  "name": "Qualification Service",
+  "slug": "qualification_service",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "hybrid",
+  "mission": "score fit, exclusions, and required review",
+  "explicit_non_scope": [
+    "final contract authority",
+    "inventing qualification facts"
+  ],
+  "graph_membership": [
+    "REV-G02"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

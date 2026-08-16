@@ -1,0 +1,22 @@
+{
+  "name": "Expansion Agent",
+  "slug": "expansion_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "agent",
+  "mission": "identify evidence-based expansion fit",
+  "explicit_non_scope": [
+    "dark patterns",
+    "auto-purchase",
+    "operational command"
+  ],
+  "graph_membership": [
+    "REV-G07"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

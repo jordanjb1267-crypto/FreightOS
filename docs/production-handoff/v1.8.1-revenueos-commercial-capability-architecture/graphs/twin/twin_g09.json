@@ -1,0 +1,137 @@
+{
+  "graph_id": "TWIN-G09",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Cross-party request/response coordination",
+  "plane": "twin_network",
+  "workunit_type": "CounterpartyCoordinationWorkUnit",
+  "trigger": "participant sends request requiring counterparty decision",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "CP1_REQUEST",
+      "owner": "Origin Participant Domain",
+      "state": "REQUEST_AUTHORIZED",
+      "entry_preconditions": [
+        "origin authority/policy"
+      ],
+      "exit_postconditions": [
+        "canonical request"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CP2_SEND",
+      "owner": "FreightOS Network Gateway",
+      "state": "REQUEST_DELIVERED",
+      "entry_preconditions": [
+        "disclosure/channel policy"
+      ],
+      "exit_postconditions": [
+        "delivery evidence"
+      ],
+      "side_effect_class": "external_communication",
+      "timeout": "PT10M",
+      "retry_policy": "bounded_retry",
+      "failure_transition": "CP5_RECON"
+    },
+    {
+      "id": "CP3_REMOTE",
+      "owner": "Receiving Participant Boundary",
+      "state": "REMOTE_DECISION_PENDING",
+      "entry_preconditions": [
+        "receiver authenticates/evaluates independently"
+      ],
+      "exit_postconditions": [
+        "response artifact"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CP4_RETURN",
+      "owner": "FreightOS Network Gateway",
+      "state": "RESPONSE_RETURNED",
+      "entry_preconditions": [
+        "valid response"
+      ],
+      "exit_postconditions": [
+        "origin receives response"
+      ],
+      "side_effect_class": "external_communication",
+      "timeout": "PT10M",
+      "retry_policy": "bounded_retry",
+      "failure_transition": "CP5_RECON"
+    },
+    {
+      "id": "CP5_RECON",
+      "owner": "Origin Participant Reconciliation",
+      "state": "COORDINATION_RECONCILED",
+      "entry_preconditions": [
+        "request + response/timeout"
+      ],
+      "exit_postconditions": [
+        "local work updated"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "CP1_REQUEST",
+      "to": "CP2_SEND",
+      "artifact": "NetworkRequest",
+      "guard": "true",
+      "authority_check": "origin_participant_authority",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CP2_SEND",
+      "to": "CP3_REMOTE",
+      "artifact": "DeliveredNetworkRequest",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CP3_REMOTE",
+      "to": "CP4_RETURN",
+      "artifact": "CounterpartyResponse",
+      "guard": "true",
+      "authority_check": "receiver_independent_authority",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CP4_RETURN",
+      "to": "CP5_RECON",
+      "artifact": "ReturnedNetworkResponse",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "COORDINATION_RECONCILED",
+    "REMOTE_DENIED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable",
+    "no participant agent directly invokes another participant internal tool"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

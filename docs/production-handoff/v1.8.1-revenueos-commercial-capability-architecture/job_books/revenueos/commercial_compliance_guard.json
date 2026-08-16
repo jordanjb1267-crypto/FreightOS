@@ -1,0 +1,30 @@
+{
+  "name": "Commercial Compliance Guard",
+  "slug": "commercial_compliance_guard",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "hybrid",
+  "mission": "detect promise, authority, privacy, and policy violations",
+  "explicit_non_scope": [
+    "exception self-approval",
+    "legal advice"
+  ],
+  "graph_membership": [
+    "REV-G01",
+    "REV-G02",
+    "REV-G03",
+    "REV-G04",
+    "REV-G05",
+    "REV-G06",
+    "REV-G07",
+    "REV-G08",
+    "FMI-G06",
+    "FMI-G07"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

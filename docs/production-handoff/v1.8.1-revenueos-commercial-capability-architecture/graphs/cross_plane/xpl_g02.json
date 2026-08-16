@@ -1,0 +1,177 @@
+{
+  "graph_id": "XPL-G02",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Carrier dispatch intelligence consumption",
+  "plane": "cross_plane",
+  "workunit_type": "OperationalDecisionWorkUnit",
+  "trigger": "participant workflow consumes FMI signal",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "XC1_READ",
+      "owner": "Carrier/Broker/Facility/Shipper/Service Consumer",
+      "state": "INTELLIGENCE_READ",
+      "entry_preconditions": [
+        "entitled capability",
+        "current published FMI",
+        "tenant/relationship policy"
+      ],
+      "exit_postconditions": [
+        "read-only signal context"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "XC2_INTERPRET",
+      "owner": "Participant-domain agent/service",
+      "state": "DOMAIN_INTERPRETATION",
+      "entry_preconditions": [
+        "domain Job Book permits signal use"
+      ],
+      "exit_postconditions": [
+        "proposal/recommendation evidence attached"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "XC3_POLICY",
+      "owner": "Participant authority/policy plane",
+      "state": "OPERATIONAL_POLICY",
+      "entry_preconditions": [
+        "proposed action",
+        "current Twin facts",
+        "authority context"
+      ],
+      "exit_postconditions": [
+        "ALLOW|APPROVAL_REQUIRED|DENY"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "XC4_APPROVAL",
+      "owner": "Participant approval service/human",
+      "state": "OPERATIONAL_APPROVAL",
+      "entry_preconditions": [
+        "approval required"
+      ],
+      "exit_postconditions": [
+        "exact proposal/version approval or DENY"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "XC5_COMMAND",
+      "owner": "Participant command executor",
+      "state": "OPERATIONAL_COMMAND",
+      "entry_preconditions": [
+        "policy ALLOW or valid approval",
+        "all execution preconditions"
+      ],
+      "exit_postconditions": [
+        "idempotent command result"
+      ],
+      "side_effect_class": "logistics_command",
+      "timeout": "PT10M",
+      "retry_policy": "reconcile_before_retry",
+      "failure_transition": "XC3_POLICY"
+    },
+    {
+      "id": "XC6_RECON",
+      "owner": "Participant reconciliation service",
+      "state": "OPERATIONAL_RECONCILIATION",
+      "entry_preconditions": [
+        "command result/uncertainty"
+      ],
+      "exit_postconditions": [
+        "business effect reconciled"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "XC1_READ",
+      "to": "XC2_INTERPRET",
+      "artifact": "FMIContext",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "XC2_INTERPRET",
+      "to": "XC3_POLICY",
+      "artifact": "DomainProposal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "XC3_POLICY",
+      "to": "XC4_APPROVAL",
+      "artifact": "ApprovalRequest",
+      "guard": "decision=APPROVAL_REQUIRED",
+      "authority_check": "operational_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "XC3_POLICY",
+      "to": "XC5_COMMAND",
+      "artifact": "AuthorizedProposal",
+      "guard": "decision=ALLOW",
+      "authority_check": "operational_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "XC4_APPROVAL",
+      "to": "XC5_COMMAND",
+      "artifact": "Approval",
+      "guard": "approved=true",
+      "authority_check": "human_or_service_approval",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "XC5_COMMAND",
+      "to": "XC6_RECON",
+      "artifact": "CommandResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "OPERATIONAL_RECONCILIATION",
+    "DENIED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "FMI never grants operational authority",
+    "commercial entitlement never grants operational authority",
+    "Carrier workforce keeps its own accepted Job Book, WorkUnit ownership, command list, and autonomy ceiling"
+  ],
+  "consumers": [
+    "Carrier workforce"
+  ],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

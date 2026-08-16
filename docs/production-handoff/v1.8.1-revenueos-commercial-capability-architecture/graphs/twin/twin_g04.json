@@ -1,0 +1,146 @@
+{
+  "graph_id": "TWIN-G04",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Collaborative proposal, review, approval, execute",
+  "plane": "twin_operations",
+  "workunit_type": "ApprovalExecutionWorkUnit",
+  "trigger": "workflow is configured for approval-execute",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "TC1_PREPARE",
+      "owner": "Participant Domain Agent/Service",
+      "state": "PROPOSAL_PREPARED",
+      "entry_preconditions": [
+        "current authoritative context"
+      ],
+      "exit_postconditions": [
+        "exact versioned proposal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TC2_POLICY",
+      "owner": "Participant Policy Plane",
+      "state": "POLICY_EVALUATED",
+      "entry_preconditions": [
+        "proposal"
+      ],
+      "exit_postconditions": [
+        "ALLOW|APPROVAL_REQUIRED|DENY"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TC3_REVIEW",
+      "owner": "Authorized Human/Approval Service",
+      "state": "PROPOSAL_REVIEWED",
+      "entry_preconditions": [
+        "approval required"
+      ],
+      "exit_postconditions": [
+        "approve/reject/edit"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TC4_COMMAND",
+      "owner": "Participant Command Executor",
+      "state": "COMMAND_EXECUTED",
+      "entry_preconditions": [
+        "exact approval/current proposal",
+        "all command preconditions"
+      ],
+      "exit_postconditions": [
+        "idempotent command result"
+      ],
+      "side_effect_class": "operational_command",
+      "timeout": "PT10M",
+      "retry_policy": "reconcile_before_retry",
+      "failure_transition": "TC5_RECON"
+    },
+    {
+      "id": "TC5_RECON",
+      "owner": "Participant Reconciliation Service",
+      "state": "RESULT_RECONCILED",
+      "entry_preconditions": [
+        "command result/uncertainty"
+      ],
+      "exit_postconditions": [
+        "business effect established"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "TC1_PREPARE",
+      "to": "TC2_POLICY",
+      "artifact": "DomainProposal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TC2_POLICY",
+      "to": "TC3_REVIEW",
+      "artifact": "ApprovalRequest",
+      "guard": "decision=APPROVAL_REQUIRED",
+      "authority_check": "operational_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TC3_REVIEW",
+      "to": "TC4_COMMAND",
+      "artifact": "Approval",
+      "guard": "approved=true",
+      "authority_check": "human_or_service_approval",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TC2_POLICY",
+      "to": "TC4_COMMAND",
+      "artifact": "AuthorizedProposal",
+      "guard": "decision=ALLOW",
+      "authority_check": "operational_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TC4_COMMAND",
+      "to": "TC5_RECON",
+      "artifact": "CommandResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "RESULT_RECONCILED",
+    "DENIED",
+    "REJECTED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

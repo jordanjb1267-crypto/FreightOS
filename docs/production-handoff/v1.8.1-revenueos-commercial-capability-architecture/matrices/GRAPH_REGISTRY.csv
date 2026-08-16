@@ -1,0 +1,37 @@
+graph_id,name,plane,workunit_type,nodes,edges,file
+REV-G01,Prospect discovery and governed outreach,revenueos,CommercialProspectWorkUnit,6,5,graphs/revenueos/rev_g01.json
+REV-G02,Qualification and structured discovery,revenueos,CommercialQualificationWorkUnit,6,5,graphs/revenueos/rev_g02.json
+REV-G03,Customer solution configuration,revenueos,SolutionConfigurationWorkUnit,7,6,graphs/revenueos/rev_g03.json
+REV-G04,Quote and proposal control graph,revenueos,CommercialOfferWorkUnit,7,6,graphs/revenueos/rev_g04.json
+REV-G05,Partner deal registration and attribution,revenueos,DealRegistrationWorkUnit,5,4,graphs/revenueos/rev_g05.json
+REV-G06,Closed-won to implementation boundary,revenueos_to_operational,ImplementationHandoffWorkUnit,6,5,graphs/revenueos/rev_g06.json
+REV-G07,Evidence-based expansion and renewal,revenueos,ExpansionWorkUnit,5,4,graphs/revenueos/rev_g07.json
+REV-G08,"Commission calculation, hold, approval and reconciliation",revenueos_financial,CommissionWorkUnit,8,7,graphs/revenueos/rev_g08.json
+FMI-G01,Source-rights to normalized market observation,shared_fmi,MarketIngestionWorkUnit,6,5,graphs/fmi/fmi_g01.json
+FMI-G02,Freight news verification and publication,shared_fmi,FreightNewsWorkUnit,6,5,graphs/fmi/fmi_g02.json
+FMI-G03,"Rate, capacity, and lane-state synthesis",shared_fmi,LaneMarketStateWorkUnit,7,7,graphs/fmi/fmi_g03.json
+FMI-G04,"Demand, seasonality, disruption and market-regime graph",shared_fmi,MarketRegimeWorkUnit,7,6,graphs/fmi/fmi_g04.json
+FMI-G05,Forecast production and calibration,shared_fmi,MarketForecastWorkUnit,6,5,graphs/fmi/fmi_g05.json
+FMI-G06,Customer relevance and impact graph,revenueos_fmi,CustomerMarketImpactWorkUnit,6,5,graphs/fmi/fmi_g06.json
+FMI-G07,Market briefing and alert delivery,revenueos_fmi,MarketBriefingWorkUnit,6,5,graphs/fmi/fmi_g07.json
+FMI-G08,Maintenance/service-market intelligence,shared_fmi,MaintenanceMarketWorkUnit,5,4,graphs/fmi/fmi_g08.json
+FMI-G09,Regulatory and policy intelligence,revenueos_fmi,RegulatoryIntelligenceWorkUnit,5,4,graphs/fmi/fmi_g09.json
+FMI-G10,"Correction, retraction, recompute and customer notice",shared_fmi,MarketCorrectionWorkUnit,6,5,graphs/fmi/fmi_g10.json
+XPL-G01,FMI-to-operational consumption authority bridge,cross_plane,OperationalDecisionWorkUnit,6,6,graphs/cross_plane/xpl_g01.json
+XPL-G02,Carrier dispatch intelligence consumption,cross_plane,OperationalDecisionWorkUnit,6,6,graphs/cross_plane/xpl_g02.json
+XPL-G03,Broker pricing/sourcing intelligence consumption,cross_plane,OperationalDecisionWorkUnit,6,6,graphs/cross_plane/xpl_g03.json
+XPL-G04,Facility capacity/arrival intelligence consumption,cross_plane,OperationalDecisionWorkUnit,6,6,graphs/cross_plane/xpl_g04.json
+XPL-G05,Shipper procurement/execution intelligence consumption,cross_plane,OperationalDecisionWorkUnit,6,6,graphs/cross_plane/xpl_g05.json
+XPL-G06,Maintenance/service intelligence consumption,cross_plane,OperationalDecisionWorkUnit,6,6,graphs/cross_plane/xpl_g06.json
+TWIN-G01,System discovery and approved binding,twin_integration,TwinSystemBindingWorkUnit,6,5,graphs/twin/twin_g01.json
+TWIN-G02,Inbound external-system synchronization,twin_integration,TwinSyncWorkUnit,6,5,graphs/twin/twin_g02.json
+TWIN-G03,Human-led WorkUnit with agent assistance,twin_operations,CollaborativeOperationalWorkUnit,5,4,graphs/twin/twin_g03.json
+TWIN-G04,"Collaborative proposal, review, approval, execute",twin_operations,ApprovalExecutionWorkUnit,5,5,graphs/twin/twin_g04.json
+TWIN-G05,Authorized external-system writeback,twin_integration,ExternalWritebackWorkUnit,5,4,graphs/twin/twin_g05.json
+TWIN-G06,Twin learning and approved configuration change,twin_configuration,TwinLearningWorkUnit,6,5,graphs/twin/twin_g06.json
+TWIN-G07,Inbound network communication to local work,twin_network,NetworkInboundWorkUnit,5,4,graphs/twin/twin_g07.json
+TWIN-G08,Outbound Twin state to governed network projection,twin_network,NetworkProjectionWorkUnit,6,6,graphs/twin/twin_g08.json
+TWIN-G09,Cross-party request/response coordination,twin_network,CounterpartyCoordinationWorkUnit,5,4,graphs/twin/twin_g09.json
+TWIN-G10,Fact conflict detection and reconciliation,twin_integration,TwinFactConflictWorkUnit,5,5,graphs/twin/twin_g10.json
+TWIN-G11,Integration degraded mode and recovery,twin_integration,IntegrationRecoveryWorkUnit,6,5,graphs/twin/twin_g11.json
+TWIN-G12,Workflow experience-mode and autonomy change,twin_configuration,WorkflowModeChangeWorkUnit,5,4,graphs/twin/twin_g12.json

@@ -1,0 +1,181 @@
+{
+  "graph_id": "FMI-G04",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Demand, seasonality, disruption and market-regime graph",
+  "plane": "shared_fmi",
+  "workunit_type": "MarketRegimeWorkUnit",
+  "trigger": "eligible supporting market signals updated",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "DV1_DEMAND",
+      "owner": "Demand & Volume Intelligence Agent",
+      "state": "DEMAND_DERIVED",
+      "entry_preconditions": [
+        "volume/demand observations"
+      ],
+      "exit_postconditions": [
+        "demand signal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DV2_SEASON",
+      "owner": "Commodity & Seasonality Intelligence Agent",
+      "state": "SEASONAL_CONTEXT",
+      "entry_preconditions": [
+        "commodity/calendar observations"
+      ],
+      "exit_postconditions": [
+        "seasonality signal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DV3_FUEL",
+      "owner": "Fuel & Energy Intelligence Service",
+      "state": "COST_CONTEXT",
+      "entry_preconditions": [
+        "approved fuel/energy observations"
+      ],
+      "exit_postconditions": [
+        "cost signal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DV4_DISRUPT",
+      "owner": "Disruption Intelligence Agent",
+      "state": "DISRUPTION_CONTEXT",
+      "entry_preconditions": [
+        "approved disruption events"
+      ],
+      "exit_postconditions": [
+        "disruption signal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DV5_REGIME",
+      "owner": "Market Regime Classification Service",
+      "state": "REGIME_CLASSIFIED",
+      "entry_preconditions": [
+        "rate/capacity/demand/season/cost/disruption features"
+      ],
+      "exit_postconditions": [
+        "bounded regime class + version + confidence"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DV6_LANE",
+      "owner": "Lane & Corridor Intelligence Agent",
+      "state": "CORRIDOR_SYNTHESIS",
+      "entry_preconditions": [
+        "regime + local signals"
+      ],
+      "exit_postconditions": [
+        "corridor state"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DV7_PUBLISH",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "REGIME_PUBLISHED",
+      "entry_preconditions": [
+        "quality checks"
+      ],
+      "exit_postconditions": [
+        "published regime/corridor signal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "DV1_DEMAND",
+      "to": "DV5_REGIME",
+      "artifact": "DemandSignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "DV2_SEASON",
+      "to": "DV5_REGIME",
+      "artifact": "SeasonalitySignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "DV3_FUEL",
+      "to": "DV5_REGIME",
+      "artifact": "CostSignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "DV4_DISRUPT",
+      "to": "DV5_REGIME",
+      "artifact": "DisruptionSignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "DV5_REGIME",
+      "to": "DV6_LANE",
+      "artifact": "MarketRegime",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "DV6_LANE",
+      "to": "DV7_PUBLISH",
+      "artifact": "CorridorState",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "REGIME_PUBLISHED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

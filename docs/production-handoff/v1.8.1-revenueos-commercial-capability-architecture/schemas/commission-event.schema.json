@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/revenueos/commission-event.schema.json",
+  "title": "CommissionEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "source_financial_event_ref",
+    "plan_id",
+    "plan_version",
+    "attribution_snapshot_ref",
+    "currency",
+    "amount",
+    "occurred_at"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "enum": [
+        "EARNED",
+        "HELD",
+        "VESTED",
+        "ADJUSTMENT",
+        "CLAWBACK",
+        "PAID",
+        "DISPUTED",
+        "RESOLVED"
+      ]
+    },
+    "source_financial_event_ref": {
+      "type": "string"
+    },
+    "plan_id": {
+      "type": "string"
+    },
+    "plan_version": {
+      "type": "string"
+    },
+    "attribution_snapshot_ref": {
+      "type": "string"
+    },
+    "currency": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 3
+    },
+    "amount": {
+      "type": "number"
+    },
+    "related_event_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reason_code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "occurred_at": {
+      "type": "string"
+    },
+    "moves_money": {
+      "const": false
+    }
+  }
+}

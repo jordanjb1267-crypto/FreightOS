@@ -1,0 +1,21 @@
+{
+  "name": "Partner Operations Agent",
+  "slug": "partner_operations_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "hybrid",
+  "mission": "support partner onboarding and deal registration",
+  "explicit_non_scope": [
+    "partner authority grant",
+    "entitlement activation"
+  ],
+  "graph_membership": [
+    "REV-G05"
+  ],
+  "candidate_commands": [
+    "record_deal_registration"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

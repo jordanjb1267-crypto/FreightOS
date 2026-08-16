@@ -1,0 +1,6 @@
+mode,human_role,agent_role,side_effect_rule,promotion_rule
+OBSERVE,works normally,observe/normalize/summarize,none,no authority from mode
+ASSIST,decides/acts,draft/recommend/retrieve,none unless separately authorized deterministic operation,no authority from recommendation
+COLLABORATE,shares typed WorkUnit through explicit ownership/review,performs bounded subwork,only independently authorized sub-actions,single accountable owner at each state
+APPROVAL_EXECUTE,approves exact version/scope,prepares and executes after gate,only approved command,stale edits invalidate approval
+BOUNDED_AUTONOMY,supervises exceptions/controls,executes certified graph/action classes,within independent authority ceiling,requires existing J/G/A/policy/command gates

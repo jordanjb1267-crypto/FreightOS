@@ -1,0 +1,21 @@
+{
+  "name": "Security/RFP Agent",
+  "slug": "security_rfp_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "human_supervised_agent",
+  "mission": "draft sourced security and RFP responses",
+  "explicit_non_scope": [
+    "unsupported control/compliance claims",
+    "legal attestation"
+  ],
+  "graph_membership": [
+    "REV-G04"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

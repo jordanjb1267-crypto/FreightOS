@@ -1,0 +1,22 @@
+{
+  "name": "Lane & Corridor Intelligence Agent",
+  "slug": "lane_corridor_intelligence_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "hybrid_agent",
+  "mission": "synthesize lane-local and corridor market state",
+  "explicit_non_scope": [
+    "route assignment",
+    "load acceptance"
+  ],
+  "graph_membership": [
+    "FMI-G03",
+    "FMI-G04"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

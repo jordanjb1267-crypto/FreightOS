@@ -1,0 +1,18 @@
+job,class,binding_external_effect,production_logistics_authority,must_pass_promise_firewall
+Revenue Operations Orchestrator,workflow_router,no,no,n/a
+Account Intelligence Agent,agent,no,no,when externalized
+Prospecting Agent,agent,yes: communication,no,yes
+Qualification Service,hybrid,no,no,n/a
+Discovery Copilot,agent,no,no,n/a
+Solution Configuration Agent,agent,no,no,yes
+ROI Engine,deterministic_service,no,no,yes for rendered claims
+Pricing Engine,deterministic_service,quote input,no,yes
+Proposal Agent,agent,yes: proposal,no,yes
+Security/RFP Agent,human_supervised_agent,yes: response,no,yes
+Deal Desk Coordinator,workflow,no,no,yes
+CRM/Opportunity Steward,hybrid,crm state only,no,n/a
+Partner Operations Agent,hybrid,partner workflow,no,yes
+Implementation Handoff Agent,agent,handoff only,no,yes
+Expansion Agent,agent,recommendation/outreach,no,yes
+Commission Calculation Service,deterministic_service,calculation only,no,n/a
+Commercial Compliance Guard,hybrid,block/route only,no,n/a

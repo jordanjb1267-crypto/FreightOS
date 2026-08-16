@@ -1,0 +1,21 @@
+{
+  "name": "Fuel & Energy Intelligence Service",
+  "slug": "fuel_energy_intelligence_service",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "deterministic_hybrid",
+  "mission": "publish fuel and energy observations and bounded trends",
+  "explicit_non_scope": [
+    "customer fuel policy mutation",
+    "purchasing authority"
+  ],
+  "graph_membership": [
+    "FMI-G04"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

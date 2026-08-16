@@ -1,0 +1,6 @@
+profile,internal_private_examples,candidate_network_artifacts,projection_rule
+COT,private cost/payroll/internal dispatch notes,capacity|ETA|milestone|tender response|readiness,purpose/relationship/minimum fields
+BOT,other carrier bids|margin strategy|internal qualification notes,quote|tender|shipment execution request|status,commercial/relationship policy; no competitive leakage
+FOT,full production schedule|internal staffing|unrelated inventory,readiness|appointment|arrival|dock/detention evidence,facility-purpose projection only
+SOT,procurement strategy|supplier/internal order data,shipment intent|requirements|tender|exception request,shipment-purpose projection only
+SPOT,other customers|private parts/labor economics,capacity|estimate|service status|completion evidence,case/relationship projection only

@@ -1,0 +1,20 @@
+{
+  "account": "example-distribution-center",
+  "participant_product": "facility",
+  "locations": 1,
+  "pains": [
+    "appointment phone calls",
+    "gate congestion",
+    "BOL handoff"
+  ],
+  "recommended_capabilities": [
+    "facility.appointment.core",
+    "facility.gate_dock.coordination",
+    "facility.documents.core"
+  ],
+  "rollout": {
+    "facility.appointment.core": "ASSIST",
+    "facility.gate_dock.coordination": "OBSERVE",
+    "facility.documents.core": "ASSIST"
+  }
+}

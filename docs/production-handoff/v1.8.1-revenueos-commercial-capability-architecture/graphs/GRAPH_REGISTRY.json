@@ -1,0 +1,329 @@
+{
+  "version": "0.1-audit-candidate",
+  "graphs": [
+    {
+      "graph_id": "REV-G01",
+      "name": "Prospect discovery and governed outreach",
+      "plane": "revenueos",
+      "workunit_type": "CommercialProspectWorkUnit",
+      "file": "graphs/revenueos/rev_g01.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "REV-G02",
+      "name": "Qualification and structured discovery",
+      "plane": "revenueos",
+      "workunit_type": "CommercialQualificationWorkUnit",
+      "file": "graphs/revenueos/rev_g02.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "REV-G03",
+      "name": "Customer solution configuration",
+      "plane": "revenueos",
+      "workunit_type": "SolutionConfigurationWorkUnit",
+      "file": "graphs/revenueos/rev_g03.json",
+      "nodes": 7,
+      "edges": 6
+    },
+    {
+      "graph_id": "REV-G04",
+      "name": "Quote and proposal control graph",
+      "plane": "revenueos",
+      "workunit_type": "CommercialOfferWorkUnit",
+      "file": "graphs/revenueos/rev_g04.json",
+      "nodes": 7,
+      "edges": 6
+    },
+    {
+      "graph_id": "REV-G05",
+      "name": "Partner deal registration and attribution",
+      "plane": "revenueos",
+      "workunit_type": "DealRegistrationWorkUnit",
+      "file": "graphs/revenueos/rev_g05.json",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "graph_id": "REV-G06",
+      "name": "Closed-won to implementation boundary",
+      "plane": "revenueos_to_operational",
+      "workunit_type": "ImplementationHandoffWorkUnit",
+      "file": "graphs/revenueos/rev_g06.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "REV-G07",
+      "name": "Evidence-based expansion and renewal",
+      "plane": "revenueos",
+      "workunit_type": "ExpansionWorkUnit",
+      "file": "graphs/revenueos/rev_g07.json",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "graph_id": "REV-G08",
+      "name": "Commission calculation, hold, approval and reconciliation",
+      "plane": "revenueos_financial",
+      "workunit_type": "CommissionWorkUnit",
+      "file": "graphs/revenueos/rev_g08.json",
+      "nodes": 8,
+      "edges": 7
+    },
+    {
+      "graph_id": "FMI-G01",
+      "name": "Source-rights to normalized market observation",
+      "plane": "shared_fmi",
+      "workunit_type": "MarketIngestionWorkUnit",
+      "file": "graphs/fmi/fmi_g01.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "FMI-G02",
+      "name": "Freight news verification and publication",
+      "plane": "shared_fmi",
+      "workunit_type": "FreightNewsWorkUnit",
+      "file": "graphs/fmi/fmi_g02.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "FMI-G03",
+      "name": "Rate, capacity, and lane-state synthesis",
+      "plane": "shared_fmi",
+      "workunit_type": "LaneMarketStateWorkUnit",
+      "file": "graphs/fmi/fmi_g03.json",
+      "nodes": 7,
+      "edges": 7
+    },
+    {
+      "graph_id": "FMI-G04",
+      "name": "Demand, seasonality, disruption and market-regime graph",
+      "plane": "shared_fmi",
+      "workunit_type": "MarketRegimeWorkUnit",
+      "file": "graphs/fmi/fmi_g04.json",
+      "nodes": 7,
+      "edges": 6
+    },
+    {
+      "graph_id": "FMI-G05",
+      "name": "Forecast production and calibration",
+      "plane": "shared_fmi",
+      "workunit_type": "MarketForecastWorkUnit",
+      "file": "graphs/fmi/fmi_g05.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "FMI-G06",
+      "name": "Customer relevance and impact graph",
+      "plane": "revenueos_fmi",
+      "workunit_type": "CustomerMarketImpactWorkUnit",
+      "file": "graphs/fmi/fmi_g06.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "FMI-G07",
+      "name": "Market briefing and alert delivery",
+      "plane": "revenueos_fmi",
+      "workunit_type": "MarketBriefingWorkUnit",
+      "file": "graphs/fmi/fmi_g07.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "FMI-G08",
+      "name": "Maintenance/service-market intelligence",
+      "plane": "shared_fmi",
+      "workunit_type": "MaintenanceMarketWorkUnit",
+      "file": "graphs/fmi/fmi_g08.json",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "graph_id": "FMI-G09",
+      "name": "Regulatory and policy intelligence",
+      "plane": "revenueos_fmi",
+      "workunit_type": "RegulatoryIntelligenceWorkUnit",
+      "file": "graphs/fmi/fmi_g09.json",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "graph_id": "FMI-G10",
+      "name": "Correction, retraction, recompute and customer notice",
+      "plane": "shared_fmi",
+      "workunit_type": "MarketCorrectionWorkUnit",
+      "file": "graphs/fmi/fmi_g10.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "XPL-G01",
+      "name": "FMI-to-operational consumption authority bridge",
+      "plane": "cross_plane",
+      "workunit_type": "OperationalDecisionWorkUnit",
+      "file": "graphs/cross_plane/xpl_g01.json",
+      "nodes": 6,
+      "edges": 6
+    },
+    {
+      "graph_id": "XPL-G02",
+      "name": "Carrier dispatch intelligence consumption",
+      "plane": "cross_plane",
+      "workunit_type": "OperationalDecisionWorkUnit",
+      "file": "graphs/cross_plane/xpl_g02.json",
+      "nodes": 6,
+      "edges": 6
+    },
+    {
+      "graph_id": "XPL-G03",
+      "name": "Broker pricing/sourcing intelligence consumption",
+      "plane": "cross_plane",
+      "workunit_type": "OperationalDecisionWorkUnit",
+      "file": "graphs/cross_plane/xpl_g03.json",
+      "nodes": 6,
+      "edges": 6
+    },
+    {
+      "graph_id": "XPL-G04",
+      "name": "Facility capacity/arrival intelligence consumption",
+      "plane": "cross_plane",
+      "workunit_type": "OperationalDecisionWorkUnit",
+      "file": "graphs/cross_plane/xpl_g04.json",
+      "nodes": 6,
+      "edges": 6
+    },
+    {
+      "graph_id": "XPL-G05",
+      "name": "Shipper procurement/execution intelligence consumption",
+      "plane": "cross_plane",
+      "workunit_type": "OperationalDecisionWorkUnit",
+      "file": "graphs/cross_plane/xpl_g05.json",
+      "nodes": 6,
+      "edges": 6
+    },
+    {
+      "graph_id": "XPL-G06",
+      "name": "Maintenance/service intelligence consumption",
+      "plane": "cross_plane",
+      "workunit_type": "OperationalDecisionWorkUnit",
+      "file": "graphs/cross_plane/xpl_g06.json",
+      "nodes": 6,
+      "edges": 6
+    },
+    {
+      "graph_id": "TWIN-G01",
+      "name": "System discovery and approved binding",
+      "plane": "twin_integration",
+      "workunit_type": "TwinSystemBindingWorkUnit",
+      "file": "graphs/twin/twin_g01.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "TWIN-G02",
+      "name": "Inbound external-system synchronization",
+      "plane": "twin_integration",
+      "workunit_type": "TwinSyncWorkUnit",
+      "file": "graphs/twin/twin_g02.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "TWIN-G03",
+      "name": "Human-led WorkUnit with agent assistance",
+      "plane": "twin_operations",
+      "workunit_type": "CollaborativeOperationalWorkUnit",
+      "file": "graphs/twin/twin_g03.json",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "graph_id": "TWIN-G04",
+      "name": "Collaborative proposal, review, approval, execute",
+      "plane": "twin_operations",
+      "workunit_type": "ApprovalExecutionWorkUnit",
+      "file": "graphs/twin/twin_g04.json",
+      "nodes": 5,
+      "edges": 5
+    },
+    {
+      "graph_id": "TWIN-G05",
+      "name": "Authorized external-system writeback",
+      "plane": "twin_integration",
+      "workunit_type": "ExternalWritebackWorkUnit",
+      "file": "graphs/twin/twin_g05.json",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "graph_id": "TWIN-G06",
+      "name": "Twin learning and approved configuration change",
+      "plane": "twin_configuration",
+      "workunit_type": "TwinLearningWorkUnit",
+      "file": "graphs/twin/twin_g06.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "TWIN-G07",
+      "name": "Inbound network communication to local work",
+      "plane": "twin_network",
+      "workunit_type": "NetworkInboundWorkUnit",
+      "file": "graphs/twin/twin_g07.json",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "graph_id": "TWIN-G08",
+      "name": "Outbound Twin state to governed network projection",
+      "plane": "twin_network",
+      "workunit_type": "NetworkProjectionWorkUnit",
+      "file": "graphs/twin/twin_g08.json",
+      "nodes": 6,
+      "edges": 6
+    },
+    {
+      "graph_id": "TWIN-G09",
+      "name": "Cross-party request/response coordination",
+      "plane": "twin_network",
+      "workunit_type": "CounterpartyCoordinationWorkUnit",
+      "file": "graphs/twin/twin_g09.json",
+      "nodes": 5,
+      "edges": 4
+    },
+    {
+      "graph_id": "TWIN-G10",
+      "name": "Fact conflict detection and reconciliation",
+      "plane": "twin_integration",
+      "workunit_type": "TwinFactConflictWorkUnit",
+      "file": "graphs/twin/twin_g10.json",
+      "nodes": 5,
+      "edges": 5
+    },
+    {
+      "graph_id": "TWIN-G11",
+      "name": "Integration degraded mode and recovery",
+      "plane": "twin_integration",
+      "workunit_type": "IntegrationRecoveryWorkUnit",
+      "file": "graphs/twin/twin_g11.json",
+      "nodes": 6,
+      "edges": 5
+    },
+    {
+      "graph_id": "TWIN-G12",
+      "name": "Workflow experience-mode and autonomy change",
+      "plane": "twin_configuration",
+      "workunit_type": "WorkflowModeChangeWorkUnit",
+      "file": "graphs/twin/twin_g12.json",
+      "nodes": 5,
+      "edges": 4
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Customer Market Relevance Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "participant_id",
+    "twin_types",
+    "approved_geographies",
+    "version",
+    "approved_at"
+  ],
+  "properties": {
+    "participant_id": {
+      "type": "string"
+    },
+    "twin_types": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approved_geographies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "lanes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "equipment": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commodities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "facilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "service_regions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "enabled_intelligence_domains": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notification_policy": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "approved_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "signal_id": "sig-broker-lane-001",
+  "version": 1,
+  "signal_class": "derived_indicator",
+  "metric_type": "capacity_tightness",
+  "mode": "truckload",
+  "scope": {
+    "geography": "US-TX/US-GA",
+    "lane": "Dallas,TX->Atlanta,GA",
+    "equipment": "dry_van",
+    "commodity": null
+  },
+  "effective_at": "2026-08-16T03:45:00Z",
+  "observed_at": "2026-08-16T03:45:00Z",
+  "valid_until": "2026-08-16T08:00:00Z",
+  "freshness": "CURRENT",
+  "value": "TIGHT_CAPACITY",
+  "unit": null,
+  "confidence": 0.78,
+  "uncertainty": {
+    "note": "licensed sample coverage varies by lane"
+  },
+  "sources": [
+    {
+      "source_id": "licensed-market-demo",
+      "source_ref": "record-123",
+      "published_at": "2026-08-16T03:40:00Z"
+    }
+  ],
+  "method_version": "capacity-regime-v1",
+  "rights_policy": "licensed-internal-derived-demo",
+  "disclosure_class": "derived_customer_display",
+  "correction_of": null,
+  "created_at": "2026-08-16T03:46:00Z"
+}

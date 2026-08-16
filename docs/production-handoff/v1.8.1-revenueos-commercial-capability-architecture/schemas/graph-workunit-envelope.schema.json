@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.local/schemas/graph-workunit-envelope.schema.json",
+  "title": "Graph WorkUnit Envelope Audit Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workunit_id",
+    "workunit_version",
+    "graph_id",
+    "graph_version",
+    "node_id",
+    "owner",
+    "tenant_id",
+    "represented_participant",
+    "legal_plane",
+    "status",
+    "created_at",
+    "deadline_at",
+    "input_refs",
+    "policy_refs",
+    "audit_correlation_id"
+  ],
+  "properties": {
+    "workunit_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workunit_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "graph_id": {
+      "type": "string",
+      "pattern": "^(REV|FMI|XPL)-G[0-9]{2}$"
+    },
+    "graph_version": {
+      "type": "string"
+    },
+    "node_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "represented_participant": {
+      "type": "string",
+      "minLength": 1
+    },
+    "legal_plane": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "deadline_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "input_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "policy_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approval_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "entitlement_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "autonomy_grant_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "idempotency_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "retry_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_error_class": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "audit_correlation_id": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "Prospecting Agent",
+  "slug": "prospecting_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "agent",
+  "mission": "identify and contact eligible prospects under policy",
+  "explicit_non_scope": [
+    "spam",
+    "consent bypass",
+    "operational authority"
+  ],
+  "graph_membership": [
+    "REV-G01"
+  ],
+  "candidate_commands": [
+    "send_approved_outreach"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

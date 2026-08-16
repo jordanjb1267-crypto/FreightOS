@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.local/schemas/twin-interaction-profile.schema.json",
+  "title": "Operational Twin Interaction Profile Audit Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "participant_id",
+    "profile_type",
+    "workflow_modes",
+    "system_bindings",
+    "network_participation",
+    "status"
+  ],
+  "properties": {
+    "participant_id": {
+      "type": "string"
+    },
+    "profile_type": {
+      "enum": [
+        "COT",
+        "BOT",
+        "FOT",
+        "SOT",
+        "SPOT"
+      ]
+    },
+    "status": {
+      "const": "AUDIT_CANDIDATE"
+    },
+    "workflow_modes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "workflow",
+          "experience_mode"
+        ],
+        "properties": {
+          "workflow": {
+            "type": "string"
+          },
+          "experience_mode": {
+            "enum": [
+              "OBSERVE",
+              "ASSIST",
+              "COLLABORATE",
+              "APPROVAL_EXECUTE",
+              "BOUNDED_AUTONOMY"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "system_bindings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "network_participation": {
+      "enum": [
+        "EXTERNAL",
+        "CONNECTED",
+        "NATIVE"
+      ]
+    },
+    "human_roles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

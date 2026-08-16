@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.example/schemas/provisional-job-book.schema.json",
+  "title": "FreightOS v1.8.1 Provisional Job Book Descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "slug",
+    "status",
+    "plane",
+    "proposed_class",
+    "mission",
+    "explicit_non_scope",
+    "graph_membership",
+    "candidate_commands",
+    "production_logistics_authority",
+    "certification",
+    "audit_required"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "status": {
+      "const": "AUDIT_CANDIDATE"
+    },
+    "plane": {
+      "enum": [
+        "revenueos",
+        "fmi"
+      ]
+    },
+    "proposed_class": {
+      "enum": [
+        "agent",
+        "deterministic_hybrid",
+        "deterministic_model_service",
+        "deterministic_service",
+        "deterministic_workflow",
+        "human_supervised_agent",
+        "human_supervised_deterministic",
+        "human_supervised_hybrid",
+        "hybrid",
+        "hybrid_agent",
+        "model_deterministic_wrapper",
+        "workflow",
+        "workflow_router"
+      ]
+    },
+    "mission": {
+      "type": "string",
+      "minLength": 1
+    },
+    "explicit_non_scope": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "graph_membership": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^(REV|FMI|XPL)-G[0-9]{2}$"
+      },
+      "uniqueItems": true
+    },
+    "candidate_commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "production_logistics_authority": {
+      "const": false
+    },
+    "certification": {
+      "const": "NOT_J0"
+    },
+    "audit_required": {
+      "const": true
+    }
+  }
+}

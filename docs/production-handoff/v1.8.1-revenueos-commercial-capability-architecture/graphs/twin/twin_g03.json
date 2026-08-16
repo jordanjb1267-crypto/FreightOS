@@ -1,0 +1,137 @@
+{
+  "graph_id": "TWIN-G03",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Human-led WorkUnit with agent assistance",
+  "plane": "twin_operations",
+  "workunit_type": "CollaborativeOperationalWorkUnit",
+  "trigger": "human-owned operational work begins",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "TH1_INTAKE",
+      "owner": "Human Domain Operator",
+      "state": "HUMAN_WORK_OWNED",
+      "entry_preconditions": [
+        "role/authority valid"
+      ],
+      "exit_postconditions": [
+        "task/context declared"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TH2_ASSIST",
+      "owner": "Permitted Domain Agent/Service",
+      "state": "ASSISTANCE_PREPARED",
+      "entry_preconditions": [
+        "experience mode permits assist"
+      ],
+      "exit_postconditions": [
+        "draft/recommendation/evidence"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TH3_REVIEW",
+      "owner": "Human Domain Operator",
+      "state": "HUMAN_REVIEW",
+      "entry_preconditions": [
+        "assistant output"
+      ],
+      "exit_postconditions": [
+        "accept/edit/reject/ask_more"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TH4_DECIDE",
+      "owner": "Human Domain Operator",
+      "state": "HUMAN_DECISION",
+      "entry_preconditions": [
+        "current context/version"
+      ],
+      "exit_postconditions": [
+        "domain decision recorded"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TH5_HANDOFF",
+      "owner": "Durable Workflow Runtime",
+      "state": "NEXT_OWNER_ROUTED",
+      "entry_preconditions": [
+        "decision/state"
+      ],
+      "exit_postconditions": [
+        "typed handoff or completion"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "TH1_INTAKE",
+      "to": "TH2_ASSIST",
+      "artifact": "HumanWorkIntake",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TH2_ASSIST",
+      "to": "TH3_REVIEW",
+      "artifact": "AgentAssistance",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TH3_REVIEW",
+      "to": "TH4_DECIDE",
+      "artifact": "ReviewedAssistance",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TH4_DECIDE",
+      "to": "TH5_HANDOFF",
+      "artifact": "HumanDecision",
+      "guard": "true",
+      "authority_check": "human_domain_authority",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "NEXT_OWNER_ROUTED",
+    "COMPLETED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable",
+    "ASSIST output is non-authoritative unless separately passed through existing policy/command gates"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

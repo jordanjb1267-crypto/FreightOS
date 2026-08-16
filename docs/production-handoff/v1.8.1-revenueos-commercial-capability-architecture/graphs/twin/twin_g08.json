@@ -1,0 +1,167 @@
+{
+  "graph_id": "TWIN-G08",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Outbound Twin state to governed network projection",
+  "plane": "twin_network",
+  "workunit_type": "NetworkProjectionWorkUnit",
+  "trigger": "participant workflow proposes outbound network communication",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "NP1_CANDIDATE",
+      "owner": "Participant Domain Human/Agent",
+      "state": "PROJECTION_CANDIDATE",
+      "entry_preconditions": [
+        "current internal state"
+      ],
+      "exit_postconditions": [
+        "candidate fields/purpose/audience"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "NP2_POLICY",
+      "owner": "Data Disclosure/Relationship Policy",
+      "state": "DISCLOSURE_EVALUATED",
+      "entry_preconditions": [
+        "candidate"
+      ],
+      "exit_postconditions": [
+        "ALLOW|REDACT|APPROVAL_REQUIRED|DENY"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "NP3_APPROVAL",
+      "owner": "Authorized Participant Approver",
+      "state": "DISCLOSURE_APPROVED",
+      "entry_preconditions": [
+        "approval required"
+      ],
+      "exit_postconditions": [
+        "exact approved projection"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "NP4_BUILD",
+      "owner": "Network Projection Service",
+      "state": "NETWORK_ARTIFACT_BUILT",
+      "entry_preconditions": [
+        "allowed projection"
+      ],
+      "exit_postconditions": [
+        "minimum-necessary canonical artifact"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "NP5_SEND",
+      "owner": "FreightOS Network Gateway",
+      "state": "NETWORK_ARTIFACT_SENT",
+      "entry_preconditions": [
+        "recipient/channel permitted"
+      ],
+      "exit_postconditions": [
+        "delivery result"
+      ],
+      "side_effect_class": "external_communication",
+      "timeout": "PT10M",
+      "retry_policy": "bounded_retry",
+      "failure_transition": "NP6_RECON"
+    },
+    {
+      "id": "NP6_RECON",
+      "owner": "Network Delivery Reconciliation",
+      "state": "NETWORK_DELIVERY_RECONCILED",
+      "entry_preconditions": [
+        "delivery result/ack"
+      ],
+      "exit_postconditions": [
+        "acknowledged/failed/unknown resolved"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "NP1_CANDIDATE",
+      "to": "NP2_POLICY",
+      "artifact": "NetworkProjectionCandidate",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "NP2_POLICY",
+      "to": "NP3_APPROVAL",
+      "artifact": "DisclosureApprovalRequest",
+      "guard": "decision=APPROVAL_REQUIRED",
+      "authority_check": "disclosure_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "NP2_POLICY",
+      "to": "NP4_BUILD",
+      "artifact": "NetworkDisclosureDecision",
+      "guard": "decision=ALLOW_OR_REDACT",
+      "authority_check": "disclosure_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "NP3_APPROVAL",
+      "to": "NP4_BUILD",
+      "artifact": "ApprovedNetworkProjection",
+      "guard": "approved=true",
+      "authority_check": "participant_disclosure_approval",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "NP4_BUILD",
+      "to": "NP5_SEND",
+      "artifact": "NetworkArtifact",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "NP5_SEND",
+      "to": "NP6_RECON",
+      "artifact": "NetworkDeliveryResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "NETWORK_DELIVERY_RECONCILED",
+    "DENIED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

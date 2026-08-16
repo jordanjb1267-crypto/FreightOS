@@ -1,0 +1,138 @@
+{
+  "graph_id": "TWIN-G05",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Authorized external-system writeback",
+  "plane": "twin_integration",
+  "workunit_type": "ExternalWritebackWorkUnit",
+  "trigger": "local authorized business change requires external projection",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "TW1_INTENT",
+      "owner": "Participant Domain Runtime",
+      "state": "WRITEBACK_INTENT",
+      "entry_preconditions": [
+        "authorized current business state"
+      ],
+      "exit_postconditions": [
+        "target binding identified"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TW2_BINDING",
+      "owner": "Fact Authority/Integration Policy",
+      "state": "WRITEBACK_AUTHORIZED",
+      "entry_preconditions": [
+        "current system binding"
+      ],
+      "exit_postconditions": [
+        "ALLOW|DENY"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TW3_EXEC",
+      "owner": "Integration Adapter",
+      "state": "EXTERNAL_WRITE_SUBMITTED",
+      "entry_preconditions": [
+        "ALLOW",
+        "idempotency key"
+      ],
+      "exit_postconditions": [
+        "external response or outcome unknown"
+      ],
+      "side_effect_class": "external_system_write",
+      "timeout": "PT10M",
+      "retry_policy": "reconcile_before_retry",
+      "failure_transition": "TW4_RECON"
+    },
+    {
+      "id": "TW4_RECON",
+      "owner": "Integration Reconciliation Service",
+      "state": "EXTERNAL_STATE_RECONCILED",
+      "entry_preconditions": [
+        "response/unknown outcome"
+      ],
+      "exit_postconditions": [
+        "effect confirmed/not applied/conflict"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TW5_PROJECT",
+      "owner": "Twin Projection Service",
+      "state": "POST_WRITE_PROJECTED",
+      "entry_preconditions": [
+        "confirmed authoritative result"
+      ],
+      "exit_postconditions": [
+        "Twin projection/current version updated"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "TW1_INTENT",
+      "to": "TW2_BINDING",
+      "artifact": "ExternalWriteIntent",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TW2_BINDING",
+      "to": "TW3_EXEC",
+      "artifact": "AuthorizedExternalWrite",
+      "guard": "decision=ALLOW",
+      "authority_check": "integration_write_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TW3_EXEC",
+      "to": "TW4_RECON",
+      "artifact": "ExternalWriteResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TW4_RECON",
+      "to": "TW5_PROJECT",
+      "artifact": "ReconciledExternalState",
+      "guard": "effect=confirmed",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "POST_WRITE_PROJECTED",
+    "DENIED",
+    "CONFLICT",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

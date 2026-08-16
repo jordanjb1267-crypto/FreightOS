@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FreightOS Market Intelligence Brief",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "brief_id",
+    "participant_id",
+    "twin_type",
+    "generated_at",
+    "as_of",
+    "signals",
+    "impacts",
+    "disclaimer_class"
+  ],
+  "properties": {
+    "brief_id": {
+      "type": "string"
+    },
+    "participant_id": {
+      "type": "string"
+    },
+    "twin_type": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "impacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "surface",
+          "materiality",
+          "reason",
+          "signal_refs"
+        ],
+        "properties": {
+          "surface": {
+            "type": "string"
+          },
+          "materiality": {
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "CRITICAL"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "signal_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suggested_consumer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "disclaimer_class": {
+      "type": "string"
+    },
+    "customer_visible": {
+      "type": "boolean"
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  }
+}

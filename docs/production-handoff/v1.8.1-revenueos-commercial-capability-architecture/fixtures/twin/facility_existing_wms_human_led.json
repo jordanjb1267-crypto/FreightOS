@@ -1,0 +1,39 @@
+{
+  "status": "AUDIT_CANDIDATE",
+  "participant_profile": "FOT",
+  "scenario": "facility keeps WMS/YMS and shipping/receiving team; Twin coordinates appointments and communication",
+  "systems": [
+    {
+      "name": "WMS",
+      "authority": [
+        "inventory",
+        "receipt/ship confirmation"
+      ],
+      "sync": "EVENT_SUBSCRIPTION"
+    },
+    {
+      "name": "YMS",
+      "authority": [
+        "yard/dock physical state"
+      ],
+      "sync": "PULL_ONLY"
+    }
+  ],
+  "workflow_modes": {
+    "appointments": "COLLABORATE",
+    "driver_communication": "ASSIST",
+    "dock_recommendation": "ASSIST",
+    "physical_gate_control": "OBSERVE"
+  },
+  "network_outputs": [
+    "readiness",
+    "appointment",
+    "arrival",
+    "detention_event"
+  ],
+  "proof_targets": [
+    "no physical authority takeover",
+    "human workbench usable",
+    "legacy carrier participation"
+  ]
+}

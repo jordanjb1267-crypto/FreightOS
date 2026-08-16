@@ -1,0 +1,138 @@
+{
+  "graph_id": "REV-G07",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Evidence-based expansion and renewal",
+  "plane": "revenueos",
+  "workunit_type": "ExpansionWorkUnit",
+  "trigger": "eligible usage/value/renewal event",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "E1_SIGNAL",
+      "owner": "Expansion Agent",
+      "state": "EXPANSION_SIGNAL",
+      "entry_preconditions": [
+        "permitted usage/value evidence"
+      ],
+      "exit_postconditions": [
+        "candidate hypothesis"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "E2_RELEVANCE",
+      "owner": "Expansion Agent",
+      "state": "EXPANSION_FIT",
+      "entry_preconditions": [
+        "current entitlements",
+        "catalog",
+        "customer context"
+      ],
+      "exit_postconditions": [
+        "fit with evidence or NO_FIT"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "E3_CONSENT",
+      "owner": "Commercial Compliance Guard",
+      "state": "OUTREACH_POLICY",
+      "entry_preconditions": [
+        "expansion context"
+      ],
+      "exit_postconditions": [
+        "ALLOW|HOLD|DENY"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "E4_DISCOVERY",
+      "owner": "Discovery Copilot",
+      "state": "EXPANSION_DISCOVERY",
+      "entry_preconditions": [
+        "customer engages"
+      ],
+      "exit_postconditions": [
+        "new discovery version"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "E5_REENTER",
+      "owner": "Revenue Operations Orchestrator",
+      "state": "REENTER_SOLUTION_GRAPH",
+      "entry_preconditions": [
+        "validated discovery"
+      ],
+      "exit_postconditions": [
+        "REV-G03 WorkUnit created"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "E1_SIGNAL",
+      "to": "E2_RELEVANCE",
+      "artifact": "ExpansionSignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "E2_RELEVANCE",
+      "to": "E3_CONSENT",
+      "artifact": "ExpansionRecommendation",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "E3_CONSENT",
+      "to": "E4_DISCOVERY",
+      "artifact": "OutreachAuthorization",
+      "guard": "decision=ALLOW",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "E4_DISCOVERY",
+      "to": "E5_REENTER",
+      "artifact": "DiscoveryRecord",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "REENTER_SOLUTION_GRAPH",
+    "NO_FIT",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

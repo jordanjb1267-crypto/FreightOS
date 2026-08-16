@@ -1,0 +1,137 @@
+{
+  "graph_id": "TWIN-G12",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Workflow experience-mode and autonomy change",
+  "plane": "twin_configuration",
+  "workunit_type": "WorkflowModeChangeWorkUnit",
+  "trigger": "customer requests or evidence supports workflow mode change",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "MD1_REQUEST",
+      "owner": "Authorized Customer Admin/Revenue Implementation",
+      "state": "MODE_CHANGE_REQUESTED",
+      "entry_preconditions": [
+        "workflow identified"
+      ],
+      "exit_postconditions": [
+        "requested customer-facing mode"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "MD2_ELIG",
+      "owner": "Certification/Authority Control",
+      "state": "ELIGIBILITY_EVALUATED",
+      "entry_preconditions": [
+        "current Job/graph/capability state"
+      ],
+      "exit_postconditions": [
+        "eligible ceiling + gaps"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "MD3_IMPACT",
+      "owner": "Twin/Workflow Configuration Steward",
+      "state": "MODE_IMPACT_REVIEW",
+      "entry_preconditions": [
+        "eligibility"
+      ],
+      "exit_postconditions": [
+        "affected approvals/commands/UX"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "MD4_APPROVE",
+      "owner": "Authorized Customer Admin",
+      "state": "MODE_CHANGE_APPROVED",
+      "entry_preconditions": [
+        "within permitted ceiling"
+      ],
+      "exit_postconditions": [
+        "approved mode config"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "MD5_ACTIVATE",
+      "owner": "Activation Control Plane",
+      "state": "MODE_CONFIG_ACTIVE",
+      "entry_preconditions": [
+        "all independent gates pass"
+      ],
+      "exit_postconditions": [
+        "versioned workflow experience mode active"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "MD1_REQUEST",
+      "to": "MD2_ELIG",
+      "artifact": "ModeChangeProposal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "MD2_ELIG",
+      "to": "MD3_IMPACT",
+      "artifact": "ModeEligibilityResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "MD3_IMPACT",
+      "to": "MD4_APPROVE",
+      "artifact": "ModeImpactAssessment",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "MD4_APPROVE",
+      "to": "MD5_ACTIVATE",
+      "artifact": "ApprovedModeChange",
+      "guard": "approved=true",
+      "authority_check": "customer_configuration_approval",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "MODE_CONFIG_ACTIVE",
+    "DENIED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable",
+    "experience mode cannot raise effective operational authority beyond existing certification/autonomy/policy/command grants"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

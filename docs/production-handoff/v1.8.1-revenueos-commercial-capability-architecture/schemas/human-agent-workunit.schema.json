@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.local/schemas/human-agent-workunit.schema.json",
+  "title": "Human Agent Collaborative WorkUnit Audit Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workunit_id",
+    "workflow",
+    "experience_mode",
+    "accountable_owner",
+    "version",
+    "state",
+    "status"
+  ],
+  "properties": {
+    "workunit_id": {
+      "type": "string"
+    },
+    "workflow": {
+      "type": "string"
+    },
+    "experience_mode": {
+      "enum": [
+        "OBSERVE",
+        "ASSIST",
+        "COLLABORATE",
+        "APPROVAL_EXECUTE",
+        "BOUNDED_AUTONOMY"
+      ]
+    },
+    "accountable_owner": {
+      "type": "string"
+    },
+    "contributors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "type": "string"
+    },
+    "approval_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "const": "AUDIT_CANDIDATE"
+    }
+  }
+}

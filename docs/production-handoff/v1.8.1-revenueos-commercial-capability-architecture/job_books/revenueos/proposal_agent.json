@@ -1,0 +1,21 @@
+{
+  "name": "Proposal Agent",
+  "slug": "proposal_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "agent",
+  "mission": "assemble approved offer language and evidence",
+  "explicit_non_scope": [
+    "unsupported promises",
+    "contract execution"
+  ],
+  "graph_membership": [
+    "REV-G04"
+  ],
+  "candidate_commands": [
+    "send_approved_proposal"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

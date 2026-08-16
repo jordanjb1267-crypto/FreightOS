@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/revenueos/commercial-entitlement.schema.json",
+  "title": "CommercialEntitlement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "entitlement_id",
+    "organization_id",
+    "participant_ref",
+    "capability_id",
+    "capability_version",
+    "status",
+    "effective_from",
+    "source_order_ref"
+  ],
+  "properties": {
+    "entitlement_id": {
+      "type": "string"
+    },
+    "organization_id": {
+      "type": "string"
+    },
+    "participant_ref": {
+      "type": "string"
+    },
+    "capability_id": {
+      "type": "string"
+    },
+    "capability_version": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "PROPOSED",
+        "CONTRACTED",
+        "ACTIVE",
+        "SUSPENDED",
+        "EXPIRED",
+        "TERMINATED"
+      ]
+    },
+    "quantity": {
+      "type": [
+        "number",
+        "integer",
+        "null"
+      ]
+    },
+    "meter": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "effective_from": {
+      "type": "string"
+    },
+    "effective_until": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_order_ref": {
+      "type": "string"
+    },
+    "commercial_restrictions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "grants_runtime_authority": {
+      "const": false
+    }
+  }
+}

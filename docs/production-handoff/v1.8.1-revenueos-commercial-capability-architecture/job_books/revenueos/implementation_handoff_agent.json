@@ -1,0 +1,21 @@
+{
+  "name": "Implementation Handoff Agent",
+  "slug": "implementation_handoff_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "agent",
+  "mission": "package sold configuration and evidence for implementation",
+  "explicit_non_scope": [
+    "activation",
+    "production permission grants"
+  ],
+  "graph_membership": [
+    "REV-G06"
+  ],
+  "candidate_commands": [
+    "emit_implementation_handoff"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

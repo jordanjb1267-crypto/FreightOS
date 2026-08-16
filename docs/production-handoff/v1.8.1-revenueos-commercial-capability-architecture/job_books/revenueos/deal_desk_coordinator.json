@@ -1,0 +1,22 @@
+{
+  "name": "Deal Desk Coordinator",
+  "slug": "deal_desk_coordinator",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "workflow",
+  "mission": "route commercial exceptions and approvals",
+  "explicit_non_scope": [
+    "self-approval",
+    "operational activation"
+  ],
+  "graph_membership": [
+    "REV-G04",
+    "REV-G08"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

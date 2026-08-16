@@ -1,0 +1,14 @@
+capability_id,participant_product,outcome,illustrative_jobs,commercial_boundary,activation_rule
+carrier.dispatch.core,Carrier,dispatch planning/execution support,v1.8 carrier workforce refs determined by audit,capability,entitlement + certification + authority + policy
+carrier.documents.core,Carrier,document collection/verification/routing,v1.8 carrier document jobs,capability,same
+carrier.maintenance.coordination,Carrier,maintenance/roadside coordination,v1.8 carrier/service jobs,capability,same
+facility.appointment.core,Facility,appointment coordination,v1.8 facility workforce refs,capability,same
+facility.gate_dock.coordination,Facility,gate/yard/dock coordination,v1.8 facility workforce refs,capability,same
+facility.documents.core,Facility,facility document workflow,v1.8 facility workforce refs,capability,same
+shipper.execution.visibility,Shipper,execution oversight/exception visibility,v1.8 shipper workforce refs,capability,same
+network.integration.volume,Network,governed integration/network usage,network services,capability/service,conformance + entitlement + policy
+carrier.market_intelligence.core,Carrier,customer-specific lane/rate/capacity/demand/fuel/disruption intelligence,FMI workforce refs determined by audit,capability,entitlement + source rights + FMI certification + consumer authority boundaries
+facility.market_intelligence.core,Facility,arrival-pressure/capacity/disruption market intelligence,FMI + facility consumer refs determined by audit,capability,same
+shipper.market_intelligence.core,Shipper,procurement/routing/capacity/rate/disruption intelligence,FMI + shipper consumer refs determined by audit,capability,same
+broker.market_intelligence.core,Broker,buy-side capacity/rate/demand/margin-risk market intelligence,FMI + brokerage consumer refs determined by audit,capability,brokerage legal activation gates + entitlement + FMI certification + consumer authority boundaries
+service.market_intelligence.core,Service_RigDesk,maintenance/service/parts/weather/fuel market intelligence,FMI + service consumer refs determined by audit,capability,entitlement + source rights + FMI certification + consumer authority boundaries

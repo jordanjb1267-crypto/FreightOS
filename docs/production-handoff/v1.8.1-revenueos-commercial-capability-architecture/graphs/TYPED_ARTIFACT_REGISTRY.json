@@ -1,0 +1,2625 @@
+{
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "rule": "Candidate artifact names must be reconciled with accepted v1.8 WorkUnit/JobHandoff/network contracts; semantic duplicates are merged, never forked.",
+  "artifacts": [
+    {
+      "artifact_type": "AcceptedOffer",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G06",
+          "from": "I1_ACCEPT",
+          "to": "I2_ENTITLE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AccountBrief",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G02",
+          "from": "Q2_RESEARCH",
+          "to": "Q3_SCORE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AccountCandidate",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G01",
+          "from": "R1_DISCOVER",
+          "to": "R2_DEDUPE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AgentAssistance",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G03",
+          "from": "TH2_ASSIST",
+          "to": "TH3_REVIEW",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ApplicabilityContext",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G09",
+          "from": "RP3_SCOPE",
+          "to": "RP4_REVIEW",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "Approval",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "XPL-G01",
+          "from": "XC4_APPROVAL",
+          "to": "XC5_COMMAND",
+          "authority_check": "human_or_service_approval",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G02",
+          "from": "XC4_APPROVAL",
+          "to": "XC5_COMMAND",
+          "authority_check": "human_or_service_approval",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G03",
+          "from": "XC4_APPROVAL",
+          "to": "XC5_COMMAND",
+          "authority_check": "human_or_service_approval",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G04",
+          "from": "XC4_APPROVAL",
+          "to": "XC5_COMMAND",
+          "authority_check": "human_or_service_approval",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G05",
+          "from": "XC4_APPROVAL",
+          "to": "XC5_COMMAND",
+          "authority_check": "human_or_service_approval",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G06",
+          "from": "XC4_APPROVAL",
+          "to": "XC5_COMMAND",
+          "authority_check": "human_or_service_approval",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "TWIN-G04",
+          "from": "TC3_REVIEW",
+          "to": "TC4_COMMAND",
+          "authority_check": "human_or_service_approval",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": true,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ApprovalRequest",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "XPL-G01",
+          "from": "XC3_POLICY",
+          "to": "XC4_APPROVAL",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G02",
+          "from": "XC3_POLICY",
+          "to": "XC4_APPROVAL",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G03",
+          "from": "XC3_POLICY",
+          "to": "XC4_APPROVAL",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G04",
+          "from": "XC3_POLICY",
+          "to": "XC4_APPROVAL",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G05",
+          "from": "XC3_POLICY",
+          "to": "XC4_APPROVAL",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G06",
+          "from": "XC3_POLICY",
+          "to": "XC4_APPROVAL",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "TWIN-G04",
+          "from": "TC2_POLICY",
+          "to": "TC3_REVIEW",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ApprovedCommercialTerms",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G04",
+          "from": "P2_DISCOUNT",
+          "to": "P3_PROMISE",
+          "authority_check": "discount_authority",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": true,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ApprovedModeChange",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G12",
+          "from": "MD4_APPROVE",
+          "to": "MD5_ACTIVATE",
+          "authority_check": "customer_configuration_approval",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ApprovedNetworkProjection",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G08",
+          "from": "NP3_APPROVAL",
+          "to": "NP4_BUILD",
+          "authority_check": "participant_disclosure_approval",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ApprovedSystemBinding",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G01",
+          "from": "TB4_REVIEW",
+          "to": "TB5_CONFORMANCE",
+          "authority_check": "customer_configuration_approval",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ApprovedTwinChange",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G06",
+          "from": "TL4_REVIEW",
+          "to": "TL5_VERSION",
+          "authority_check": "customer_configuration_approval",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AssuranceResponseSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G04",
+          "from": "P4_SECURITY",
+          "to": "P5_ASSEMBLE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AttributionCollisionReport",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G05",
+          "from": "D2_COLLISION",
+          "to": "D3_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AttributionSnapshot",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G08",
+          "from": "C3_ATTRIB",
+          "to": "C4_CALC",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AuthorizedExternalWrite",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G05",
+          "from": "TW2_BINDING",
+          "to": "TW3_EXEC",
+          "authority_check": "integration_write_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AuthorizedNetworkRequest",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G07",
+          "from": "TN4_ROUTE",
+          "to": "TN5_DECIDE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AuthorizedProposal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "XPL-G01",
+          "from": "XC3_POLICY",
+          "to": "XC5_COMMAND",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G02",
+          "from": "XC3_POLICY",
+          "to": "XC5_COMMAND",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G03",
+          "from": "XC3_POLICY",
+          "to": "XC5_COMMAND",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G04",
+          "from": "XC3_POLICY",
+          "to": "XC5_COMMAND",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G05",
+          "from": "XC3_POLICY",
+          "to": "XC5_COMMAND",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G06",
+          "from": "XC3_POLICY",
+          "to": "XC5_COMMAND",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "TWIN-G04",
+          "from": "TC2_POLICY",
+          "to": "TC4_COMMAND",
+          "authority_check": "operational_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": true,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "AuthorizedTwinFact",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G02",
+          "from": "TS4_AUTH",
+          "to": "TS5_PROJECT",
+          "authority_check": "fact_authority_binding",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "BriefEvidenceBundle",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G07",
+          "from": "BA1_SELECT",
+          "to": "BA2_DRAFT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "BriefReview",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G07",
+          "from": "BA3_QUALITY",
+          "to": "BA4_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CalibrationResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G05",
+          "from": "FC4_CAL",
+          "to": "FC5_LIMITS",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CanonicalAccount",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G01",
+          "from": "R2_DEDUPE",
+          "to": "R3_ELIGIBILITY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CapacityDerivedSignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G03",
+          "from": "RC5_DERIVE",
+          "to": "RC6_COMBINE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CapacitySampleSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G03",
+          "from": "RC2_CAP",
+          "to": "RC3_SAMPLE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CatalogSelection",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G03",
+          "from": "S2_CATALOG",
+          "to": "S3_DEPENDENCY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CommandResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "XPL-G01",
+          "from": "XC5_COMMAND",
+          "to": "XC6_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G02",
+          "from": "XC5_COMMAND",
+          "to": "XC6_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G03",
+          "from": "XC5_COMMAND",
+          "to": "XC6_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G04",
+          "from": "XC5_COMMAND",
+          "to": "XC6_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G05",
+          "from": "XC5_COMMAND",
+          "to": "XC6_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G06",
+          "from": "XC5_COMMAND",
+          "to": "XC6_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "TWIN-G04",
+          "from": "TC4_COMMAND",
+          "to": "TC5_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CommissionCalculation",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G08",
+          "from": "C4_CALC",
+          "to": "C5_HOLD",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CommissionPlanRef",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G08",
+          "from": "C2_PLAN",
+          "to": "C3_ATTRIB",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CommunicationResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G01",
+          "from": "R4_CONTACT",
+          "to": "R5_RESPONSE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ComponentForecastSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G05",
+          "from": "FC2_MODELS",
+          "to": "FC3_ENSEMBLE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ConflictReviewRequest",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G10",
+          "from": "CF2_RULE",
+          "to": "CF3_REVIEW",
+          "authority_check": "fact_authority_binding",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ConformanceResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G01",
+          "from": "TB5_CONFORMANCE",
+          "to": "TB6_ACTIVATE",
+          "authority_check": "integration_activation_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CorrectionDeliveryResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G10",
+          "from": "CX5_NOTIFY",
+          "to": "CX6_CLOSE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CorrectionTrigger",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G10",
+          "from": "CX1_TRIGGER",
+          "to": "CX2_IMPACT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CorridorState",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G04",
+          "from": "DV6_LANE",
+          "to": "DV7_PUBLISH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CorroborationSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G02",
+          "from": "N2_CORROBORATE",
+          "to": "N3_INJECTION",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CostSignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G04",
+          "from": "DV3_FUEL",
+          "to": "DV5_REGIME",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CounterpartyResponse",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G09",
+          "from": "CP3_REMOTE",
+          "to": "CP4_RETURN",
+          "authority_check": "receiver_independent_authority",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CustomerMarketImpact",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G06",
+          "from": "CR5_IMPACT",
+          "to": "CR6_PUBLISH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "CustomerRelevanceProfile",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G06",
+          "from": "CR1_PROFILE",
+          "to": "CR2_SIGNAL",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DealRegistration",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G05",
+          "from": "D4_COMMIT",
+          "to": "D5_ROUTE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DealRegistrationCandidate",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G05",
+          "from": "D1_REGISTER",
+          "to": "D2_COLLISION",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DealRegistrationDecision",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G05",
+          "from": "D3_POLICY",
+          "to": "D4_COMMIT",
+          "authority_check": "partner_deal_registration_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": true,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DeliveredNetworkRequest",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G09",
+          "from": "CP2_SEND",
+          "to": "CP3_REMOTE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DeliveryAuthorization",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G07",
+          "from": "BA4_POLICY",
+          "to": "BA5_DELIVER",
+          "authority_check": "communication_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": true,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DeliveryResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G07",
+          "from": "BA5_DELIVER",
+          "to": "BA6_ACK",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DemandSignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G04",
+          "from": "DV1_DEMAND",
+          "to": "DV5_REGIME",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DependencyImpact",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G10",
+          "from": "CX2_IMPACT",
+          "to": "CX3_MARK",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DependencyMap",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G03",
+          "from": "S3_DEPENDENCY",
+          "to": "S4_GAPS",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DisclosureApprovalRequest",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G08",
+          "from": "NP2_POLICY",
+          "to": "NP3_APPROVAL",
+          "authority_check": "disclosure_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DisclosureDecision",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G06",
+          "from": "CR4_PRIVACY",
+          "to": "CR5_IMPACT",
+          "authority_check": "data_disclosure_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DiscoveryRecord",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G02",
+          "from": "Q4_DISCOVERY",
+          "to": "Q5_VALIDATE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "REV-G07",
+          "from": "E4_DISCOVERY",
+          "to": "E5_REENTER",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DisruptionSignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G04",
+          "from": "DV4_DISRUPT",
+          "to": "DV5_REGIME",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "DomainProposal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "XPL-G01",
+          "from": "XC2_INTERPRET",
+          "to": "XC3_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G02",
+          "from": "XC2_INTERPRET",
+          "to": "XC3_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G03",
+          "from": "XC2_INTERPRET",
+          "to": "XC3_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G04",
+          "from": "XC2_INTERPRET",
+          "to": "XC3_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G05",
+          "from": "XC2_INTERPRET",
+          "to": "XC3_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G06",
+          "from": "XC2_INTERPRET",
+          "to": "XC3_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "TWIN-G04",
+          "from": "TC1_PREPARE",
+          "to": "TC2_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "EligibleRevenueEvent",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G08",
+          "from": "C1_EVENT",
+          "to": "C2_PLAN",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "EntitlementIntent",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G06",
+          "from": "I2_ENTITLE",
+          "to": "I3_PACKAGE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "EvidenceEnvelope",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G01",
+          "from": "F3_INGEST",
+          "to": "F4_VALIDATE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ExpansionRecommendation",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G07",
+          "from": "E2_RELEVANCE",
+          "to": "E3_CONSENT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ExpansionSignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G07",
+          "from": "E1_SIGNAL",
+          "to": "E2_RELEVANCE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ExternalChangeEvent",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G02",
+          "from": "TS1_RECEIVE",
+          "to": "TS2_DEDUPE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ExternalWriteIntent",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G05",
+          "from": "TW1_INTENT",
+          "to": "TW2_BINDING",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ExternalWriteResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G05",
+          "from": "TW3_EXEC",
+          "to": "TW4_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "FMIContext",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "XPL-G01",
+          "from": "XC1_READ",
+          "to": "XC2_INTERPRET",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G02",
+          "from": "XC1_READ",
+          "to": "XC2_INTERPRET",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G03",
+          "from": "XC1_READ",
+          "to": "XC2_INTERPRET",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G04",
+          "from": "XC1_READ",
+          "to": "XC2_INTERPRET",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G05",
+          "from": "XC1_READ",
+          "to": "XC2_INTERPRET",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "XPL-G06",
+          "from": "XC1_READ",
+          "to": "XC2_INTERPRET",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "FactConflict",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G10",
+          "from": "CF1_DETECT",
+          "to": "CF2_RULE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "FinanceAuthorization",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G08",
+          "from": "C6_APPROVE",
+          "to": "C7_RECORD",
+          "authority_check": "finance_authority",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": true,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ForecastCandidate",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G05",
+          "from": "FC3_ENSEMBLE",
+          "to": "FC4_CAL",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ForecastFeatureSnapshot",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G05",
+          "from": "FC1_INPUT",
+          "to": "FC2_MODELS",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "HumanDecision",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G03",
+          "from": "TH4_DECIDE",
+          "to": "TH5_HANDOFF",
+          "authority_check": "human_domain_authority",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "HumanResolvedTwinFact",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G10",
+          "from": "CF3_REVIEW",
+          "to": "CF4_PROJECT",
+          "authority_check": "authorized_domain_review",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "HumanWorkIntake",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G03",
+          "from": "TH1_INTAKE",
+          "to": "TH2_ASSIST",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ImplementationHandoff",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G06",
+          "from": "I3_PACKAGE",
+          "to": "I4_VALIDATE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ImplementationReceipt",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G06",
+          "from": "I5_TRANSFER",
+          "to": "I6_ACK",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "IngestRequest",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G01",
+          "from": "F2_FETCH",
+          "to": "F3_INGEST",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "IntegrationDegradation",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G11",
+          "from": "DG1_DETECT",
+          "to": "DG2_GATE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "LaneMarketSignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G03",
+          "from": "RC6_COMBINE",
+          "to": "RC7_PUBLISH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "MaintenanceAvailabilitySignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G08",
+          "from": "MM3_AVAIL",
+          "to": "MM4_IMPACT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "MaintenanceCustomerImpact",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G08",
+          "from": "MM4_IMPACT",
+          "to": "MM5_PUBLISH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "MaintenanceObservationSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G08",
+          "from": "MM1_SOURCE",
+          "to": "MM2_REGION",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "MappedNetworkRequest",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G07",
+          "from": "TN3_MAP",
+          "to": "TN4_ROUTE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "MarketBriefDraft",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G07",
+          "from": "BA2_DRAFT",
+          "to": "BA3_QUALITY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "MarketForecastEnvelope",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G05",
+          "from": "FC5_LIMITS",
+          "to": "FC6_PUBLISH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "MarketObservation",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G01",
+          "from": "F5_NORMALIZE",
+          "to": "F6_PUBLISH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "MarketRegime",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G04",
+          "from": "DV5_REGIME",
+          "to": "DV6_LANE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ModeChangeProposal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G12",
+          "from": "MD1_REQUEST",
+          "to": "MD2_ELIG",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ModeEligibilityResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G12",
+          "from": "MD2_ELIG",
+          "to": "MD3_IMPACT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ModeImpactAssessment",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G12",
+          "from": "MD3_IMPACT",
+          "to": "MD4_APPROVE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NeedCapabilityMap",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G03",
+          "from": "S1_MAP",
+          "to": "S2_CATALOG",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NetworkArtifact",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G08",
+          "from": "NP4_BUILD",
+          "to": "NP5_SEND",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NetworkDeliveryResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G08",
+          "from": "NP5_SEND",
+          "to": "NP6_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NetworkDisclosureDecision",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G08",
+          "from": "NP2_POLICY",
+          "to": "NP4_BUILD",
+          "authority_check": "disclosure_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NetworkInboundEnvelope",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G07",
+          "from": "TN1_RECEIVE",
+          "to": "TN2_VERIFY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NetworkProjectionCandidate",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G08",
+          "from": "NP1_CANDIDATE",
+          "to": "NP2_POLICY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NetworkRequest",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G09",
+          "from": "CP1_REQUEST",
+          "to": "CP2_SEND",
+          "authority_check": "origin_participant_authority",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NewsCandidate",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G02",
+          "from": "N1_CANDIDATE",
+          "to": "N2_CORROBORATE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NewsEventApproval",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G02",
+          "from": "N5_EVENT",
+          "to": "N6_PUBLISH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NewsFactSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G02",
+          "from": "N4_FACT",
+          "to": "N5_EVENT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "NormalizedTwinObservation",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G02",
+          "from": "TS3_MAP",
+          "to": "TS4_AUTH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "OrderedExternalChange",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G02",
+          "from": "TS2_DEDUPE",
+          "to": "TS3_MAP",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "OutreachAuthorization",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G01",
+          "from": "R3_ELIGIBILITY",
+          "to": "R4_CONTACT",
+          "authority_check": "commercial_outreach_policy",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "REV-G07",
+          "from": "E3_CONSENT",
+          "to": "E4_DISCOVERY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": true,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "PayoutEligibility",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G08",
+          "from": "C5_HOLD",
+          "to": "C6_APPROVE",
+          "authority_check": "commission_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "PayoutRecord",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G08",
+          "from": "C7_RECORD",
+          "to": "C8_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "PolicyCandidate",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G09",
+          "from": "RP1_DETECT",
+          "to": "RP2_VERIFY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "PriceResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G04",
+          "from": "P1_PRICE",
+          "to": "P2_DISCOUNT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "PromiseCheckResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G04",
+          "from": "P3_PROMISE",
+          "to": "P4_SECURITY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ProposalDeliveryResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G04",
+          "from": "P6_SEND",
+          "to": "P7_DECISION",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ProposalPackage",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G04",
+          "from": "P5_ASSEMBLE",
+          "to": "P6_SEND",
+          "authority_check": "seller_send_authority",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ProspectIntent",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G01",
+          "from": "R5_RESPONSE",
+          "to": "R6_ROUTE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "QualificationDecision",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G02",
+          "from": "Q3_SCORE",
+          "to": "Q4_DISCOVERY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "QualificationEvidenceRequest",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G02",
+          "from": "Q1_INTAKE",
+          "to": "Q2_RESEARCH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ROIScenario",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G03",
+          "from": "S5_ROI",
+          "to": "S6_REVIEW",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "RateDerivedSignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G03",
+          "from": "RC4_DERIVE",
+          "to": "RC6_COMBINE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "RateSampleSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G03",
+          "from": "RC1_OBS",
+          "to": "RC3_SAMPLE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "RecomputedArtifactSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G10",
+          "from": "CX4_RECOMPUTE",
+          "to": "CX5_NOTIFY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ReconciledExternalState",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G05",
+          "from": "TW4_RECON",
+          "to": "TW5_PROJECT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "RecoveredChangeSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G11",
+          "from": "DG4_REPLAY",
+          "to": "DG5_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "RecoveryAwait",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G11",
+          "from": "DG2_GATE",
+          "to": "DG3_RECOVER",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "RecoveryReconciliationResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G11",
+          "from": "DG5_RECON",
+          "to": "DG6_RESUME",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "RecoverySnapshot",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G11",
+          "from": "DG3_RECOVER",
+          "to": "DG4_REPLAY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "RegionalContext",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G08",
+          "from": "MM2_REGION",
+          "to": "MM3_AVAIL",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "RelevanceAssessment",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G06",
+          "from": "CR3_SCORE",
+          "to": "CR4_PRIVACY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ResolvedTwinFact",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G10",
+          "from": "CF2_RULE",
+          "to": "CF4_PROJECT",
+          "authority_check": "fact_authority_binding",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ReturnedNetworkResponse",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G09",
+          "from": "CP4_RETURN",
+          "to": "CP5_RECON",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ReviewedAssistance",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G03",
+          "from": "TH3_REVIEW",
+          "to": "TH4_DECIDE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ReviewedPolicySignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G09",
+          "from": "RP4_REVIEW",
+          "to": "RP5_PUBLISH",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SafeEvidence",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G02",
+          "from": "N3_INJECTION",
+          "to": "N4_FACT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SampleQuality",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G03",
+          "from": "RC3_SAMPLE",
+          "to": "RC4_DERIVE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        },
+        {
+          "graph_id": "FMI-G03",
+          "from": "RC3_SAMPLE",
+          "to": "RC5_DERIVE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SeasonalitySignal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G04",
+          "from": "DV2_SEASON",
+          "to": "DV5_REGIME",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SignalMatchSet",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G06",
+          "from": "CR2_SIGNAL",
+          "to": "CR3_SCORE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SolutionReviewResult",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G03",
+          "from": "S6_REVIEW",
+          "to": "S7_OUTPUT",
+          "authority_check": "commercial_solution_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SourceAuthorization",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G01",
+          "from": "F1_SOURCE",
+          "to": "F2_FETCH",
+          "authority_check": "source_rights",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SupersessionEvent",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G10",
+          "from": "CX3_MARK",
+          "to": "CX4_RECOMPUTE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SupportedSolution",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G03",
+          "from": "S4_GAPS",
+          "to": "S5_ROI",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SystemBindingProposal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G01",
+          "from": "TB3_AUTHORITY",
+          "to": "TB4_REVIEW",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SystemDiscoverySnapshot",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G01",
+          "from": "TB1_DISCOVER",
+          "to": "TB2_MAP",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "SystemMappingProposal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G01",
+          "from": "TB2_MAP",
+          "to": "TB3_AUTHORITY",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "TwinChangeImpact",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G06",
+          "from": "TL3_IMPACT",
+          "to": "TL4_REVIEW",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "TwinChangeProposal",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G06",
+          "from": "TL2_VALIDATE",
+          "to": "TL3_IMPACT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "TwinCorrectionEvent",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G10",
+          "from": "CF4_PROJECT",
+          "to": "CF5_IMPACT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "TwinFactChange",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G02",
+          "from": "TS5_PROJECT",
+          "to": "TS6_IMPACT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "TwinLearningCandidate",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G06",
+          "from": "TL1_OBSERVE",
+          "to": "TL2_VALIDATE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "TwinSemanticDiff",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G06",
+          "from": "TL5_VERSION",
+          "to": "TL6_RECERT",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ValidatedDiscovery",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G02",
+          "from": "Q5_VALIDATE",
+          "to": "Q6_HANDOFF",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ValidatedEvidence",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G01",
+          "from": "F4_VALIDATE",
+          "to": "F5_NORMALIZE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "ValidatedImplementationHandoff",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "REV-G06",
+          "from": "I4_VALIDATE",
+          "to": "I5_TRANSFER",
+          "authority_check": "handoff_authority",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "VerifiedNetworkArtifact",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "TWIN-G07",
+          "from": "TN2_VERIFY",
+          "to": "TN3_MAP",
+          "authority_check": "network_relationship_policy",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    },
+    {
+      "artifact_type": "VerifiedPolicyChange",
+      "version": "0.1-audit-candidate",
+      "status": "AUDIT_CANDIDATE",
+      "edges": [
+        {
+          "graph_id": "FMI-G09",
+          "from": "RP2_VERIFY",
+          "to": "RP3_SCOPE",
+          "authority_check": "none",
+          "stale_invalidation": "on material input/version change"
+        }
+      ],
+      "authority_bearing": false,
+      "schema_binding": "TO_BE_RECONCILED_WITH_EXISTING_V1_8_TYPED_HANDOFFS"
+    }
+  ]
+}

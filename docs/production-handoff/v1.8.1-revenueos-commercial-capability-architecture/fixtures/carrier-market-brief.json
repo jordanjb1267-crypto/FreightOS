@@ -1,0 +1,27 @@
+{
+  "brief_id": "brief-carrier-demo-001",
+  "participant_id": "carrier-demo",
+  "twin_type": "carrier",
+  "generated_at": "2026-08-16T04:00:00Z",
+  "as_of": "2026-08-16T03:55:00Z",
+  "signals": [
+    "sig-dal-atl-rate-001",
+    "sig-gulf-diesel-001",
+    "sig-dal-capacity-001"
+  ],
+  "impacts": [
+    {
+      "surface": "dispatch_planning",
+      "materiality": "HIGH",
+      "reason": "Dallas outbound capacity tightened while Atlanta-bound spot benchmark rose; review current load-ranking assumptions rather than auto-accepting freight.",
+      "signal_refs": [
+        "sig-dal-atl-rate-001",
+        "sig-dal-capacity-001"
+      ],
+      "suggested_consumer": "Carrier Planning Agent"
+    }
+  ],
+  "disclaimer_class": "market_intelligence_not_execution_authority",
+  "customer_visible": true,
+  "expires_at": "2026-08-16T12:00:00Z"
+}

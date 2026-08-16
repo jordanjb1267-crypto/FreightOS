@@ -1,0 +1,38 @@
+{
+  "status": "AUDIT_CANDIDATE",
+  "participant_profile": "SOT",
+  "scenario": "shipper ERP remains order source of record while FreightOS coordinates transportation network",
+  "systems": [
+    {
+      "name": "ERP",
+      "authority": [
+        "order/customer/product commitments"
+      ],
+      "sync": "EVENT_SUBSCRIPTION"
+    },
+    {
+      "name": "TMS",
+      "authority": [
+        "transport plan until explicitly migrated"
+      ],
+      "sync": "BIDIRECTIONAL_GOVERNED"
+    }
+  ],
+  "workflow_modes": {
+    "transport_intake": "ASSIST",
+    "routing": "COLLABORATE",
+    "tender": "APPROVAL_EXECUTE",
+    "visibility": "BOUNDED_AUTONOMY"
+  },
+  "network_outputs": [
+    "shipment_intent",
+    "tender",
+    "requirements",
+    "exception_request"
+  ],
+  "proof_targets": [
+    "ERP preserved",
+    "canonical mapping",
+    "counterparty response reconciliation"
+  ]
+}

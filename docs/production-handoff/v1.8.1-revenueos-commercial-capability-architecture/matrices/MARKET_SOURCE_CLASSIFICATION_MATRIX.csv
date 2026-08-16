@@ -1,0 +1,9 @@
+source_class,example_purpose,production_requirement
+official_public,macro; fuel; regulatory; public freight statistics,registered source + provenance + refresh/freshness rules
+industry_public,industry traffic/indices/reports,terms/right review + methodology/coverage
+licensed_market_data,lane rates; capacity; tender/volume,executed license + API/derived/display rights
+licensed_news,freight/logistics news and alerts,executed content/machine-use/display rights
+customer_private,customer historical operations,tenant isolation + purpose/consent policy
+network_aggregate,proprietary network intelligence,cohort/privacy/anti-reidentification + contractual rights
+partner_contributed,partner data,partner agreement + provenance + revocation
+open_web_observation,public event/page metadata where permitted,legal/terms review + anti-fragility + provenance

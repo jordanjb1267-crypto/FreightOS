@@ -1,0 +1,160 @@
+{
+  "graph_id": "TWIN-G01",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "System discovery and approved binding",
+  "plane": "twin_integration",
+  "workunit_type": "TwinSystemBindingWorkUnit",
+  "trigger": "customer onboarding or integration change",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "TB1_DISCOVER",
+      "owner": "Implementation/Twin Configuration Steward",
+      "state": "SYSTEM_DISCOVERED",
+      "entry_preconditions": [
+        "authorized customer scope"
+      ],
+      "exit_postconditions": [
+        "systems/interfaces identified"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TB2_MAP",
+      "owner": "Integration Mapping Service",
+      "state": "MAPPING_PROPOSED",
+      "entry_preconditions": [
+        "system metadata/schema/evidence"
+      ],
+      "exit_postconditions": [
+        "canonical mapping proposal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TB3_AUTHORITY",
+      "owner": "Twin/Customer Configuration Authority",
+      "state": "AUTHORITY_BINDING_PROPOSED",
+      "entry_preconditions": [
+        "mapping proposal"
+      ],
+      "exit_postconditions": [
+        "field/object authority and sync proposal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TB4_REVIEW",
+      "owner": "Authorized Customer Admin",
+      "state": "CUSTOMER_REVIEW",
+      "entry_preconditions": [
+        "binding proposal"
+      ],
+      "exit_postconditions": [
+        "approved/rejected exact binding"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TB5_CONFORMANCE",
+      "owner": "Integration Conformance Service",
+      "state": "CONFORMANCE_TESTED",
+      "entry_preconditions": [
+        "approved binding"
+      ],
+      "exit_postconditions": [
+        "read/write/retry/version tests result"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TB6_ACTIVATE",
+      "owner": "Integration Control Plane",
+      "state": "BINDING_ACTIVE",
+      "entry_preconditions": [
+        "conformance PASS",
+        "required security approval"
+      ],
+      "exit_postconditions": [
+        "versioned binding active"
+      ],
+      "side_effect_class": "integration_configuration",
+      "timeout": "PT30M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "TB1_DISCOVER",
+      "to": "TB2_MAP",
+      "artifact": "SystemDiscoverySnapshot",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TB2_MAP",
+      "to": "TB3_AUTHORITY",
+      "artifact": "SystemMappingProposal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TB3_AUTHORITY",
+      "to": "TB4_REVIEW",
+      "artifact": "SystemBindingProposal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TB4_REVIEW",
+      "to": "TB5_CONFORMANCE",
+      "artifact": "ApprovedSystemBinding",
+      "guard": "approved=true",
+      "authority_check": "customer_configuration_approval",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TB5_CONFORMANCE",
+      "to": "TB6_ACTIVATE",
+      "artifact": "ConformanceResult",
+      "guard": "result=PASS",
+      "authority_check": "integration_activation_policy",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "BINDING_ACTIVE",
+    "REJECTED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

@@ -1,0 +1,7 @@
+consumer_domain,allowed_use,prohibited_direct_effect
+RevenueOS,customer briefs; discovery; solution fit; expansion context,operational command; unsupported urgency; prospect use of private customer data
+Carrier,planning; profitability; feasibility; exception context,load acceptance; driver assignment; negotiation without domain authority
+Brokerage,pricing context; sourcing; margin risk; exception context,quote/tender/award bypassing pricing-credit-margin authority
+FacilityOS,arrival pressure; staffing/readiness; appointment risk,gate admission; dock assignment; custody
+Shipper,procurement benchmarking; routing risk; modal review,binding tender/award/contract outside shipper authority
+Service_RigDesk,parts/service capacity; disruption; demand forecasting,repair authorization; customer spend; roadside dispatch from FMI alone

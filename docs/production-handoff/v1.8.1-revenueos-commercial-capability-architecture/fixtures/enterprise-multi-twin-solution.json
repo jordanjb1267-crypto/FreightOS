@@ -1,0 +1,13 @@
+{
+  "account": "example-enterprise",
+  "participant_products": [
+    "carrier",
+    "facility"
+  ],
+  "rule": "Separate participant/legal scopes; do not collapse Twins because parent organization is shared.",
+  "recommended_capabilities": [
+    "carrier.dispatch.core",
+    "facility.appointment.core",
+    "network.integration.volume"
+  ]
+}

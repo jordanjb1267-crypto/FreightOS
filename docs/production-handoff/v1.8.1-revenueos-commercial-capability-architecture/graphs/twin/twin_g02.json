@@ -1,0 +1,160 @@
+{
+  "graph_id": "TWIN-G02",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Inbound external-system synchronization",
+  "plane": "twin_integration",
+  "workunit_type": "TwinSyncWorkUnit",
+  "trigger": "external event/snapshot received",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "TS1_RECEIVE",
+      "owner": "Integration Adapter",
+      "state": "EXTERNAL_CHANGE_RECEIVED",
+      "entry_preconditions": [
+        "authenticated configured source"
+      ],
+      "exit_postconditions": [
+        "raw change recorded"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TS2_DEDUPE",
+      "owner": "Integration Reliability Service",
+      "state": "ORDERED_DEDUPED",
+      "entry_preconditions": [
+        "raw change"
+      ],
+      "exit_postconditions": [
+        "stable external version/correlation"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TS3_MAP",
+      "owner": "Integration Mapping Service",
+      "state": "CANONICAL_OBSERVATION",
+      "entry_preconditions": [
+        "current mapping version"
+      ],
+      "exit_postconditions": [
+        "canonical observation + provenance"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TS4_AUTH",
+      "owner": "Fact Authority Resolver",
+      "state": "AUTHORITY_EVALUATED",
+      "entry_preconditions": [
+        "current system/fact binding"
+      ],
+      "exit_postconditions": [
+        "apply|conflict|ignore"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TS5_PROJECT",
+      "owner": "Twin Projection Service",
+      "state": "TWIN_PROJECTED",
+      "entry_preconditions": [
+        "decision=apply"
+      ],
+      "exit_postconditions": [
+        "governed Twin projection updated"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TS6_IMPACT",
+      "owner": "Workflow Invalidation Service",
+      "state": "IMPACT_EVALUATED",
+      "entry_preconditions": [
+        "changed material fact"
+      ],
+      "exit_postconditions": [
+        "affected WorkUnits/proposals invalidated or re-evaluated"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "TS1_RECEIVE",
+      "to": "TS2_DEDUPE",
+      "artifact": "ExternalChangeEvent",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TS2_DEDUPE",
+      "to": "TS3_MAP",
+      "artifact": "OrderedExternalChange",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TS3_MAP",
+      "to": "TS4_AUTH",
+      "artifact": "NormalizedTwinObservation",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TS4_AUTH",
+      "to": "TS5_PROJECT",
+      "artifact": "AuthorizedTwinFact",
+      "guard": "decision=apply",
+      "authority_check": "fact_authority_binding",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TS5_PROJECT",
+      "to": "TS6_IMPACT",
+      "artifact": "TwinFactChange",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "IMPACT_EVALUATED",
+    "CONFLICT",
+    "IGNORED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

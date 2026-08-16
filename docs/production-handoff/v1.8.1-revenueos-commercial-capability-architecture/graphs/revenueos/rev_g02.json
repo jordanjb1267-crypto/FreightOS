@@ -1,0 +1,160 @@
+{
+  "graph_id": "REV-G02",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Qualification and structured discovery",
+  "plane": "revenueos",
+  "workunit_type": "CommercialQualificationWorkUnit",
+  "trigger": "prospect routed to qualification",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "Q1_INTAKE",
+      "owner": "Qualification Service",
+      "state": "QUALIFICATION_INTAKE",
+      "entry_preconditions": [
+        "canonical account"
+      ],
+      "exit_postconditions": [
+        "required evidence list established"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "Q2_RESEARCH",
+      "owner": "Account Intelligence Agent",
+      "state": "ACCOUNT_CONTEXT",
+      "entry_preconditions": [
+        "permitted sources"
+      ],
+      "exit_postconditions": [
+        "sourced operating context"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "Q3_SCORE",
+      "owner": "Qualification Service",
+      "state": "FIT_SCORED",
+      "entry_preconditions": [
+        "required evidence or explicit UNKNOWN"
+      ],
+      "exit_postconditions": [
+        "fit/exclusion decision with reasons"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "Q4_DISCOVERY",
+      "owner": "Discovery Copilot",
+      "state": "DISCOVERY_CAPTURED",
+      "entry_preconditions": [
+        "qualified or review-required"
+      ],
+      "exit_postconditions": [
+        "structured discovery version captured"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "Q5_VALIDATE",
+      "owner": "Commercial Compliance Guard",
+      "state": "DISCOVERY_VALIDATED",
+      "entry_preconditions": [
+        "discovery record"
+      ],
+      "exit_postconditions": [
+        "unsupported claims/forbidden data flagged"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "Q6_HANDOFF",
+      "owner": "Revenue Operations Orchestrator",
+      "state": "CONFIGURATION_READY",
+      "entry_preconditions": [
+        "validated discovery"
+      ],
+      "exit_postconditions": [
+        "SolutionConfiguration WorkUnit created"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "Q1_INTAKE",
+      "to": "Q2_RESEARCH",
+      "artifact": "QualificationEvidenceRequest",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "Q2_RESEARCH",
+      "to": "Q3_SCORE",
+      "artifact": "AccountBrief",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "Q3_SCORE",
+      "to": "Q4_DISCOVERY",
+      "artifact": "QualificationDecision",
+      "guard": "decision in [QUALIFIED,REVIEW]",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "Q4_DISCOVERY",
+      "to": "Q5_VALIDATE",
+      "artifact": "DiscoveryRecord",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "Q5_VALIDATE",
+      "to": "Q6_HANDOFF",
+      "artifact": "ValidatedDiscovery",
+      "guard": "status=PASS",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "CONFIGURATION_READY",
+    "RECYCLE",
+    "HOLD",
+    "DENIED"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

@@ -1,0 +1,22 @@
+{
+  "name": "ROI Engine",
+  "slug": "roi_engine",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "deterministic_service",
+  "mission": "calculate versioned approved ROI scenarios",
+  "explicit_non_scope": [
+    "fabricated inputs",
+    "guarantees",
+    "price authority"
+  ],
+  "graph_membership": [
+    "REV-G03"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

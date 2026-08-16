@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.local/schemas/system-binding.schema.json",
+  "title": "Operational Twin System Binding Audit Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "binding_id",
+    "participant_id",
+    "external_system",
+    "canonical_scope",
+    "authority_mode",
+    "sync_direction",
+    "freshness",
+    "conflict_rule",
+    "write_allowed",
+    "idempotency_strategy",
+    "effective_from",
+    "status"
+  ],
+  "properties": {
+    "binding_id": {
+      "type": "string"
+    },
+    "participant_id": {
+      "type": "string"
+    },
+    "external_system": {
+      "type": "string"
+    },
+    "adapter_version": {
+      "type": "string"
+    },
+    "canonical_scope": {
+      "type": "string"
+    },
+    "external_scope": {
+      "type": "string"
+    },
+    "authority_mode": {
+      "enum": [
+        "EXTERNAL_AUTHORITATIVE",
+        "FREIGHTOS_AUTHORITATIVE",
+        "CUSTOMER_CONFIG_AUTHORITATIVE",
+        "NETWORK_ASSERTED",
+        "DERIVED",
+        "HUMAN_ASSERTED"
+      ]
+    },
+    "sync_direction": {
+      "enum": [
+        "PULL_ONLY",
+        "PUSH_ONLY",
+        "BIDIRECTIONAL_GOVERNED",
+        "EVENT_SUBSCRIPTION",
+        "MANUAL_IMPORT",
+        "NO_SYNC_REFERENCE_ONLY"
+      ]
+    },
+    "freshness": {
+      "type": "string"
+    },
+    "conflict_rule": {
+      "type": "string"
+    },
+    "write_allowed": {
+      "type": "boolean"
+    },
+    "idempotency_strategy": {
+      "type": "string"
+    },
+    "ordering_strategy": {
+      "type": "string"
+    },
+    "reconciliation": {
+      "type": "string"
+    },
+    "classification": {
+      "type": "string"
+    },
+    "kill_switch": {
+      "type": "string"
+    },
+    "effective_from": {
+      "type": "string"
+    },
+    "effective_to": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "const": "AUDIT_CANDIDATE"
+    }
+  }
+}

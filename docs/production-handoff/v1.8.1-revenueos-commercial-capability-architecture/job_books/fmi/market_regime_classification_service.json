@@ -1,0 +1,21 @@
+{
+  "name": "Market Regime Classification Service",
+  "slug": "market_regime_classification_service",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "deterministic_model_service",
+  "mission": "classify bounded market regimes from approved metrics",
+  "explicit_non_scope": [
+    "business policy changes",
+    "command authority"
+  ],
+  "graph_membership": [
+    "FMI-G04"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

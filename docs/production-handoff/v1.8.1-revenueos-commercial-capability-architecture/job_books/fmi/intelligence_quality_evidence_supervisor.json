@@ -1,0 +1,27 @@
+{
+  "name": "Intelligence Quality & Evidence Supervisor",
+  "slug": "intelligence_quality_evidence_supervisor",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "human_supervised_hybrid",
+  "mission": "detect stale, conflicting, low-quality signals and evaluation drift",
+  "explicit_non_scope": [
+    "exception self-approval",
+    "source-rights override"
+  ],
+  "graph_membership": [
+    "FMI-G01",
+    "FMI-G02",
+    "FMI-G03",
+    "FMI-G05",
+    "FMI-G07",
+    "FMI-G09",
+    "FMI-G10"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

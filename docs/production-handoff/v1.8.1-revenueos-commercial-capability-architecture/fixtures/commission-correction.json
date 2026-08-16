@@ -1,0 +1,16 @@
+{
+  "original": {
+    "event_id": "ce-1",
+    "event_type": "EARNED",
+    "amount": 1000,
+    "currency": "USD"
+  },
+  "correction": {
+    "event_id": "ce-2",
+    "event_type": "CLAWBACK",
+    "related_event_ref": "ce-1",
+    "amount": -250,
+    "currency": "USD"
+  },
+  "invariant": "Original event remains immutable; correction is appended."
+}

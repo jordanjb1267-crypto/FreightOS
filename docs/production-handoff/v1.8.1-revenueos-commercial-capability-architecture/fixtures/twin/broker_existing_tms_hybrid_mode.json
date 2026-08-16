@@ -1,0 +1,40 @@
+{
+  "status": "AUDIT_CANDIDATE",
+  "participant_profile": "BOT",
+  "scenario": "brokerage staff keep TMS and use FreightOS as pricing/sourcing/coverage employee base",
+  "systems": [
+    {
+      "name": "Broker TMS",
+      "authority": [
+        "shipment master",
+        "carrier assignment",
+        "transaction record"
+      ],
+      "sync": "BIDIRECTIONAL_GOVERNED"
+    },
+    {
+      "name": "Email",
+      "authority": [
+        "raw communication evidence"
+      ],
+      "sync": "EVENT_SUBSCRIPTION"
+    }
+  ],
+  "workflow_modes": {
+    "rfq_triage": "ASSIST",
+    "pricing": "COLLABORATE",
+    "carrier_sourcing": "ASSIST",
+    "tender": "APPROVAL_EXECUTE",
+    "tracking": "BOUNDED_AUTONOMY"
+  },
+  "network_inputs": [
+    "shipper_request",
+    "carrier_response",
+    "facility_update"
+  ],
+  "proof_targets": [
+    "broker legal plane preserved",
+    "no network authority transfer",
+    "FMI remains evidence"
+  ]
+}

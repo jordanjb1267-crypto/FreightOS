@@ -1,0 +1,22 @@
+{
+  "account": "example-small-carrier",
+  "participant_product": "carrier",
+  "fleet_size": 5,
+  "pains": [
+    "manual dispatch follow-up",
+    "document chasing"
+  ],
+  "recommended_capabilities": [
+    "carrier.dispatch.core",
+    "carrier.documents.core"
+  ],
+  "explicitly_not_required": [
+    "facility.gate_dock.coordination",
+    "brokerage.sourcing"
+  ],
+  "rollout": {
+    "carrier.dispatch.core": "RECOMMEND",
+    "carrier.documents.core": "ASSIST"
+  },
+  "note": "Illustrative only; no prices or production authority."
+}

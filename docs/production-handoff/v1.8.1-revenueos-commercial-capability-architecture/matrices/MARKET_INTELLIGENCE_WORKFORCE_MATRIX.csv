@@ -1,0 +1,21 @@
+job_component,proposed_class,plane,may_publish_fmi,may_execute_logistics_command,requires_source_rights,requires_job_certification
+Market Intelligence Orchestrator,deterministic_workflow,shared_fmi,true,false,true,true
+Source Registry Steward,human_supervised_deterministic,shared_fmi,true,false,true,true
+Freight News Intelligence Agent,agent,revenueos_fmi,true,false,true,true
+Capacity Intelligence Agent,hybrid_agent,shared_fmi,true,false,true,true
+Rate Intelligence Agent,hybrid_agent,shared_fmi,true,false,true,true
+Demand & Volume Intelligence Agent,hybrid_agent,shared_fmi,true,false,true,true
+Lane & Corridor Intelligence Agent,hybrid_agent,shared_fmi,true,false,true,true
+Fuel & Energy Intelligence Service,deterministic_hybrid,shared_fmi,true,false,true,true
+Commodity & Seasonality Intelligence Agent,hybrid_agent,shared_fmi,true,false,true,true
+Disruption Intelligence Agent,hybrid_agent,shared_fmi,true,false,true,true
+Regulatory & Policy Intelligence Agent,human_supervised_agent,revenueos_fmi,true,false,true,true
+Rail & Intermodal Intelligence Agent,hybrid_agent,shared_fmi,true,false,true,true
+Ocean & Port Intelligence Agent,hybrid_agent,shared_fmi,true,false,true,true
+Maintenance Market Intelligence Agent,hybrid_agent,shared_fmi,true,false,true,true
+Market Regime Classification Service,deterministic_model_service,shared_fmi,true,false,true,true
+Forecast Ensemble Service,model_deterministic_wrapper,shared_fmi,true,false,true,true
+Customer Relevance & Impact Agent,agent,revenueos_fmi,true,false,true,true
+Market Briefing Agent,agent,revenueos_fmi,true,false,true,true
+Market Alerting Service,deterministic_workflow,revenueos_fmi,true,false,true,true
+Intelligence Quality & Evidence Supervisor,human_supervised_hybrid,shared_fmi,true,false,true,true

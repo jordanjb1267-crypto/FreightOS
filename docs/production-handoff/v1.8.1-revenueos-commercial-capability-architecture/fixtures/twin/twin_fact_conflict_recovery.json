@@ -1,0 +1,25 @@
+{
+  "status": "AUDIT_CANDIDATE",
+  "scenario": "TMS load status conflicts with delayed network milestone during integration outage",
+  "claims": [
+    {
+      "source": "TMS",
+      "authority_mode": "EXTERNAL_AUTHORITATIVE",
+      "value": "DISPATCHED",
+      "version": "812"
+    },
+    {
+      "source": "network_counterparty",
+      "authority_mode": "NETWORK_ASSERTED",
+      "value": "NOT_READY",
+      "version": "msg-72"
+    }
+  ],
+  "expected": [
+    "explicit conflict/exception",
+    "no last-writer-wins",
+    "downstream proposal invalidation if material",
+    "human/policy resolution",
+    "correction lineage"
+  ]
+}

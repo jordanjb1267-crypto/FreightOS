@@ -1,0 +1,211 @@
+{
+  "graph_id": "REV-G08",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Commission calculation, hold, approval and reconciliation",
+  "plane": "revenueos_financial",
+  "workunit_type": "CommissionWorkUnit",
+  "trigger": "eligible collected-revenue or correction event",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "C1_EVENT",
+      "owner": "Commission Calculation Service",
+      "state": "ELIGIBLE_EVENT",
+      "entry_preconditions": [
+        "immutable cash/credit/refund event"
+      ],
+      "exit_postconditions": [
+        "normalized eligible-revenue event"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "C2_PLAN",
+      "owner": "Commission Calculation Service",
+      "state": "PLAN_RESOLVED",
+      "entry_preconditions": [
+        "event date",
+        "seller/partner relationship"
+      ],
+      "exit_postconditions": [
+        "effective plan version"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "C3_ATTRIB",
+      "owner": "CRM/Opportunity Steward",
+      "state": "ATTRIBUTION_SNAPSHOT",
+      "entry_preconditions": [
+        "deal registration/order lineage"
+      ],
+      "exit_postconditions": [
+        "immutable attribution snapshot"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "C4_CALC",
+      "owner": "Commission Calculation Service",
+      "state": "CALCULATED",
+      "entry_preconditions": [
+        "plan",
+        "attribution",
+        "eligible event"
+      ],
+      "exit_postconditions": [
+        "deterministic commission calculation"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "C5_HOLD",
+      "owner": "Commercial Compliance Guard",
+      "state": "PAYOUT_ELIGIBILITY",
+      "entry_preconditions": [
+        "calculation",
+        "holds/clawbacks"
+      ],
+      "exit_postconditions": [
+        "eligible|hold|exception"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "C6_APPROVE",
+      "owner": "Deal Desk Coordinator",
+      "state": "FINANCE_REVIEW",
+      "entry_preconditions": [
+        "eligible calculation"
+      ],
+      "exit_postconditions": [
+        "finance authorization reference or HOLD"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "C7_RECORD",
+      "owner": "Commission Calculation Service",
+      "state": "PAYOUT_RECORD",
+      "entry_preconditions": [
+        "finance authorization"
+      ],
+      "exit_postconditions": [
+        "append-only payout instruction/record; no fund movement"
+      ],
+      "side_effect_class": "financial_record",
+      "timeout": "PT15M",
+      "retry_policy": "idempotent_retry",
+      "failure_transition": "C6_APPROVE"
+    },
+    {
+      "id": "C8_RECON",
+      "owner": "Commission Calculation Service",
+      "state": "RECONCILED",
+      "entry_preconditions": [
+        "payout result/correction events"
+      ],
+      "exit_postconditions": [
+        "ledger reconciled; corrections append only"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "C1_EVENT",
+      "to": "C2_PLAN",
+      "artifact": "EligibleRevenueEvent",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "C2_PLAN",
+      "to": "C3_ATTRIB",
+      "artifact": "CommissionPlanRef",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "C3_ATTRIB",
+      "to": "C4_CALC",
+      "artifact": "AttributionSnapshot",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "C4_CALC",
+      "to": "C5_HOLD",
+      "artifact": "CommissionCalculation",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "C5_HOLD",
+      "to": "C6_APPROVE",
+      "artifact": "PayoutEligibility",
+      "guard": "status=ELIGIBLE",
+      "authority_check": "commission_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "C6_APPROVE",
+      "to": "C7_RECORD",
+      "artifact": "FinanceAuthorization",
+      "guard": "approved=true",
+      "authority_check": "finance_authority",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "C7_RECORD",
+      "to": "C8_RECON",
+      "artifact": "PayoutRecord",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "RECONCILED",
+    "HOLD",
+    "EXCEPTION"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "calculation service never moves money",
+    "corrections are append-only"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

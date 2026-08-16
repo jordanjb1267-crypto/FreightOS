@@ -1,0 +1,22 @@
+{
+  "name": "Account Intelligence Agent",
+  "slug": "account_intelligence_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "agent",
+  "mission": "research account and operating context",
+  "explicit_non_scope": [
+    "authority claims",
+    "private cross-tenant intelligence use"
+  ],
+  "graph_membership": [
+    "REV-G01",
+    "REV-G02"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

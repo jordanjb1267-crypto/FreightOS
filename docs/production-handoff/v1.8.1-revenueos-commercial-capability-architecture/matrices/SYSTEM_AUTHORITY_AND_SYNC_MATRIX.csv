@@ -1,0 +1,7 @@
+authority_mode,meaning,may_update_twin,may_write_external,conflict_default
+EXTERNAL_AUTHORITATIVE,external source owns business fact,yes after authenticated mapped sync,only if external contract permits and command is authorized,external source wins or HOLD if ambiguous
+FREIGHTOS_AUTHORITATIVE,FreightOS owns business fact,yes,yes through governed adapter when authorized,FreightOS current version wins subject to reconciliation
+CUSTOMER_CONFIG_AUTHORITATIVE,approved Twin config owns rule,yes by controlled config change,only if a separate integration projection is approved,approved config version wins
+NETWORK_ASSERTED,counterparty/network assertion is evidence,only under local verification/binding,no direct write authority,local evaluation/HOLD
+DERIVED,computed from authoritative inputs,yes with lineage,not by itself,recompute/invalidate on source change
+HUMAN_ASSERTED,authorized human assertion with provenance,according to verification policy,not by itself,verification/customer policy

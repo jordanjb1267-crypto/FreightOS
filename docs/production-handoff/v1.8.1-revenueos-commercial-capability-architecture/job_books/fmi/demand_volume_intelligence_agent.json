@@ -1,0 +1,21 @@
+{
+  "name": "Demand & Volume Intelligence Agent",
+  "slug": "demand_volume_intelligence_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "hybrid_agent",
+  "mission": "detect freight demand and volume shifts",
+  "explicit_non_scope": [
+    "dispatch command",
+    "unsupported causal claims"
+  ],
+  "graph_membership": [
+    "FMI-G04"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

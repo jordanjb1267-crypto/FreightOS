@@ -1,0 +1,29 @@
+{
+  "name": "Market Intelligence Orchestrator",
+  "slug": "market_intelligence_orchestrator",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "deterministic_workflow",
+  "mission": "schedule, partition, and route intelligence WorkUnits",
+  "explicit_non_scope": [
+    "market conclusion authority by itself",
+    "logistics command"
+  ],
+  "graph_membership": [
+    "FMI-G01",
+    "FMI-G02",
+    "FMI-G03",
+    "FMI-G04",
+    "FMI-G05",
+    "FMI-G06",
+    "FMI-G08",
+    "FMI-G09",
+    "FMI-G10"
+  ],
+  "candidate_commands": [
+    "publish_fmi_artifact"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

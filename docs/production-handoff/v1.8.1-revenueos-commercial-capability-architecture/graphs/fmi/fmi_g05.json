@@ -1,0 +1,164 @@
+{
+  "graph_id": "FMI-G05",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Forecast production and calibration",
+  "plane": "shared_fmi",
+  "workunit_type": "MarketForecastWorkUnit",
+  "trigger": "forecast schedule or material input change",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "FC1_INPUT",
+      "owner": "Forecast Ensemble Service",
+      "state": "FORECAST_INPUT",
+      "entry_preconditions": [
+        "versioned approved feature set"
+      ],
+      "exit_postconditions": [
+        "feature snapshot frozen"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "FC2_MODELS",
+      "owner": "Forecast Ensemble Service",
+      "state": "MODEL_RUNS",
+      "entry_preconditions": [
+        "approved model versions"
+      ],
+      "exit_postconditions": [
+        "component forecast outputs"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "FC3_ENSEMBLE",
+      "owner": "Forecast Ensemble Service",
+      "state": "ENSEMBLED",
+      "entry_preconditions": [
+        "component outputs"
+      ],
+      "exit_postconditions": [
+        "point/interval forecast with lineage"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "FC4_CAL",
+      "owner": "Intelligence Quality & Evidence Supervisor",
+      "state": "CALIBRATION_CHECK",
+      "entry_preconditions": [
+        "forecast",
+        "backtest/calibration evidence"
+      ],
+      "exit_postconditions": [
+        "PASS|HOLD"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "FC5_LIMITS",
+      "owner": "Forecast Ensemble Service",
+      "state": "LIMITATIONS",
+      "entry_preconditions": [
+        "calibration result",
+        "coverage"
+      ],
+      "exit_postconditions": [
+        "limitations/invalidation conditions"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "FC6_PUBLISH",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "FORECAST_PUBLISHED",
+      "entry_preconditions": [
+        "PASS",
+        "limitations attached"
+      ],
+      "exit_postconditions": [
+        "versioned forecast envelope"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "FC1_INPUT",
+      "to": "FC2_MODELS",
+      "artifact": "ForecastFeatureSnapshot",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "FC2_MODELS",
+      "to": "FC3_ENSEMBLE",
+      "artifact": "ComponentForecastSet",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "FC3_ENSEMBLE",
+      "to": "FC4_CAL",
+      "artifact": "ForecastCandidate",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "FC4_CAL",
+      "to": "FC5_LIMITS",
+      "artifact": "CalibrationResult",
+      "guard": "status=PASS",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "FC5_LIMITS",
+      "to": "FC6_PUBLISH",
+      "artifact": "MarketForecastEnvelope",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "FORECAST_PUBLISHED",
+    "HOLD",
+    "NOT_COMPUTABLE"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "forecast uncertainty and invalidation conditions are mandatory",
+    "no forecast is an operational command"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

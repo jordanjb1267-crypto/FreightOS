@@ -1,0 +1,138 @@
+{
+  "graph_id": "REV-G05",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Partner deal registration and attribution",
+  "plane": "revenueos",
+  "workunit_type": "DealRegistrationWorkUnit",
+  "trigger": "partner submits eligible opportunity",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "D1_REGISTER",
+      "owner": "Partner Operations Agent",
+      "state": "DEAL_REGISTRATION",
+      "entry_preconditions": [
+        "partner identity",
+        "account identity"
+      ],
+      "exit_postconditions": [
+        "registration candidate"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "D2_COLLISION",
+      "owner": "CRM/Opportunity Steward",
+      "state": "ATTRIBUTION_COLLISION_CHECK",
+      "entry_preconditions": [
+        "registration candidate"
+      ],
+      "exit_postconditions": [
+        "collision evidence"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "D3_POLICY",
+      "owner": "Commercial Compliance Guard",
+      "state": "REGISTRATION_POLICY",
+      "entry_preconditions": [
+        "partner status",
+        "territory/account rules"
+      ],
+      "exit_postconditions": [
+        "ALLOW|HOLD|DENY"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "D4_COMMIT",
+      "owner": "Partner Operations Agent",
+      "state": "REGISTRATION_COMMITTED",
+      "entry_preconditions": [
+        "ALLOW"
+      ],
+      "exit_postconditions": [
+        "append-only registration event"
+      ],
+      "side_effect_class": "commercial_state",
+      "timeout": "PT15M",
+      "retry_policy": "idempotent_retry",
+      "failure_transition": "D3_POLICY"
+    },
+    {
+      "id": "D5_ROUTE",
+      "owner": "Revenue Operations Orchestrator",
+      "state": "OPPORTUNITY_ROUTED",
+      "entry_preconditions": [
+        "registration event"
+      ],
+      "exit_postconditions": [
+        "owner/partner relationships assigned without authority inheritance"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "D1_REGISTER",
+      "to": "D2_COLLISION",
+      "artifact": "DealRegistrationCandidate",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "D2_COLLISION",
+      "to": "D3_POLICY",
+      "artifact": "AttributionCollisionReport",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "D3_POLICY",
+      "to": "D4_COMMIT",
+      "artifact": "DealRegistrationDecision",
+      "guard": "decision=ALLOW",
+      "authority_check": "partner_deal_registration_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "D4_COMMIT",
+      "to": "D5_ROUTE",
+      "artifact": "DealRegistration",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "OPPORTUNITY_ROUTED",
+    "HOLD",
+    "DENIED"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

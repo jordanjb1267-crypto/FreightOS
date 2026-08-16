@@ -1,0 +1,183 @@
+{
+  "graph_id": "REV-G03",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Customer solution configuration",
+  "plane": "revenueos",
+  "workunit_type": "SolutionConfigurationWorkUnit",
+  "trigger": "validated discovery ready",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "S1_MAP",
+      "owner": "Solution Configuration Agent",
+      "state": "NEED_MAP",
+      "entry_preconditions": [
+        "validated discovery"
+      ],
+      "exit_postconditions": [
+        "need-to-capability map"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "S2_CATALOG",
+      "owner": "Solution Configuration Agent",
+      "state": "CATALOG_MATCHED",
+      "entry_preconditions": [
+        "versioned capability catalog"
+      ],
+      "exit_postconditions": [
+        "only existing/approved capability versions selected"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "S3_DEPENDENCY",
+      "owner": "Revenue Operations Orchestrator",
+      "state": "DEPENDENCIES_RESOLVED",
+      "entry_preconditions": [
+        "capability selections"
+      ],
+      "exit_postconditions": [
+        "Twin/pack/integration prerequisites mapped"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "S4_GAPS",
+      "owner": "Solution Configuration Agent",
+      "state": "GAPS_CLASSIFIED",
+      "entry_preconditions": [
+        "requested outcomes"
+      ],
+      "exit_postconditions": [
+        "gaps separated from supported capabilities"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "S5_ROI",
+      "owner": "ROI Engine",
+      "state": "ROI_SCENARIO",
+      "entry_preconditions": [
+        "approved input methodology"
+      ],
+      "exit_postconditions": [
+        "versioned scenario or NOT_COMPUTABLE"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "S6_REVIEW",
+      "owner": "Commercial Compliance Guard",
+      "state": "SOLUTION_REVIEWED",
+      "entry_preconditions": [
+        "configuration",
+        "ROI scenario"
+      ],
+      "exit_postconditions": [
+        "promise/authority/privacy precheck PASS|HOLD"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "S7_OUTPUT",
+      "owner": "Solution Configuration Agent",
+      "state": "SOLUTION_PROPOSED",
+      "entry_preconditions": [
+        "review PASS"
+      ],
+      "exit_postconditions": [
+        "immutable proposal version emitted"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "S1_MAP",
+      "to": "S2_CATALOG",
+      "artifact": "NeedCapabilityMap",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "S2_CATALOG",
+      "to": "S3_DEPENDENCY",
+      "artifact": "CatalogSelection",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "S3_DEPENDENCY",
+      "to": "S4_GAPS",
+      "artifact": "DependencyMap",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "S4_GAPS",
+      "to": "S5_ROI",
+      "artifact": "SupportedSolution",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "S5_ROI",
+      "to": "S6_REVIEW",
+      "artifact": "ROIScenario",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "S6_REVIEW",
+      "to": "S7_OUTPUT",
+      "artifact": "SolutionReviewResult",
+      "guard": "status=PASS",
+      "authority_check": "commercial_solution_policy",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "SOLUTION_PROPOSED",
+    "HOLD",
+    "REJECTED"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}
