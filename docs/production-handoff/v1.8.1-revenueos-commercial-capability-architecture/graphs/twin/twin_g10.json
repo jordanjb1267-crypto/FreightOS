@@ -1,0 +1,143 @@
+{
+  "graph_id": "TWIN-G10",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Fact conflict detection and reconciliation",
+  "plane": "twin_integration",
+  "workunit_type": "TwinFactConflictWorkUnit",
+  "trigger": "two material claims conflict",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "CF1_DETECT",
+      "owner": "Twin Projection/Integration Runtime",
+      "state": "CONFLICT_DETECTED",
+      "entry_preconditions": [
+        "conflicting claims"
+      ],
+      "exit_postconditions": [
+        "conflict case + provenance"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CF2_RULE",
+      "owner": "Fact Authority Resolver",
+      "state": "CONFLICT_RULE_EVALUATED",
+      "entry_preconditions": [
+        "current authority binding"
+      ],
+      "exit_postconditions": [
+        "deterministic resolution or review"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CF3_REVIEW",
+      "owner": "Authorized Human/Domain Steward",
+      "state": "CONFLICT_REVIEW",
+      "entry_preconditions": [
+        "manual review required"
+      ],
+      "exit_postconditions": [
+        "selected/corrected/held fact"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CF4_PROJECT",
+      "owner": "Twin Projection Service",
+      "state": "CONFLICT_RESOLVED",
+      "entry_preconditions": [
+        "resolved fact"
+      ],
+      "exit_postconditions": [
+        "new projection/version + correction lineage"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CF5_IMPACT",
+      "owner": "Workflow Invalidation Service",
+      "state": "DEPENDENCIES_REEVALUATED",
+      "entry_preconditions": [
+        "material correction"
+      ],
+      "exit_postconditions": [
+        "stale downstream work invalidated"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "CF1_DETECT",
+      "to": "CF2_RULE",
+      "artifact": "FactConflict",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CF2_RULE",
+      "to": "CF3_REVIEW",
+      "artifact": "ConflictReviewRequest",
+      "guard": "decision=REVIEW",
+      "authority_check": "fact_authority_binding",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CF2_RULE",
+      "to": "CF4_PROJECT",
+      "artifact": "ResolvedTwinFact",
+      "guard": "decision=DETERMINISTIC",
+      "authority_check": "fact_authority_binding",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CF3_REVIEW",
+      "to": "CF4_PROJECT",
+      "artifact": "HumanResolvedTwinFact",
+      "guard": "true",
+      "authority_check": "authorized_domain_review",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CF4_PROJECT",
+      "to": "CF5_IMPACT",
+      "artifact": "TwinCorrectionEvent",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "DEPENDENCIES_REEVALUATED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

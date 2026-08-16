@@ -1,0 +1,137 @@
+{
+  "graph_id": "FMI-G08",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Maintenance/service-market intelligence",
+  "plane": "shared_fmi",
+  "workunit_type": "MaintenanceMarketWorkUnit",
+  "trigger": "new maintenance/service/parts source event",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "MM1_SOURCE",
+      "owner": "Maintenance Market Intelligence Agent",
+      "state": "SERVICE_MARKET_INPUT",
+      "entry_preconditions": [
+        "parts/provider/OEM/service signals"
+      ],
+      "exit_postconditions": [
+        "normalized maintenance-market observations"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "MM2_REGION",
+      "owner": "Maintenance Market Intelligence Agent",
+      "state": "REGIONAL_CONTEXT",
+      "entry_preconditions": [
+        "customer operating footprint"
+      ],
+      "exit_postconditions": [
+        "regional relevance map"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "MM3_AVAIL",
+      "owner": "Maintenance Market Intelligence Agent",
+      "state": "AVAILABILITY_SIGNAL",
+      "entry_preconditions": [
+        "source evidence"
+      ],
+      "exit_postconditions": [
+        "parts/service/provider availability signal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "MM4_IMPACT",
+      "owner": "Customer Relevance & Impact Agent",
+      "state": "MAINTENANCE_IMPACT",
+      "entry_preconditions": [
+        "regional context",
+        "availability signal"
+      ],
+      "exit_postconditions": [
+        "customer impact; no repair/spend command"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "MM5_PUBLISH",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "MAINTENANCE_SIGNAL_PUBLISHED",
+      "entry_preconditions": [
+        "quality pass"
+      ],
+      "exit_postconditions": [
+        "published maintenance market intelligence"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "MM1_SOURCE",
+      "to": "MM2_REGION",
+      "artifact": "MaintenanceObservationSet",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "MM2_REGION",
+      "to": "MM3_AVAIL",
+      "artifact": "RegionalContext",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "MM3_AVAIL",
+      "to": "MM4_IMPACT",
+      "artifact": "MaintenanceAvailabilitySignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "MM4_IMPACT",
+      "to": "MM5_PUBLISH",
+      "artifact": "MaintenanceCustomerImpact",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "MAINTENANCE_SIGNAL_PUBLISHED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "maintenance intelligence never authorizes repair or spend"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

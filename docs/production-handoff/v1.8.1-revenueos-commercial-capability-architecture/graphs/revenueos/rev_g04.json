@@ -1,0 +1,187 @@
+{
+  "graph_id": "REV-G04",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Quote and proposal control graph",
+  "plane": "revenueos",
+  "workunit_type": "CommercialOfferWorkUnit",
+  "trigger": "solution proposal ready",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "P1_PRICE",
+      "owner": "Pricing Engine",
+      "state": "PRICED",
+      "entry_preconditions": [
+        "approved SKU/version",
+        "pricing policy version"
+      ],
+      "exit_postconditions": [
+        "deterministic price result"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "P2_DISCOUNT",
+      "owner": "Deal Desk Coordinator",
+      "state": "DISCOUNT_ROUTED",
+      "entry_preconditions": [
+        "price result",
+        "requested exception if any"
+      ],
+      "exit_postconditions": [
+        "approved price/discount or HOLD"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "P3_PROMISE",
+      "owner": "Commercial Compliance Guard",
+      "state": "PROMISE_CHECKED",
+      "entry_preconditions": [
+        "solution",
+        "commercial claims"
+      ],
+      "exit_postconditions": [
+        "PromiseCheckResult PASS|HOLD|REJECT"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "P4_SECURITY",
+      "owner": "Security/RFP Agent",
+      "state": "ASSURANCE_REVIEW",
+      "entry_preconditions": [
+        "customer assurance requirements"
+      ],
+      "exit_postconditions": [
+        "sourced responses; human attestations where required"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "P5_ASSEMBLE",
+      "owner": "Proposal Agent",
+      "state": "PROPOSAL_ASSEMBLED",
+      "entry_preconditions": [
+        "all required checks PASS"
+      ],
+      "exit_postconditions": [
+        "versioned proposal package"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "P6_SEND",
+      "owner": "Proposal Agent",
+      "state": "PROPOSAL_SENT",
+      "entry_preconditions": [
+        "seller/send authority",
+        "approved proposal"
+      ],
+      "exit_postconditions": [
+        "external delivery result"
+      ],
+      "side_effect_class": "external_commercial_offer",
+      "timeout": "PT30M",
+      "retry_policy": "bounded_retry",
+      "failure_transition": "P5_ASSEMBLE"
+    },
+    {
+      "id": "P7_DECISION",
+      "owner": "CRM/Opportunity Steward",
+      "state": "CUSTOMER_DECISION",
+      "entry_preconditions": [
+        "response"
+      ],
+      "exit_postconditions": [
+        "ACCEPT|REVISE|DECLINE recorded"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "P1_PRICE",
+      "to": "P2_DISCOUNT",
+      "artifact": "PriceResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "P2_DISCOUNT",
+      "to": "P3_PROMISE",
+      "artifact": "ApprovedCommercialTerms",
+      "guard": "approved=true",
+      "authority_check": "discount_authority",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "P3_PROMISE",
+      "to": "P4_SECURITY",
+      "artifact": "PromiseCheckResult",
+      "guard": "status=PASS",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "P4_SECURITY",
+      "to": "P5_ASSEMBLE",
+      "artifact": "AssuranceResponseSet",
+      "guard": "required_reviews_complete=true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "P5_ASSEMBLE",
+      "to": "P6_SEND",
+      "artifact": "ProposalPackage",
+      "guard": "proposal_version_current=true",
+      "authority_check": "seller_send_authority",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "P6_SEND",
+      "to": "P7_DECISION",
+      "artifact": "ProposalDeliveryResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "ACCEPTED",
+    "REVISE",
+    "DECLINED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

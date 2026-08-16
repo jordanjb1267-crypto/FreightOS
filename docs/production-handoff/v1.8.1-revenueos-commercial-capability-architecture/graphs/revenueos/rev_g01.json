@@ -1,0 +1,161 @@
+{
+  "graph_id": "REV-G01",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Prospect discovery and governed outreach",
+  "plane": "revenueos",
+  "workunit_type": "CommercialProspectWorkUnit",
+  "trigger": "inbound lead, partner referral, or approved prospecting source",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "R1_DISCOVER",
+      "owner": "Account Intelligence Agent",
+      "state": "DISCOVERED",
+      "entry_preconditions": [
+        "source permitted"
+      ],
+      "exit_postconditions": [
+        "candidate account identity evidence recorded"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "R2_DEDUPE",
+      "owner": "CRM/Opportunity Steward",
+      "state": "IDENTITY_RESOLVED",
+      "entry_preconditions": [
+        "candidate identity evidence"
+      ],
+      "exit_postconditions": [
+        "canonical account or duplicate link resolved"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "R3_ELIGIBILITY",
+      "owner": "Commercial Compliance Guard",
+      "state": "OUTREACH_ELIGIBILITY",
+      "entry_preconditions": [
+        "canonical account",
+        "jurisdiction/channel policy"
+      ],
+      "exit_postconditions": [
+        "ALLOW|HOLD|DENY recorded"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "R4_CONTACT",
+      "owner": "Prospecting Agent",
+      "state": "OUTREACH_SENT",
+      "entry_preconditions": [
+        "ALLOW",
+        "approved channel/template or reviewed content"
+      ],
+      "exit_postconditions": [
+        "idempotent communication result recorded"
+      ],
+      "side_effect_class": "external_communication",
+      "timeout": "PT30M",
+      "retry_policy": "bounded_retry",
+      "failure_transition": "R3_ELIGIBILITY"
+    },
+    {
+      "id": "R5_RESPONSE",
+      "owner": "CRM/Opportunity Steward",
+      "state": "RESPONSE_CAPTURED",
+      "entry_preconditions": [
+        "outreach or inbound response"
+      ],
+      "exit_postconditions": [
+        "intent/evidence normalized"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "R6_ROUTE",
+      "owner": "Revenue Operations Orchestrator",
+      "state": "ROUTED",
+      "entry_preconditions": [
+        "intent/evidence"
+      ],
+      "exit_postconditions": [
+        "qualification WorkUnit created or recycle closed"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "R1_DISCOVER",
+      "to": "R2_DEDUPE",
+      "artifact": "AccountCandidate",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "R2_DEDUPE",
+      "to": "R3_ELIGIBILITY",
+      "artifact": "CanonicalAccount",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "R3_ELIGIBILITY",
+      "to": "R4_CONTACT",
+      "artifact": "OutreachAuthorization",
+      "guard": "decision=ALLOW",
+      "authority_check": "commercial_outreach_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "R4_CONTACT",
+      "to": "R5_RESPONSE",
+      "artifact": "CommunicationResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "R5_RESPONSE",
+      "to": "R6_ROUTE",
+      "artifact": "ProspectIntent",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "ROUTED",
+    "HOLD",
+    "DENIED"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

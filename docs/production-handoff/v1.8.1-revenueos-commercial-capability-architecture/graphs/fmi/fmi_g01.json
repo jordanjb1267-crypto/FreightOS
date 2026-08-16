@@ -1,0 +1,163 @@
+{
+  "graph_id": "FMI-G01",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Source-rights to normalized market observation",
+  "plane": "shared_fmi",
+  "workunit_type": "MarketIngestionWorkUnit",
+  "trigger": "scheduled or event-driven source refresh",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "F1_SOURCE",
+      "owner": "Source Registry Steward",
+      "state": "SOURCE_ELIGIBILITY",
+      "entry_preconditions": [
+        "source registered"
+      ],
+      "exit_postconditions": [
+        "rights/access/freshness status resolved"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "F2_FETCH",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "INGEST_REQUEST",
+      "entry_preconditions": [
+        "source eligible",
+        "schedule/event"
+      ],
+      "exit_postconditions": [
+        "idempotent fetch request"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "F3_INGEST",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "RAW_CAPTURE",
+      "entry_preconditions": [
+        "fetch result"
+      ],
+      "exit_postconditions": [
+        "raw evidence envelope with observed_at/received_at/hash"
+      ],
+      "side_effect_class": "external_read",
+      "timeout": "PT10M",
+      "retry_policy": "bounded_retry",
+      "failure_transition": "F2_FETCH"
+    },
+    {
+      "id": "F4_VALIDATE",
+      "owner": "Intelligence Quality & Evidence Supervisor",
+      "state": "SOURCE_VALIDATED",
+      "entry_preconditions": [
+        "evidence envelope"
+      ],
+      "exit_postconditions": [
+        "VALID|QUARANTINE|STALE"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "F5_NORMALIZE",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "NORMALIZED",
+      "entry_preconditions": [
+        "VALID"
+      ],
+      "exit_postconditions": [
+        "canonical observation artifact"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "F6_PUBLISH",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "OBSERVATION_PUBLISHED",
+      "entry_preconditions": [
+        "normalized artifact"
+      ],
+      "exit_postconditions": [
+        "versioned FMI observation published"
+      ],
+      "side_effect_class": "internal_publish",
+      "timeout": "PT10M",
+      "retry_policy": "idempotent_retry",
+      "failure_transition": "F4_VALIDATE"
+    }
+  ],
+  "edges": [
+    {
+      "from": "F1_SOURCE",
+      "to": "F2_FETCH",
+      "artifact": "SourceAuthorization",
+      "guard": "status=ACTIVE",
+      "authority_check": "source_rights",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "F2_FETCH",
+      "to": "F3_INGEST",
+      "artifact": "IngestRequest",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "F3_INGEST",
+      "to": "F4_VALIDATE",
+      "artifact": "EvidenceEnvelope",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "F4_VALIDATE",
+      "to": "F5_NORMALIZE",
+      "artifact": "ValidatedEvidence",
+      "guard": "status=VALID",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "F5_NORMALIZE",
+      "to": "F6_PUBLISH",
+      "artifact": "MarketObservation",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "OBSERVATION_PUBLISHED",
+    "QUARANTINE",
+    "STALE",
+    "SOURCE_SUSPENDED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "technical accessibility never substitutes for permitted use"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

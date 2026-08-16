@@ -1,0 +1,136 @@
+{
+  "graph_id": "FMI-G09",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Regulatory and policy intelligence",
+  "plane": "revenueos_fmi",
+  "workunit_type": "RegulatoryIntelligenceWorkUnit",
+  "trigger": "new or changed transport policy/regulatory source",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "RP1_DETECT",
+      "owner": "Regulatory & Policy Intelligence Agent",
+      "state": "POLICY_CANDIDATE",
+      "entry_preconditions": [
+        "authoritative/approved policy source"
+      ],
+      "exit_postconditions": [
+        "candidate change with jurisdiction/effective dates"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RP2_VERIFY",
+      "owner": "Intelligence Quality & Evidence Supervisor",
+      "state": "POLICY_VERIFIED",
+      "entry_preconditions": [
+        "primary source where required"
+      ],
+      "exit_postconditions": [
+        "verified text/effective date or HOLD"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RP3_SCOPE",
+      "owner": "Regulatory & Policy Intelligence Agent",
+      "state": "APPLICABILITY_CONTEXT",
+      "entry_preconditions": [
+        "verified change"
+      ],
+      "exit_postconditions": [
+        "affected modes/geographies/participant classes"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RP4_REVIEW",
+      "owner": "Regulatory & Policy Intelligence Agent",
+      "state": "HUMAN_REVIEW",
+      "entry_preconditions": [
+        "material/high-risk policy item"
+      ],
+      "exit_postconditions": [
+        "reviewed informational interpretation"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RP5_PUBLISH",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "POLICY_SIGNAL_PUBLISHED",
+      "entry_preconditions": [
+        "review requirements complete"
+      ],
+      "exit_postconditions": [
+        "informational policy signal with no legal determination"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "RP1_DETECT",
+      "to": "RP2_VERIFY",
+      "artifact": "PolicyCandidate",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "RP2_VERIFY",
+      "to": "RP3_SCOPE",
+      "artifact": "VerifiedPolicyChange",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "RP3_SCOPE",
+      "to": "RP4_REVIEW",
+      "artifact": "ApplicabilityContext",
+      "guard": "materiality>=threshold",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "RP4_REVIEW",
+      "to": "RP5_PUBLISH",
+      "artifact": "ReviewedPolicySignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "POLICY_SIGNAL_PUBLISHED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "output is informational intelligence, not legal advice or compliance determination"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

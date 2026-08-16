@@ -1,0 +1,158 @@
+{
+  "graph_id": "TWIN-G11",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Integration degraded mode and recovery",
+  "plane": "twin_integration",
+  "workunit_type": "IntegrationRecoveryWorkUnit",
+  "trigger": "configured integration becomes unavailable/stale or returns",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "DG1_DETECT",
+      "owner": "Integration Health Service",
+      "state": "DEPENDENCY_DEGRADED",
+      "entry_preconditions": [
+        "health/freshness threshold breached"
+      ],
+      "exit_postconditions": [
+        "affected bindings/workflows"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DG2_GATE",
+      "owner": "Participant Policy/Workflow Runtime",
+      "state": "DEGRADED_SCOPE_APPLIED",
+      "entry_preconditions": [
+        "affected scope"
+      ],
+      "exit_postconditions": [
+        "continue-safe|hold-dependent-work"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DG3_RECOVER",
+      "owner": "Integration Adapter",
+      "state": "DEPENDENCY_RECOVERED",
+      "entry_preconditions": [
+        "connectivity/auth restored"
+      ],
+      "exit_postconditions": [
+        "recovery window established"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DG4_REPLAY",
+      "owner": "Integration Reliability Service",
+      "state": "MISSED_CHANGES_REPLAYED",
+      "entry_preconditions": [
+        "recovery window"
+      ],
+      "exit_postconditions": [
+        "deduped ordered changes"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DG5_RECON",
+      "owner": "Twin Reconciliation Service",
+      "state": "POST_RECOVERY_RECONCILED",
+      "entry_preconditions": [
+        "replayed changes"
+      ],
+      "exit_postconditions": [
+        "conflicts/stale proposals resolved"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "DG6_RESUME",
+      "owner": "Participant Workflow Runtime",
+      "state": "NORMAL_MODE_RESUMED",
+      "entry_preconditions": [
+        "fresh authoritative state"
+      ],
+      "exit_postconditions": [
+        "held work reevaluated"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "DG1_DETECT",
+      "to": "DG2_GATE",
+      "artifact": "IntegrationDegradation",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "DG2_GATE",
+      "to": "DG3_RECOVER",
+      "artifact": "RecoveryAwait",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "DG3_RECOVER",
+      "to": "DG4_REPLAY",
+      "artifact": "RecoverySnapshot",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "DG4_REPLAY",
+      "to": "DG5_RECON",
+      "artifact": "RecoveredChangeSet",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "DG5_RECON",
+      "to": "DG6_RESUME",
+      "artifact": "RecoveryReconciliationResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "NORMAL_MODE_RESUMED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

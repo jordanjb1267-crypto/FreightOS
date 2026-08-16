@@ -1,0 +1,25 @@
+{
+  "name": "CRM/Opportunity Steward",
+  "slug": "crm_opportunity_steward",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "hybrid",
+  "mission": "maintain commercial state and evidence",
+  "explicit_non_scope": [
+    "attribution-history rewrite",
+    "operational Twin mutation"
+  ],
+  "graph_membership": [
+    "REV-G01",
+    "REV-G04",
+    "REV-G05",
+    "REV-G06",
+    "REV-G08"
+  ],
+  "candidate_commands": [
+    "record_commercial_state"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

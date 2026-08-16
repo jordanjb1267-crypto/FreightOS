@@ -1,0 +1,22 @@
+{
+  "name": "Discovery Copilot",
+  "slug": "discovery_copilot",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "agent",
+  "mission": "prepare and capture structured discovery",
+  "explicit_non_scope": [
+    "Twin approval",
+    "production configuration mutation"
+  ],
+  "graph_membership": [
+    "REV-G02",
+    "REV-G07"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

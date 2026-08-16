@@ -1,0 +1,25 @@
+{
+  "name": "Revenue Operations Orchestrator",
+  "slug": "revenue_operations_orchestrator",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "workflow_router",
+  "mission": "route commercial WorkUnits",
+  "explicit_non_scope": [
+    "commercial approval",
+    "operational logistics authority"
+  ],
+  "graph_membership": [
+    "REV-G01",
+    "REV-G02",
+    "REV-G03",
+    "REV-G06",
+    "REV-G07"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

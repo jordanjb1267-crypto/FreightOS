@@ -1,0 +1,160 @@
+{
+  "graph_id": "TWIN-G06",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Twin learning and approved configuration change",
+  "plane": "twin_configuration",
+  "workunit_type": "TwinLearningWorkUnit",
+  "trigger": "repeated behavior/evidence suggests operational configuration change",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "TL1_OBSERVE",
+      "owner": "Twin Learning/Analytics Service",
+      "state": "PATTERN_CANDIDATE",
+      "entry_preconditions": [
+        "permitted evidence"
+      ],
+      "exit_postconditions": [
+        "candidate + evidence window"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TL2_VALIDATE",
+      "owner": "Twin Configuration Steward",
+      "state": "CHANGE_PROPOSED",
+      "entry_preconditions": [
+        "candidate"
+      ],
+      "exit_postconditions": [
+        "bounded proposal + confidence"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TL3_IMPACT",
+      "owner": "Architecture/Workflow Impact Service",
+      "state": "IMPACT_ANALYZED",
+      "entry_preconditions": [
+        "proposal"
+      ],
+      "exit_postconditions": [
+        "graphs/jobs/integrations/network/autonomy impacts"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TL4_REVIEW",
+      "owner": "Authorized Customer Admin",
+      "state": "CUSTOMER_CHANGE_REVIEW",
+      "entry_preconditions": [
+        "proposal + impact"
+      ],
+      "exit_postconditions": [
+        "approve/reject exact version"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TL5_VERSION",
+      "owner": "Twin Configuration Service",
+      "state": "TWIN_VERSION_CREATED",
+      "entry_preconditions": [
+        "approved change"
+      ],
+      "exit_postconditions": [
+        "new approved Twin version + semantic diff"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TL6_RECERT",
+      "owner": "Certification/Activation Control",
+      "state": "AFFECTED_SCOPE_HELD_OR_REEVALUATED",
+      "entry_preconditions": [
+        "impact list"
+      ],
+      "exit_postconditions": [
+        "required replay/recertification/activation decision"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "TL1_OBSERVE",
+      "to": "TL2_VALIDATE",
+      "artifact": "TwinLearningCandidate",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TL2_VALIDATE",
+      "to": "TL3_IMPACT",
+      "artifact": "TwinChangeProposal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TL3_IMPACT",
+      "to": "TL4_REVIEW",
+      "artifact": "TwinChangeImpact",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TL4_REVIEW",
+      "to": "TL5_VERSION",
+      "artifact": "ApprovedTwinChange",
+      "guard": "approved=true",
+      "authority_check": "customer_configuration_approval",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TL5_VERSION",
+      "to": "TL6_RECERT",
+      "artifact": "TwinSemanticDiff",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "AFFECTED_SCOPE_HELD_OR_REEVALUATED",
+    "REJECTED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable",
+    "observed behavior cannot silently rewrite approved Twin configuration"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

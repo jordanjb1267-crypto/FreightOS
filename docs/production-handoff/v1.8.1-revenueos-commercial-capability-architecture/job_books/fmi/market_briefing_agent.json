@@ -1,0 +1,21 @@
+{
+  "name": "Market Briefing Agent",
+  "slug": "market_briefing_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "agent",
+  "mission": "produce customer and role-specific briefings from approved signals",
+  "explicit_non_scope": [
+    "unsupported claims",
+    "hidden source laundering"
+  ],
+  "graph_membership": [
+    "FMI-G07"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

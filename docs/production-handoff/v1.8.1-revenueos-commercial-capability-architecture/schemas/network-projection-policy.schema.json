@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.local/schemas/network-projection-policy.schema.json",
+  "title": "Twin Network Projection Policy Audit Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policy_id",
+    "participant_id",
+    "artifact_type",
+    "purpose",
+    "audience_rule",
+    "field_rules",
+    "status"
+  ],
+  "properties": {
+    "policy_id": {
+      "type": "string"
+    },
+    "participant_id": {
+      "type": "string"
+    },
+    "artifact_type": {
+      "type": "string"
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "audience_rule": {
+      "type": "string"
+    },
+    "field_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "field",
+          "action"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "ALLOW",
+              "DENY",
+              "REDACT",
+              "DERIVE",
+              "REQUIRE_APPROVAL"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "retention_constraint": {
+      "type": "string"
+    },
+    "status": {
+      "const": "AUDIT_CANDIDATE"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+seller_class,prospect,discover,configure,quote_standard,discount_exception,promise_exception,contract_exception,activate_ops,view_operational_data
+referral_scout,yes,limited,no,no,no,no,no,no,no
+independent_sales_agent,yes,yes,bounded,bounded,no,no,no,no,purpose-scoped only
+certified_advisor,yes,yes,yes within certification,bounded,no,no,no,no,purpose-scoped only
+channel_reseller,yes,yes,agreement-bounded,agreement-bounded,no,no,no,no,agreement/purpose scoped
+enterprise_ae,yes,yes,yes,bounded,request only,request only,request only,no,purpose-scoped only
+strategic_partner,agreement,agreement,agreement,agreement,no self-approval,no self-approval,no self-approval,no,agreement/purpose scoped

@@ -1,0 +1,160 @@
+{
+  "graph_id": "FMI-G07",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Market briefing and alert delivery",
+  "plane": "revenueos_fmi",
+  "workunit_type": "MarketBriefingWorkUnit",
+  "trigger": "scheduled briefing or material alert threshold crossed",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "BA1_SELECT",
+      "owner": "Market Briefing Agent",
+      "state": "SIGNALS_SELECTED",
+      "entry_preconditions": [
+        "authorized customer impact/signals"
+      ],
+      "exit_postconditions": [
+        "briefing evidence bundle"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "BA2_DRAFT",
+      "owner": "Market Briefing Agent",
+      "state": "BRIEF_DRAFT",
+      "entry_preconditions": [
+        "evidence bundle"
+      ],
+      "exit_postconditions": [
+        "draft with uncertainty/source refs"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "BA3_QUALITY",
+      "owner": "Intelligence Quality & Evidence Supervisor",
+      "state": "BRIEF_REVIEW",
+      "entry_preconditions": [
+        "draft"
+      ],
+      "exit_postconditions": [
+        "PASS|HOLD|CORRECT"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "BA4_POLICY",
+      "owner": "Commercial Compliance Guard",
+      "state": "DELIVERY_POLICY",
+      "entry_preconditions": [
+        "role/channel/preferences"
+      ],
+      "exit_postconditions": [
+        "ALLOW|SUPPRESS"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "BA5_DELIVER",
+      "owner": "Market Alerting Service",
+      "state": "DELIVERED",
+      "entry_preconditions": [
+        "PASS",
+        "ALLOW"
+      ],
+      "exit_postconditions": [
+        "idempotent briefing/alert delivery"
+      ],
+      "side_effect_class": "external_communication",
+      "timeout": "PT15M",
+      "retry_policy": "bounded_retry",
+      "failure_transition": "BA4_POLICY"
+    },
+    {
+      "id": "BA6_ACK",
+      "owner": "Market Alerting Service",
+      "state": "DELIVERY_RECONCILED",
+      "entry_preconditions": [
+        "delivery result"
+      ],
+      "exit_postconditions": [
+        "delivery/ack/retry state reconciled"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "BA1_SELECT",
+      "to": "BA2_DRAFT",
+      "artifact": "BriefEvidenceBundle",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "BA2_DRAFT",
+      "to": "BA3_QUALITY",
+      "artifact": "MarketBriefDraft",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "BA3_QUALITY",
+      "to": "BA4_POLICY",
+      "artifact": "BriefReview",
+      "guard": "status=PASS",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "BA4_POLICY",
+      "to": "BA5_DELIVER",
+      "artifact": "DeliveryAuthorization",
+      "guard": "decision=ALLOW",
+      "authority_check": "communication_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "BA5_DELIVER",
+      "to": "BA6_ACK",
+      "artifact": "DeliveryResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "DELIVERY_RECONCILED",
+    "SUPPRESSED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

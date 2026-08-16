@@ -1,0 +1,6 @@
+profile,existing_system_examples,human_augmentation,network_inputs,network_outputs,critical_boundary
+COT,TMS|ELD|telematics|maintenance|accounting|email,dispatch|documents|exceptions|maintenance coordination,tenders|appointments|facility/service updates|FMI,capacity|tender response|ETA|milestone|exceptions|documents,carrier authority and private economics remain governed
+BOT,broker TMS|CRM|email|carrier network|accounting,RFQ|pricing|sourcing|coverage|tracking|reconciliation,shipper requests|carrier responses|facility updates|FMI,quotes/requests/tenders/execution events/docs,Brokerage Plane/legal controls remain independent
+FOT,WMS|YMS|ERP|appointment|gate systems,appointment desk|driver comms|document intake|yard/dock exception,carrier ETA/docs|shipper/broker requests,readiness|appointment|arrival|dock/custody/detention evidence,no takeover of physical/safety authority
+SOT,ERP|TMS|procurement|OMS|finance,transport intake|routing|visibility|exception/invoice review,carrier/broker/facility status and offers,shipment intent|tender|requirements|exceptions,shipper commercial authority stays local
+SPOT,shop/DMS|field service|scheduling|parts|accounting,intake|triage|estimate|scheduling|status,service requests|asset context|authorization,capacity|estimate|status|completion evidence,diagnosis/intelligence does not authorize spend/physical action

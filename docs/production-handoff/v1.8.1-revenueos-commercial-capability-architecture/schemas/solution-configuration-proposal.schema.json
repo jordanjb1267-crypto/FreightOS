@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/revenueos/solution-configuration-proposal.schema.json",
+  "title": "SolutionConfigurationProposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "proposal_id",
+    "account_ref",
+    "participant_products",
+    "capabilities",
+    "verified_pains",
+    "gaps",
+    "rollout_modes",
+    "catalog_version"
+  ],
+  "properties": {
+    "proposal_id": {
+      "type": "string"
+    },
+    "account_ref": {
+      "type": "string"
+    },
+    "participant_products": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "capability_id",
+          "version"
+        ],
+        "properties": {
+          "capability_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "verified_pains": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rollout_modes": {
+      "type": "object"
+    },
+    "required_integrations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "catalog_version": {
+      "type": "string"
+    },
+    "customer_approved": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

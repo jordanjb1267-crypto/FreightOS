@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FMI Forecast Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "forecast_id",
+    "target",
+    "horizon",
+    "generated_at",
+    "model_version",
+    "data_as_of",
+    "point_estimate",
+    "confidence",
+    "invalidation_conditions"
+  ],
+  "properties": {
+    "forecast_id": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "horizon": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "model_version": {
+      "type": "string"
+    },
+    "data_as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "point_estimate": {
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "unit": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "interval": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "backtest_metric": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "invalidation_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source_signal_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

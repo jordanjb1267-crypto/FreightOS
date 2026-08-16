@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.local/schemas/twin-learning-proposal.schema.json",
+  "title": "Twin Learning Proposal Audit Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "proposal_id",
+    "participant_id",
+    "candidate_change",
+    "evidence_refs",
+    "confidence",
+    "impact",
+    "approval_required",
+    "status"
+  ],
+  "properties": {
+    "proposal_id": {
+      "type": "string"
+    },
+    "participant_id": {
+      "type": "string"
+    },
+    "candidate_change": {
+      "type": "object"
+    },
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "impact": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approval_required": {
+      "const": true
+    },
+    "status": {
+      "enum": [
+        "PROPOSED",
+        "VERIFIED",
+        "APPROVED",
+        "REJECTED",
+        "DISPUTED",
+        "DEPRECATED"
+      ]
+    }
+  }
+}

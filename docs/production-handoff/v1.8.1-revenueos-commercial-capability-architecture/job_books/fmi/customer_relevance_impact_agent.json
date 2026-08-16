@@ -1,0 +1,23 @@
+{
+  "name": "Customer Relevance & Impact Agent",
+  "slug": "customer_relevance_impact_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "agent",
+  "mission": "map governed market signals to participant-specific exposure",
+  "explicit_non_scope": [
+    "Twin mutation",
+    "command",
+    "cross-tenant disclosure"
+  ],
+  "graph_membership": [
+    "FMI-G06",
+    "FMI-G08"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

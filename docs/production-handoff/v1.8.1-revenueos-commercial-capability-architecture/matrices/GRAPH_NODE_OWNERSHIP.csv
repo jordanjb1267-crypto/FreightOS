@@ -1,0 +1,212 @@
+graph_id,node_id,state,owner,side_effect_class,timeout,retry_policy,failure_transition
+REV-G01,R1_DISCOVER,DISCOVERED,Account Intelligence Agent,none,PT15M,none,HOLD
+REV-G01,R2_DEDUPE,IDENTITY_RESOLVED,CRM/Opportunity Steward,none,PT15M,none,HOLD
+REV-G01,R3_ELIGIBILITY,OUTREACH_ELIGIBILITY,Commercial Compliance Guard,none,PT15M,none,HOLD
+REV-G01,R4_CONTACT,OUTREACH_SENT,Prospecting Agent,external_communication,PT30M,bounded_retry,R3_ELIGIBILITY
+REV-G01,R5_RESPONSE,RESPONSE_CAPTURED,CRM/Opportunity Steward,none,PT15M,none,HOLD
+REV-G01,R6_ROUTE,ROUTED,Revenue Operations Orchestrator,none,PT15M,none,HOLD
+REV-G02,Q1_INTAKE,QUALIFICATION_INTAKE,Qualification Service,none,PT15M,none,HOLD
+REV-G02,Q2_RESEARCH,ACCOUNT_CONTEXT,Account Intelligence Agent,none,PT15M,none,HOLD
+REV-G02,Q3_SCORE,FIT_SCORED,Qualification Service,none,PT15M,none,HOLD
+REV-G02,Q4_DISCOVERY,DISCOVERY_CAPTURED,Discovery Copilot,none,PT15M,none,HOLD
+REV-G02,Q5_VALIDATE,DISCOVERY_VALIDATED,Commercial Compliance Guard,none,PT15M,none,HOLD
+REV-G02,Q6_HANDOFF,CONFIGURATION_READY,Revenue Operations Orchestrator,none,PT15M,none,HOLD
+REV-G03,S1_MAP,NEED_MAP,Solution Configuration Agent,none,PT15M,none,HOLD
+REV-G03,S2_CATALOG,CATALOG_MATCHED,Solution Configuration Agent,none,PT15M,none,HOLD
+REV-G03,S3_DEPENDENCY,DEPENDENCIES_RESOLVED,Revenue Operations Orchestrator,none,PT15M,none,HOLD
+REV-G03,S4_GAPS,GAPS_CLASSIFIED,Solution Configuration Agent,none,PT15M,none,HOLD
+REV-G03,S5_ROI,ROI_SCENARIO,ROI Engine,none,PT15M,none,HOLD
+REV-G03,S6_REVIEW,SOLUTION_REVIEWED,Commercial Compliance Guard,none,PT15M,none,HOLD
+REV-G03,S7_OUTPUT,SOLUTION_PROPOSED,Solution Configuration Agent,none,PT15M,none,HOLD
+REV-G04,P1_PRICE,PRICED,Pricing Engine,none,PT15M,none,HOLD
+REV-G04,P2_DISCOUNT,DISCOUNT_ROUTED,Deal Desk Coordinator,none,PT15M,none,HOLD
+REV-G04,P3_PROMISE,PROMISE_CHECKED,Commercial Compliance Guard,none,PT15M,none,HOLD
+REV-G04,P4_SECURITY,ASSURANCE_REVIEW,Security/RFP Agent,none,PT15M,none,HOLD
+REV-G04,P5_ASSEMBLE,PROPOSAL_ASSEMBLED,Proposal Agent,none,PT15M,none,HOLD
+REV-G04,P6_SEND,PROPOSAL_SENT,Proposal Agent,external_commercial_offer,PT30M,bounded_retry,P5_ASSEMBLE
+REV-G04,P7_DECISION,CUSTOMER_DECISION,CRM/Opportunity Steward,none,PT15M,none,HOLD
+REV-G05,D1_REGISTER,DEAL_REGISTRATION,Partner Operations Agent,none,PT15M,none,HOLD
+REV-G05,D2_COLLISION,ATTRIBUTION_COLLISION_CHECK,CRM/Opportunity Steward,none,PT15M,none,HOLD
+REV-G05,D3_POLICY,REGISTRATION_POLICY,Commercial Compliance Guard,none,PT15M,none,HOLD
+REV-G05,D4_COMMIT,REGISTRATION_COMMITTED,Partner Operations Agent,commercial_state,PT15M,idempotent_retry,D3_POLICY
+REV-G05,D5_ROUTE,OPPORTUNITY_ROUTED,Revenue Operations Orchestrator,none,PT15M,none,HOLD
+REV-G06,I1_ACCEPT,COMMERCIAL_ACCEPTED,CRM/Opportunity Steward,none,PT15M,none,HOLD
+REV-G06,I2_ENTITLE,ENTITLEMENT_INTENT,Implementation Handoff Agent,none,PT15M,none,HOLD
+REV-G06,I3_PACKAGE,HANDOFF_PACKAGED,Implementation Handoff Agent,none,PT15M,none,HOLD
+REV-G06,I4_VALIDATE,HANDOFF_VALIDATED,Commercial Compliance Guard,none,PT15M,none,HOLD
+REV-G06,I5_TRANSFER,TRANSFERRED,Revenue Operations Orchestrator,handoff_only,PT15M,none,HOLD
+REV-G06,I6_ACK,IMPLEMENTATION_ACK,Implementation Handoff Agent,none,PT15M,none,HOLD
+REV-G07,E1_SIGNAL,EXPANSION_SIGNAL,Expansion Agent,none,PT15M,none,HOLD
+REV-G07,E2_RELEVANCE,EXPANSION_FIT,Expansion Agent,none,PT15M,none,HOLD
+REV-G07,E3_CONSENT,OUTREACH_POLICY,Commercial Compliance Guard,none,PT15M,none,HOLD
+REV-G07,E4_DISCOVERY,EXPANSION_DISCOVERY,Discovery Copilot,none,PT15M,none,HOLD
+REV-G07,E5_REENTER,REENTER_SOLUTION_GRAPH,Revenue Operations Orchestrator,none,PT15M,none,HOLD
+REV-G08,C1_EVENT,ELIGIBLE_EVENT,Commission Calculation Service,none,PT15M,none,HOLD
+REV-G08,C2_PLAN,PLAN_RESOLVED,Commission Calculation Service,none,PT15M,none,HOLD
+REV-G08,C3_ATTRIB,ATTRIBUTION_SNAPSHOT,CRM/Opportunity Steward,none,PT15M,none,HOLD
+REV-G08,C4_CALC,CALCULATED,Commission Calculation Service,none,PT15M,none,HOLD
+REV-G08,C5_HOLD,PAYOUT_ELIGIBILITY,Commercial Compliance Guard,none,PT15M,none,HOLD
+REV-G08,C6_APPROVE,FINANCE_REVIEW,Deal Desk Coordinator,none,PT15M,none,HOLD
+REV-G08,C7_RECORD,PAYOUT_RECORD,Commission Calculation Service,financial_record,PT15M,idempotent_retry,C6_APPROVE
+REV-G08,C8_RECON,RECONCILED,Commission Calculation Service,none,PT15M,none,HOLD
+FMI-G01,F1_SOURCE,SOURCE_ELIGIBILITY,Source Registry Steward,none,PT15M,none,HOLD
+FMI-G01,F2_FETCH,INGEST_REQUEST,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G01,F3_INGEST,RAW_CAPTURE,Market Intelligence Orchestrator,external_read,PT10M,bounded_retry,F2_FETCH
+FMI-G01,F4_VALIDATE,SOURCE_VALIDATED,Intelligence Quality & Evidence Supervisor,none,PT15M,none,HOLD
+FMI-G01,F5_NORMALIZE,NORMALIZED,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G01,F6_PUBLISH,OBSERVATION_PUBLISHED,Market Intelligence Orchestrator,internal_publish,PT10M,idempotent_retry,F4_VALIDATE
+FMI-G02,N1_CANDIDATE,NEWS_CANDIDATE,Freight News Intelligence Agent,none,PT15M,none,HOLD
+FMI-G02,N2_CORROBORATE,CORROBORATION,Freight News Intelligence Agent,none,PT15M,none,HOLD
+FMI-G02,N3_INJECTION,CONTENT_SAFETY,Intelligence Quality & Evidence Supervisor,none,PT15M,none,HOLD
+FMI-G02,N4_FACT,FACT_EXTRACTION,Freight News Intelligence Agent,none,PT15M,none,HOLD
+FMI-G02,N5_EVENT,EVENT_REVIEW,Intelligence Quality & Evidence Supervisor,none,PT15M,none,HOLD
+FMI-G02,N6_PUBLISH,NEWS_EVENT_PUBLISHED,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G03,RC1_OBS,RATE_OBSERVATIONS,Rate Intelligence Agent,none,PT15M,none,HOLD
+FMI-G03,RC2_CAP,CAPACITY_OBSERVATIONS,Capacity Intelligence Agent,none,PT15M,none,HOLD
+FMI-G03,RC3_SAMPLE,SAMPLE_QUALITY,Intelligence Quality & Evidence Supervisor,none,PT15M,none,HOLD
+FMI-G03,RC4_DERIVE,RATE_DERIVED,Rate Intelligence Agent,none,PT15M,none,HOLD
+FMI-G03,RC5_DERIVE,CAPACITY_DERIVED,Capacity Intelligence Agent,none,PT15M,none,HOLD
+FMI-G03,RC6_COMBINE,LANE_MARKET_STATE,Lane & Corridor Intelligence Agent,none,PT15M,none,HOLD
+FMI-G03,RC7_PUBLISH,LANE_SIGNAL_PUBLISHED,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G04,DV1_DEMAND,DEMAND_DERIVED,Demand & Volume Intelligence Agent,none,PT15M,none,HOLD
+FMI-G04,DV2_SEASON,SEASONAL_CONTEXT,Commodity & Seasonality Intelligence Agent,none,PT15M,none,HOLD
+FMI-G04,DV3_FUEL,COST_CONTEXT,Fuel & Energy Intelligence Service,none,PT15M,none,HOLD
+FMI-G04,DV4_DISRUPT,DISRUPTION_CONTEXT,Disruption Intelligence Agent,none,PT15M,none,HOLD
+FMI-G04,DV5_REGIME,REGIME_CLASSIFIED,Market Regime Classification Service,none,PT15M,none,HOLD
+FMI-G04,DV6_LANE,CORRIDOR_SYNTHESIS,Lane & Corridor Intelligence Agent,none,PT15M,none,HOLD
+FMI-G04,DV7_PUBLISH,REGIME_PUBLISHED,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G05,FC1_INPUT,FORECAST_INPUT,Forecast Ensemble Service,none,PT15M,none,HOLD
+FMI-G05,FC2_MODELS,MODEL_RUNS,Forecast Ensemble Service,none,PT15M,none,HOLD
+FMI-G05,FC3_ENSEMBLE,ENSEMBLED,Forecast Ensemble Service,none,PT15M,none,HOLD
+FMI-G05,FC4_CAL,CALIBRATION_CHECK,Intelligence Quality & Evidence Supervisor,none,PT15M,none,HOLD
+FMI-G05,FC5_LIMITS,LIMITATIONS,Forecast Ensemble Service,none,PT15M,none,HOLD
+FMI-G05,FC6_PUBLISH,FORECAST_PUBLISHED,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G06,CR1_PROFILE,PROFILE_LOAD,Customer Relevance & Impact Agent,none,PT15M,none,HOLD
+FMI-G06,CR2_SIGNAL,SIGNAL_MATCH,Customer Relevance & Impact Agent,none,PT15M,none,HOLD
+FMI-G06,CR3_SCORE,RELEVANCE_SCORE,Customer Relevance & Impact Agent,none,PT15M,none,HOLD
+FMI-G06,CR4_PRIVACY,DISCLOSURE_CHECK,Commercial Compliance Guard,none,PT15M,none,HOLD
+FMI-G06,CR5_IMPACT,IMPACT_ASSESSMENT,Customer Relevance & Impact Agent,none,PT15M,none,HOLD
+FMI-G06,CR6_PUBLISH,IMPACT_PUBLISHED,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G07,BA1_SELECT,SIGNALS_SELECTED,Market Briefing Agent,none,PT15M,none,HOLD
+FMI-G07,BA2_DRAFT,BRIEF_DRAFT,Market Briefing Agent,none,PT15M,none,HOLD
+FMI-G07,BA3_QUALITY,BRIEF_REVIEW,Intelligence Quality & Evidence Supervisor,none,PT15M,none,HOLD
+FMI-G07,BA4_POLICY,DELIVERY_POLICY,Commercial Compliance Guard,none,PT15M,none,HOLD
+FMI-G07,BA5_DELIVER,DELIVERED,Market Alerting Service,external_communication,PT15M,bounded_retry,BA4_POLICY
+FMI-G07,BA6_ACK,DELIVERY_RECONCILED,Market Alerting Service,none,PT15M,none,HOLD
+FMI-G08,MM1_SOURCE,SERVICE_MARKET_INPUT,Maintenance Market Intelligence Agent,none,PT15M,none,HOLD
+FMI-G08,MM2_REGION,REGIONAL_CONTEXT,Maintenance Market Intelligence Agent,none,PT15M,none,HOLD
+FMI-G08,MM3_AVAIL,AVAILABILITY_SIGNAL,Maintenance Market Intelligence Agent,none,PT15M,none,HOLD
+FMI-G08,MM4_IMPACT,MAINTENANCE_IMPACT,Customer Relevance & Impact Agent,none,PT15M,none,HOLD
+FMI-G08,MM5_PUBLISH,MAINTENANCE_SIGNAL_PUBLISHED,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G09,RP1_DETECT,POLICY_CANDIDATE,Regulatory & Policy Intelligence Agent,none,PT15M,none,HOLD
+FMI-G09,RP2_VERIFY,POLICY_VERIFIED,Intelligence Quality & Evidence Supervisor,none,PT15M,none,HOLD
+FMI-G09,RP3_SCOPE,APPLICABILITY_CONTEXT,Regulatory & Policy Intelligence Agent,none,PT15M,none,HOLD
+FMI-G09,RP4_REVIEW,HUMAN_REVIEW,Regulatory & Policy Intelligence Agent,none,PT15M,none,HOLD
+FMI-G09,RP5_PUBLISH,POLICY_SIGNAL_PUBLISHED,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G10,CX1_TRIGGER,CORRECTION_TRIGGER,Intelligence Quality & Evidence Supervisor,none,PT15M,none,HOLD
+FMI-G10,CX2_IMPACT,DEPENDENCY_IMPACT,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G10,CX3_MARK,SUPERSEDED,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G10,CX4_RECOMPUTE,RECOMPUTE,Market Intelligence Orchestrator,none,PT15M,none,HOLD
+FMI-G10,CX5_NOTIFY,CORRECTION_NOTICE,Market Alerting Service,external_communication,PT30M,bounded_retry,CX4_RECOMPUTE
+FMI-G10,CX6_CLOSE,CORRECTION_RECONCILED,Intelligence Quality & Evidence Supervisor,none,PT15M,none,HOLD
+XPL-G01,XC1_READ,INTELLIGENCE_READ,Carrier/Broker/Facility/Shipper/Service Consumer,none,PT15M,none,HOLD
+XPL-G01,XC2_INTERPRET,DOMAIN_INTERPRETATION,Participant-domain agent/service,none,PT15M,none,HOLD
+XPL-G01,XC3_POLICY,OPERATIONAL_POLICY,Participant authority/policy plane,none,PT15M,none,HOLD
+XPL-G01,XC4_APPROVAL,OPERATIONAL_APPROVAL,Participant approval service/human,none,PT15M,none,HOLD
+XPL-G01,XC5_COMMAND,OPERATIONAL_COMMAND,Participant command executor,logistics_command,PT10M,reconcile_before_retry,XC3_POLICY
+XPL-G01,XC6_RECON,OPERATIONAL_RECONCILIATION,Participant reconciliation service,none,PT15M,none,HOLD
+XPL-G02,XC1_READ,INTELLIGENCE_READ,Carrier/Broker/Facility/Shipper/Service Consumer,none,PT15M,none,HOLD
+XPL-G02,XC2_INTERPRET,DOMAIN_INTERPRETATION,Participant-domain agent/service,none,PT15M,none,HOLD
+XPL-G02,XC3_POLICY,OPERATIONAL_POLICY,Participant authority/policy plane,none,PT15M,none,HOLD
+XPL-G02,XC4_APPROVAL,OPERATIONAL_APPROVAL,Participant approval service/human,none,PT15M,none,HOLD
+XPL-G02,XC5_COMMAND,OPERATIONAL_COMMAND,Participant command executor,logistics_command,PT10M,reconcile_before_retry,XC3_POLICY
+XPL-G02,XC6_RECON,OPERATIONAL_RECONCILIATION,Participant reconciliation service,none,PT15M,none,HOLD
+XPL-G03,XC1_READ,INTELLIGENCE_READ,Carrier/Broker/Facility/Shipper/Service Consumer,none,PT15M,none,HOLD
+XPL-G03,XC2_INTERPRET,DOMAIN_INTERPRETATION,Participant-domain agent/service,none,PT15M,none,HOLD
+XPL-G03,XC3_POLICY,OPERATIONAL_POLICY,Participant authority/policy plane,none,PT15M,none,HOLD
+XPL-G03,XC4_APPROVAL,OPERATIONAL_APPROVAL,Participant approval service/human,none,PT15M,none,HOLD
+XPL-G03,XC5_COMMAND,OPERATIONAL_COMMAND,Participant command executor,logistics_command,PT10M,reconcile_before_retry,XC3_POLICY
+XPL-G03,XC6_RECON,OPERATIONAL_RECONCILIATION,Participant reconciliation service,none,PT15M,none,HOLD
+XPL-G04,XC1_READ,INTELLIGENCE_READ,Carrier/Broker/Facility/Shipper/Service Consumer,none,PT15M,none,HOLD
+XPL-G04,XC2_INTERPRET,DOMAIN_INTERPRETATION,Participant-domain agent/service,none,PT15M,none,HOLD
+XPL-G04,XC3_POLICY,OPERATIONAL_POLICY,Participant authority/policy plane,none,PT15M,none,HOLD
+XPL-G04,XC4_APPROVAL,OPERATIONAL_APPROVAL,Participant approval service/human,none,PT15M,none,HOLD
+XPL-G04,XC5_COMMAND,OPERATIONAL_COMMAND,Participant command executor,logistics_command,PT10M,reconcile_before_retry,XC3_POLICY
+XPL-G04,XC6_RECON,OPERATIONAL_RECONCILIATION,Participant reconciliation service,none,PT15M,none,HOLD
+XPL-G05,XC1_READ,INTELLIGENCE_READ,Carrier/Broker/Facility/Shipper/Service Consumer,none,PT15M,none,HOLD
+XPL-G05,XC2_INTERPRET,DOMAIN_INTERPRETATION,Participant-domain agent/service,none,PT15M,none,HOLD
+XPL-G05,XC3_POLICY,OPERATIONAL_POLICY,Participant authority/policy plane,none,PT15M,none,HOLD
+XPL-G05,XC4_APPROVAL,OPERATIONAL_APPROVAL,Participant approval service/human,none,PT15M,none,HOLD
+XPL-G05,XC5_COMMAND,OPERATIONAL_COMMAND,Participant command executor,logistics_command,PT10M,reconcile_before_retry,XC3_POLICY
+XPL-G05,XC6_RECON,OPERATIONAL_RECONCILIATION,Participant reconciliation service,none,PT15M,none,HOLD
+XPL-G06,XC1_READ,INTELLIGENCE_READ,Carrier/Broker/Facility/Shipper/Service Consumer,none,PT15M,none,HOLD
+XPL-G06,XC2_INTERPRET,DOMAIN_INTERPRETATION,Participant-domain agent/service,none,PT15M,none,HOLD
+XPL-G06,XC3_POLICY,OPERATIONAL_POLICY,Participant authority/policy plane,none,PT15M,none,HOLD
+XPL-G06,XC4_APPROVAL,OPERATIONAL_APPROVAL,Participant approval service/human,none,PT15M,none,HOLD
+XPL-G06,XC5_COMMAND,OPERATIONAL_COMMAND,Participant command executor,logistics_command,PT10M,reconcile_before_retry,XC3_POLICY
+XPL-G06,XC6_RECON,OPERATIONAL_RECONCILIATION,Participant reconciliation service,none,PT15M,none,HOLD
+TWIN-G01,TB1_DISCOVER,SYSTEM_DISCOVERED,Implementation/Twin Configuration Steward,none,PT15M,none,HOLD
+TWIN-G01,TB2_MAP,MAPPING_PROPOSED,Integration Mapping Service,none,PT15M,none,HOLD
+TWIN-G01,TB3_AUTHORITY,AUTHORITY_BINDING_PROPOSED,Twin/Customer Configuration Authority,none,PT15M,none,HOLD
+TWIN-G01,TB4_REVIEW,CUSTOMER_REVIEW,Authorized Customer Admin,none,PT15M,none,HOLD
+TWIN-G01,TB5_CONFORMANCE,CONFORMANCE_TESTED,Integration Conformance Service,none,PT15M,none,HOLD
+TWIN-G01,TB6_ACTIVATE,BINDING_ACTIVE,Integration Control Plane,integration_configuration,PT30M,none,HOLD
+TWIN-G02,TS1_RECEIVE,EXTERNAL_CHANGE_RECEIVED,Integration Adapter,none,PT15M,none,HOLD
+TWIN-G02,TS2_DEDUPE,ORDERED_DEDUPED,Integration Reliability Service,none,PT15M,none,HOLD
+TWIN-G02,TS3_MAP,CANONICAL_OBSERVATION,Integration Mapping Service,none,PT15M,none,HOLD
+TWIN-G02,TS4_AUTH,AUTHORITY_EVALUATED,Fact Authority Resolver,none,PT15M,none,HOLD
+TWIN-G02,TS5_PROJECT,TWIN_PROJECTED,Twin Projection Service,none,PT15M,none,HOLD
+TWIN-G02,TS6_IMPACT,IMPACT_EVALUATED,Workflow Invalidation Service,none,PT15M,none,HOLD
+TWIN-G03,TH1_INTAKE,HUMAN_WORK_OWNED,Human Domain Operator,none,PT15M,none,HOLD
+TWIN-G03,TH2_ASSIST,ASSISTANCE_PREPARED,Permitted Domain Agent/Service,none,PT15M,none,HOLD
+TWIN-G03,TH3_REVIEW,HUMAN_REVIEW,Human Domain Operator,none,PT15M,none,HOLD
+TWIN-G03,TH4_DECIDE,HUMAN_DECISION,Human Domain Operator,none,PT15M,none,HOLD
+TWIN-G03,TH5_HANDOFF,NEXT_OWNER_ROUTED,Durable Workflow Runtime,none,PT15M,none,HOLD
+TWIN-G04,TC1_PREPARE,PROPOSAL_PREPARED,Participant Domain Agent/Service,none,PT15M,none,HOLD
+TWIN-G04,TC2_POLICY,POLICY_EVALUATED,Participant Policy Plane,none,PT15M,none,HOLD
+TWIN-G04,TC3_REVIEW,PROPOSAL_REVIEWED,Authorized Human/Approval Service,none,PT15M,none,HOLD
+TWIN-G04,TC4_COMMAND,COMMAND_EXECUTED,Participant Command Executor,operational_command,PT10M,reconcile_before_retry,TC5_RECON
+TWIN-G04,TC5_RECON,RESULT_RECONCILED,Participant Reconciliation Service,none,PT15M,none,HOLD
+TWIN-G05,TW1_INTENT,WRITEBACK_INTENT,Participant Domain Runtime,none,PT15M,none,HOLD
+TWIN-G05,TW2_BINDING,WRITEBACK_AUTHORIZED,Fact Authority/Integration Policy,none,PT15M,none,HOLD
+TWIN-G05,TW3_EXEC,EXTERNAL_WRITE_SUBMITTED,Integration Adapter,external_system_write,PT10M,reconcile_before_retry,TW4_RECON
+TWIN-G05,TW4_RECON,EXTERNAL_STATE_RECONCILED,Integration Reconciliation Service,none,PT15M,none,HOLD
+TWIN-G05,TW5_PROJECT,POST_WRITE_PROJECTED,Twin Projection Service,none,PT15M,none,HOLD
+TWIN-G06,TL1_OBSERVE,PATTERN_CANDIDATE,Twin Learning/Analytics Service,none,PT15M,none,HOLD
+TWIN-G06,TL2_VALIDATE,CHANGE_PROPOSED,Twin Configuration Steward,none,PT15M,none,HOLD
+TWIN-G06,TL3_IMPACT,IMPACT_ANALYZED,Architecture/Workflow Impact Service,none,PT15M,none,HOLD
+TWIN-G06,TL4_REVIEW,CUSTOMER_CHANGE_REVIEW,Authorized Customer Admin,none,PT15M,none,HOLD
+TWIN-G06,TL5_VERSION,TWIN_VERSION_CREATED,Twin Configuration Service,none,PT15M,none,HOLD
+TWIN-G06,TL6_RECERT,AFFECTED_SCOPE_HELD_OR_REEVALUATED,Certification/Activation Control,none,PT15M,none,HOLD
+TWIN-G07,TN1_RECEIVE,NETWORK_ARTIFACT_RECEIVED,FreightOS Network Gateway,none,PT15M,none,HOLD
+TWIN-G07,TN2_VERIFY,SENDER_RELATIONSHIP_VERIFIED,Network Identity/Relationship/Policy,none,PT15M,none,HOLD
+TWIN-G07,TN3_MAP,LOCAL_CONTEXT_MAPPED,Participant Network Adapter,none,PT15M,none,HOLD
+TWIN-G07,TN4_ROUTE,LOCAL_WORKUNIT_ROUTED,Participant Durable Workflow Runtime,none,PT15M,none,HOLD
+TWIN-G07,TN5_DECIDE,LOCAL_DECISION,Participant Domain Human/Agent,none,PT15M,none,HOLD
+TWIN-G08,NP1_CANDIDATE,PROJECTION_CANDIDATE,Participant Domain Human/Agent,none,PT15M,none,HOLD
+TWIN-G08,NP2_POLICY,DISCLOSURE_EVALUATED,Data Disclosure/Relationship Policy,none,PT15M,none,HOLD
+TWIN-G08,NP3_APPROVAL,DISCLOSURE_APPROVED,Authorized Participant Approver,none,PT15M,none,HOLD
+TWIN-G08,NP4_BUILD,NETWORK_ARTIFACT_BUILT,Network Projection Service,none,PT15M,none,HOLD
+TWIN-G08,NP5_SEND,NETWORK_ARTIFACT_SENT,FreightOS Network Gateway,external_communication,PT10M,bounded_retry,NP6_RECON
+TWIN-G08,NP6_RECON,NETWORK_DELIVERY_RECONCILED,Network Delivery Reconciliation,none,PT15M,none,HOLD
+TWIN-G09,CP1_REQUEST,REQUEST_AUTHORIZED,Origin Participant Domain,none,PT15M,none,HOLD
+TWIN-G09,CP2_SEND,REQUEST_DELIVERED,FreightOS Network Gateway,external_communication,PT10M,bounded_retry,CP5_RECON
+TWIN-G09,CP3_REMOTE,REMOTE_DECISION_PENDING,Receiving Participant Boundary,none,PT15M,none,HOLD
+TWIN-G09,CP4_RETURN,RESPONSE_RETURNED,FreightOS Network Gateway,external_communication,PT10M,bounded_retry,CP5_RECON
+TWIN-G09,CP5_RECON,COORDINATION_RECONCILED,Origin Participant Reconciliation,none,PT15M,none,HOLD
+TWIN-G10,CF1_DETECT,CONFLICT_DETECTED,Twin Projection/Integration Runtime,none,PT15M,none,HOLD
+TWIN-G10,CF2_RULE,CONFLICT_RULE_EVALUATED,Fact Authority Resolver,none,PT15M,none,HOLD
+TWIN-G10,CF3_REVIEW,CONFLICT_REVIEW,Authorized Human/Domain Steward,none,PT15M,none,HOLD
+TWIN-G10,CF4_PROJECT,CONFLICT_RESOLVED,Twin Projection Service,none,PT15M,none,HOLD
+TWIN-G10,CF5_IMPACT,DEPENDENCIES_REEVALUATED,Workflow Invalidation Service,none,PT15M,none,HOLD
+TWIN-G11,DG1_DETECT,DEPENDENCY_DEGRADED,Integration Health Service,none,PT15M,none,HOLD
+TWIN-G11,DG2_GATE,DEGRADED_SCOPE_APPLIED,Participant Policy/Workflow Runtime,none,PT15M,none,HOLD
+TWIN-G11,DG3_RECOVER,DEPENDENCY_RECOVERED,Integration Adapter,none,PT15M,none,HOLD
+TWIN-G11,DG4_REPLAY,MISSED_CHANGES_REPLAYED,Integration Reliability Service,none,PT15M,none,HOLD
+TWIN-G11,DG5_RECON,POST_RECOVERY_RECONCILED,Twin Reconciliation Service,none,PT15M,none,HOLD
+TWIN-G11,DG6_RESUME,NORMAL_MODE_RESUMED,Participant Workflow Runtime,none,PT15M,none,HOLD
+TWIN-G12,MD1_REQUEST,MODE_CHANGE_REQUESTED,Authorized Customer Admin/Revenue Implementation,none,PT15M,none,HOLD
+TWIN-G12,MD2_ELIG,ELIGIBILITY_EVALUATED,Certification/Authority Control,none,PT15M,none,HOLD
+TWIN-G12,MD3_IMPACT,MODE_IMPACT_REVIEW,Twin/Workflow Configuration Steward,none,PT15M,none,HOLD
+TWIN-G12,MD4_APPROVE,MODE_CHANGE_APPROVED,Authorized Customer Admin,none,PT15M,none,HOLD
+TWIN-G12,MD5_ACTIVATE,MODE_CONFIG_ACTIVE,Activation Control Plane,none,PT15M,none,HOLD

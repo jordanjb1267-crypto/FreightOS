@@ -1,0 +1,161 @@
+{
+  "graph_id": "REV-G06",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Closed-won to implementation boundary",
+  "plane": "revenueos_to_operational",
+  "workunit_type": "ImplementationHandoffWorkUnit",
+  "trigger": "commercial offer accepted",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "I1_ACCEPT",
+      "owner": "CRM/Opportunity Steward",
+      "state": "COMMERCIAL_ACCEPTED",
+      "entry_preconditions": [
+        "accepted exact proposal/order version"
+      ],
+      "exit_postconditions": [
+        "accepted version and evidence frozen"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "I2_ENTITLE",
+      "owner": "Implementation Handoff Agent",
+      "state": "ENTITLEMENT_INTENT",
+      "entry_preconditions": [
+        "accepted configuration"
+      ],
+      "exit_postconditions": [
+        "non-active entitlement intent created"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "I3_PACKAGE",
+      "owner": "Implementation Handoff Agent",
+      "state": "HANDOFF_PACKAGED",
+      "entry_preconditions": [
+        "entitlement intent",
+        "discovery/config evidence"
+      ],
+      "exit_postconditions": [
+        "ImplementationHandoff emitted"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "I4_VALIDATE",
+      "owner": "Commercial Compliance Guard",
+      "state": "HANDOFF_VALIDATED",
+      "entry_preconditions": [
+        "handoff"
+      ],
+      "exit_postconditions": [
+        "no unsupported promise/authority leakage"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "I5_TRANSFER",
+      "owner": "Revenue Operations Orchestrator",
+      "state": "TRANSFERRED",
+      "entry_preconditions": [
+        "validated handoff"
+      ],
+      "exit_postconditions": [
+        "operational implementation WorkUnit reference created; sales ownership ends"
+      ],
+      "side_effect_class": "handoff_only",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "I6_ACK",
+      "owner": "Implementation Handoff Agent",
+      "state": "IMPLEMENTATION_ACK",
+      "entry_preconditions": [
+        "implementation acknowledgement"
+      ],
+      "exit_postconditions": [
+        "commercial handoff closed or defect routed"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "I1_ACCEPT",
+      "to": "I2_ENTITLE",
+      "artifact": "AcceptedOffer",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "I2_ENTITLE",
+      "to": "I3_PACKAGE",
+      "artifact": "EntitlementIntent",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "I3_PACKAGE",
+      "to": "I4_VALIDATE",
+      "artifact": "ImplementationHandoff",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "I4_VALIDATE",
+      "to": "I5_TRANSFER",
+      "artifact": "ValidatedImplementationHandoff",
+      "guard": "status=PASS",
+      "authority_check": "handoff_authority",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "I5_TRANSFER",
+      "to": "I6_ACK",
+      "artifact": "ImplementationReceipt",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "IMPLEMENTATION_ACK",
+    "HOLD",
+    "HANDOFF_DEFECT"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "commercial acceptance never equals production activation"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

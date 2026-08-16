@@ -1,0 +1,21 @@
+{
+  "name": "Pricing Engine",
+  "slug": "pricing_engine",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "deterministic_service",
+  "mission": "price approved SKUs from versioned policy",
+  "explicit_non_scope": [
+    "policy override",
+    "discount self-approval"
+  ],
+  "graph_membership": [
+    "REV-G04"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

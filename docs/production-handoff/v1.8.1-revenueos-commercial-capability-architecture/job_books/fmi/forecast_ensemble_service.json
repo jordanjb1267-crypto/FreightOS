@@ -1,0 +1,22 @@
+{
+  "name": "Forecast Ensemble Service",
+  "slug": "forecast_ensemble_service",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "model_deterministic_wrapper",
+  "mission": "produce versioned calibrated forecasts with uncertainty",
+  "explicit_non_scope": [
+    "guarantees",
+    "business commands",
+    "silent model substitution"
+  ],
+  "graph_membership": [
+    "FMI-G05"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

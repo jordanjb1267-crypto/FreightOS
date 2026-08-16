@@ -1,0 +1,161 @@
+{
+  "graph_id": "FMI-G06",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Customer relevance and impact graph",
+  "plane": "revenueos_fmi",
+  "workunit_type": "CustomerMarketImpactWorkUnit",
+  "trigger": "new/changed FMI signal or relevance profile",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "CR1_PROFILE",
+      "owner": "Customer Relevance & Impact Agent",
+      "state": "PROFILE_LOAD",
+      "entry_preconditions": [
+        "authorized participant relevance profile"
+      ],
+      "exit_postconditions": [
+        "versioned exposure profile"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CR2_SIGNAL",
+      "owner": "Customer Relevance & Impact Agent",
+      "state": "SIGNAL_MATCH",
+      "entry_preconditions": [
+        "approved FMI signals"
+      ],
+      "exit_postconditions": [
+        "candidate matches by mode/equipment/geography/workflow"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CR3_SCORE",
+      "owner": "Customer Relevance & Impact Agent",
+      "state": "RELEVANCE_SCORE",
+      "entry_preconditions": [
+        "profile",
+        "matches"
+      ],
+      "exit_postconditions": [
+        "explainable relevance/materiality score"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CR4_PRIVACY",
+      "owner": "Commercial Compliance Guard",
+      "state": "DISCLOSURE_CHECK",
+      "entry_preconditions": [
+        "customer/network data classification"
+      ],
+      "exit_postconditions": [
+        "display/consume permissions"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CR5_IMPACT",
+      "owner": "Customer Relevance & Impact Agent",
+      "state": "IMPACT_ASSESSMENT",
+      "entry_preconditions": [
+        "permitted matched signals"
+      ],
+      "exit_postconditions": [
+        "participant-specific impact statement; no command"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CR6_PUBLISH",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "IMPACT_PUBLISHED",
+      "entry_preconditions": [
+        "quality PASS"
+      ],
+      "exit_postconditions": [
+        "CustomerMarketImpact published"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "CR1_PROFILE",
+      "to": "CR2_SIGNAL",
+      "artifact": "CustomerRelevanceProfile",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CR2_SIGNAL",
+      "to": "CR3_SCORE",
+      "artifact": "SignalMatchSet",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CR3_SCORE",
+      "to": "CR4_PRIVACY",
+      "artifact": "RelevanceAssessment",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CR4_PRIVACY",
+      "to": "CR5_IMPACT",
+      "artifact": "DisclosureDecision",
+      "guard": "status=ALLOW",
+      "authority_check": "data_disclosure_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CR5_IMPACT",
+      "to": "CR6_PUBLISH",
+      "artifact": "CustomerMarketImpact",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "IMPACT_PUBLISHED",
+    "NO_RELEVANCE",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "relevance profile is not an Operational Twin authority object"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

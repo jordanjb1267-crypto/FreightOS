@@ -1,0 +1,22 @@
+{
+  "name": "Freight News Intelligence Agent",
+  "slug": "freight_news_intelligence_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "agent",
+  "mission": "monitor and synthesize relevant freight/logistics developments",
+  "explicit_non_scope": [
+    "unsourced truth",
+    "rumor elevation",
+    "operational command"
+  ],
+  "graph_membership": [
+    "FMI-G02"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

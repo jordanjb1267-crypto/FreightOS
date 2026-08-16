@@ -1,0 +1,26 @@
+{
+  "brief_id": "brief-facility-demo-001",
+  "participant_id": "facility-demo",
+  "twin_type": "facility",
+  "generated_at": "2026-08-16T04:00:00Z",
+  "as_of": "2026-08-16T03:55:00Z",
+  "signals": [
+    "sig-port-delay-001",
+    "sig-inbound-volume-001"
+  ],
+  "impacts": [
+    {
+      "surface": "appointment_readiness",
+      "materiality": "MEDIUM",
+      "reason": "Port delay recovery may bunch inbound arrivals in the next operating window; consider staffing/appointment review through FacilityOS.",
+      "signal_refs": [
+        "sig-port-delay-001",
+        "sig-inbound-volume-001"
+      ],
+      "suggested_consumer": "Facility Readiness Workflow"
+    }
+  ],
+  "disclaimer_class": "market_intelligence_not_physical_authority",
+  "customer_visible": true,
+  "expires_at": "2026-08-17T00:00:00Z"
+}

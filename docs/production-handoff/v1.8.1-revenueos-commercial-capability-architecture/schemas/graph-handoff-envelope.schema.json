@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://freightos.local/schemas/graph-handoff-envelope.schema.json",
+  "title": "Graph Handoff Envelope Audit Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "handoff_id",
+    "artifact_type",
+    "artifact_version",
+    "source_graph_id",
+    "source_node_id",
+    "source_workunit_id",
+    "target_graph_id",
+    "target_node_id",
+    "tenant_id",
+    "represented_participant",
+    "produced_at",
+    "expires_at",
+    "payload_ref",
+    "evidence_refs",
+    "sender_manifest_version"
+  ],
+  "properties": {
+    "handoff_id": {
+      "type": "string"
+    },
+    "artifact_type": {
+      "type": "string"
+    },
+    "artifact_version": {
+      "type": "string"
+    },
+    "source_graph_id": {
+      "type": "string"
+    },
+    "source_node_id": {
+      "type": "string"
+    },
+    "source_workunit_id": {
+      "type": "string"
+    },
+    "target_graph_id": {
+      "type": "string"
+    },
+    "target_node_id": {
+      "type": "string"
+    },
+    "tenant_id": {
+      "type": "string"
+    },
+    "represented_participant": {
+      "type": "string"
+    },
+    "produced_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "payload_ref": {
+      "type": "string"
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sender_manifest_version": {
+      "type": "string"
+    },
+    "authority_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policy_decision_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "idempotency_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

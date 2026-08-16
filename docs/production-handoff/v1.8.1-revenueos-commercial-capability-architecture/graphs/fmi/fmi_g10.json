@@ -1,0 +1,159 @@
+{
+  "graph_id": "FMI-G10",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Correction, retraction, recompute and customer notice",
+  "plane": "shared_fmi",
+  "workunit_type": "MarketCorrectionWorkUnit",
+  "trigger": "material source correction, contradiction, expiry, or discovered error",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "CX1_TRIGGER",
+      "owner": "Intelligence Quality & Evidence Supervisor",
+      "state": "CORRECTION_TRIGGER",
+      "entry_preconditions": [
+        "source correction, contradiction, expiry, or error"
+      ],
+      "exit_postconditions": [
+        "affected artifact lineage"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CX2_IMPACT",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "DEPENDENCY_IMPACT",
+      "entry_preconditions": [
+        "affected artifact"
+      ],
+      "exit_postconditions": [
+        "dependent signals/forecasts/briefs/impacts identified"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CX3_MARK",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "SUPERSEDED",
+      "entry_preconditions": [
+        "validated correction"
+      ],
+      "exit_postconditions": [
+        "old artifact remains immutable but marked superseded/disputed"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CX4_RECOMPUTE",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "RECOMPUTE",
+      "entry_preconditions": [
+        "dependent artifacts"
+      ],
+      "exit_postconditions": [
+        "new versions or invalidated state"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "CX5_NOTIFY",
+      "owner": "Market Alerting Service",
+      "state": "CORRECTION_NOTICE",
+      "entry_preconditions": [
+        "material prior customer delivery"
+      ],
+      "exit_postconditions": [
+        "correction/retraction delivered idempotently"
+      ],
+      "side_effect_class": "external_communication",
+      "timeout": "PT30M",
+      "retry_policy": "bounded_retry",
+      "failure_transition": "CX4_RECOMPUTE"
+    },
+    {
+      "id": "CX6_CLOSE",
+      "owner": "Intelligence Quality & Evidence Supervisor",
+      "state": "CORRECTION_RECONCILED",
+      "entry_preconditions": [
+        "all dependencies handled"
+      ],
+      "exit_postconditions": [
+        "lineage/reconciliation complete"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "CX1_TRIGGER",
+      "to": "CX2_IMPACT",
+      "artifact": "CorrectionTrigger",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CX2_IMPACT",
+      "to": "CX3_MARK",
+      "artifact": "DependencyImpact",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CX3_MARK",
+      "to": "CX4_RECOMPUTE",
+      "artifact": "SupersessionEvent",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CX4_RECOMPUTE",
+      "to": "CX5_NOTIFY",
+      "artifact": "RecomputedArtifactSet",
+      "guard": "customer_materiality=true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "CX5_NOTIFY",
+      "to": "CX6_CLOSE",
+      "artifact": "CorrectionDeliveryResult",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "CORRECTION_RECONCILED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "history is corrected by lineage, never erased"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

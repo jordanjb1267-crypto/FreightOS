@@ -1,0 +1,34 @@
+{
+  "status": "AUDIT_CANDIDATE",
+  "participant_profile": "SPOT",
+  "scenario": "repair/provider shop keeps shop-management system while FreightOS/RigDesk supplies intake/triage/network coordination",
+  "systems": [
+    {
+      "name": "Shop Management",
+      "authority": [
+        "work order",
+        "parts/labor",
+        "invoice"
+      ],
+      "sync": "BIDIRECTIONAL_GOVERNED"
+    }
+  ],
+  "workflow_modes": {
+    "service_intake": "ASSIST",
+    "triage": "COLLABORATE",
+    "estimate_draft": "ASSIST",
+    "repair_authorization": "APPROVAL_EXECUTE",
+    "status": "BOUNDED_AUTONOMY"
+  },
+  "network_outputs": [
+    "capacity",
+    "estimate",
+    "service_status",
+    "completion_evidence"
+  ],
+  "proof_targets": [
+    "no autonomous spend",
+    "writeback idempotency",
+    "customer/provider boundary"
+  ]
+}

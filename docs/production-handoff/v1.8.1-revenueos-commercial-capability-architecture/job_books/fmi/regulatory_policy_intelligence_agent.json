@@ -1,0 +1,21 @@
+{
+  "name": "Regulatory & Policy Intelligence Agent",
+  "slug": "regulatory_policy_intelligence_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "human_supervised_agent",
+  "mission": "identify relevant transportation policy and regulatory developments",
+  "explicit_non_scope": [
+    "legal advice",
+    "compliance determination"
+  ],
+  "graph_membership": [
+    "FMI-G09"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

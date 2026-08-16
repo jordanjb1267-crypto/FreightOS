@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/revenueos/seller-authority-profile.schema.json",
+  "title": "SellerAuthorityProfile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile_id",
+    "principal_ref",
+    "relationship_class",
+    "certification_level",
+    "allowed_skus",
+    "effective_from",
+    "status"
+  ],
+  "properties": {
+    "profile_id": {
+      "type": "string"
+    },
+    "principal_ref": {
+      "type": "string"
+    },
+    "relationship_class": {
+      "enum": [
+        "referral_scout",
+        "independent_sales_agent",
+        "certified_advisor",
+        "channel_reseller",
+        "enterprise_ae",
+        "strategic_partner"
+      ]
+    },
+    "certification_level": {
+      "type": "string"
+    },
+    "allowed_skus": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "account_scopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "max_discount_bps": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_term_months": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "data_scopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approval_route": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "effective_from": {
+      "type": "string"
+    },
+    "effective_until": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "enum": [
+        "ACTIVE",
+        "SUSPENDED",
+        "EXPIRED",
+        "REVOKED"
+      ]
+    },
+    "grants_operational_authority": {
+      "const": false
+    }
+  }
+}

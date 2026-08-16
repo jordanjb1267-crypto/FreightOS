@@ -1,0 +1,137 @@
+{
+  "graph_id": "TWIN-G07",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Inbound network communication to local work",
+  "plane": "twin_network",
+  "workunit_type": "NetworkInboundWorkUnit",
+  "trigger": "canonical or adapted counterparty communication received",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "TN1_RECEIVE",
+      "owner": "FreightOS Network Gateway",
+      "state": "NETWORK_ARTIFACT_RECEIVED",
+      "entry_preconditions": [
+        "transport/auth material"
+      ],
+      "exit_postconditions": [
+        "durable envelope"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TN2_VERIFY",
+      "owner": "Network Identity/Relationship/Policy",
+      "state": "SENDER_RELATIONSHIP_VERIFIED",
+      "entry_preconditions": [
+        "envelope"
+      ],
+      "exit_postconditions": [
+        "sender/purpose/relationship decision"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TN3_MAP",
+      "owner": "Participant Network Adapter",
+      "state": "LOCAL_CONTEXT_MAPPED",
+      "entry_preconditions": [
+        "supported artifact/version"
+      ],
+      "exit_postconditions": [
+        "canonical/local refs mapped"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TN4_ROUTE",
+      "owner": "Participant Durable Workflow Runtime",
+      "state": "LOCAL_WORKUNIT_ROUTED",
+      "entry_preconditions": [
+        "permitted inbound artifact"
+      ],
+      "exit_postconditions": [
+        "local WorkUnit/observation created"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "TN5_DECIDE",
+      "owner": "Participant Domain Human/Agent",
+      "state": "LOCAL_DECISION",
+      "entry_preconditions": [
+        "local Twin/policy/authority"
+      ],
+      "exit_postconditions": [
+        "response/proposal/hold/deny"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "TN1_RECEIVE",
+      "to": "TN2_VERIFY",
+      "artifact": "NetworkInboundEnvelope",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TN2_VERIFY",
+      "to": "TN3_MAP",
+      "artifact": "VerifiedNetworkArtifact",
+      "guard": "decision=ALLOW",
+      "authority_check": "network_relationship_policy",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TN3_MAP",
+      "to": "TN4_ROUTE",
+      "artifact": "MappedNetworkRequest",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "TN4_ROUTE",
+      "to": "TN5_DECIDE",
+      "artifact": "AuthorizedNetworkRequest",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "LOCAL_DECISION",
+    "DENIED",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, required evidence, or authoritative freshness fails closed",
+    "all consequential state transitions are auditable",
+    "sender authority never transfers to receiving participant"
+  ],
+  "consumers": [],
+  "audit_rule": "Reconcile with accepted v1.3-v1.8 runtime/contracts; merge semantic duplicates; documentation cannot make this graph implemented or certified."
+}

@@ -1,0 +1,42 @@
+{
+  "status": "AUDIT_CANDIDATE",
+  "participant_profile": "COT",
+  "scenario": "carrier retains TMS as load/dispatch system of record while FreightOS augments dispatch team",
+  "systems": [
+    {
+      "name": "Existing TMS",
+      "authority": [
+        "load master",
+        "dispatch assignment"
+      ],
+      "sync": "BIDIRECTIONAL_GOVERNED"
+    },
+    {
+      "name": "ELD",
+      "authority": [
+        "vehicle position",
+        "driver duty evidence"
+      ],
+      "sync": "EVENT_SUBSCRIPTION"
+    }
+  ],
+  "workflow_modes": {
+    "load_scoring": "ASSIST",
+    "dispatch_assignment": "APPROVAL_EXECUTE",
+    "status_updates": "BOUNDED_AUTONOMY",
+    "maintenance_authorization": "COLLABORATE"
+  },
+  "network_outputs": [
+    "capacity",
+    "tender_response",
+    "ETA",
+    "milestone",
+    "exception"
+  ],
+  "proof_targets": [
+    "no TMS replacement",
+    "one WorkUnit model",
+    "writeback reconciliation",
+    "minimum network disclosure"
+  ]
+}

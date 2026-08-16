@@ -1,0 +1,21 @@
+{
+  "name": "Solution Configuration Agent",
+  "slug": "solution_configuration_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "agent",
+  "mission": "map verified needs to catalog capabilities",
+  "explicit_non_scope": [
+    "unsupported SKU creation",
+    "activation"
+  ],
+  "graph_membership": [
+    "REV-G03"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

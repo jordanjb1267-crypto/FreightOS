@@ -1,0 +1,22 @@
+{
+  "name": "Commission Calculation Service",
+  "slug": "commission_calculation_service",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "revenueos",
+  "proposed_class": "deterministic_service",
+  "mission": "derive commission earnings from immutable events",
+  "explicit_non_scope": [
+    "payout authority",
+    "retroactive ledger rewrite"
+  ],
+  "graph_membership": [
+    "REV-G08"
+  ],
+  "candidate_commands": [
+    "record_commission_calculation",
+    "record_payout_record"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

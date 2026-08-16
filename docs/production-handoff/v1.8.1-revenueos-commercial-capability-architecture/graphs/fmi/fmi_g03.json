@@ -1,0 +1,191 @@
+{
+  "graph_id": "FMI-G03",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Rate, capacity, and lane-state synthesis",
+  "plane": "shared_fmi",
+  "workunit_type": "LaneMarketStateWorkUnit",
+  "trigger": "new eligible rate/capacity observations",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "RC1_OBS",
+      "owner": "Rate Intelligence Agent",
+      "state": "RATE_OBSERVATIONS",
+      "entry_preconditions": [
+        "governed observations"
+      ],
+      "exit_postconditions": [
+        "normalized rate sample set"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RC2_CAP",
+      "owner": "Capacity Intelligence Agent",
+      "state": "CAPACITY_OBSERVATIONS",
+      "entry_preconditions": [
+        "governed observations"
+      ],
+      "exit_postconditions": [
+        "normalized capacity sample set"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RC3_SAMPLE",
+      "owner": "Intelligence Quality & Evidence Supervisor",
+      "state": "SAMPLE_QUALITY",
+      "entry_preconditions": [
+        "rate/capacity sets"
+      ],
+      "exit_postconditions": [
+        "coverage/sample confidence"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RC4_DERIVE",
+      "owner": "Rate Intelligence Agent",
+      "state": "RATE_DERIVED",
+      "entry_preconditions": [
+        "quality acceptable"
+      ],
+      "exit_postconditions": [
+        "rate distribution/benchmark with methodology"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RC5_DERIVE",
+      "owner": "Capacity Intelligence Agent",
+      "state": "CAPACITY_DERIVED",
+      "entry_preconditions": [
+        "quality acceptable"
+      ],
+      "exit_postconditions": [
+        "capacity regime metrics with methodology"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RC6_COMBINE",
+      "owner": "Lane & Corridor Intelligence Agent",
+      "state": "LANE_MARKET_STATE",
+      "entry_preconditions": [
+        "derived rate/capacity artifacts"
+      ],
+      "exit_postconditions": [
+        "lane/corridor signal with uncertainty"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "RC7_PUBLISH",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "LANE_SIGNAL_PUBLISHED",
+      "entry_preconditions": [
+        "quality supervisor pass"
+      ],
+      "exit_postconditions": [
+        "versioned signal published"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "RC1_OBS",
+      "to": "RC3_SAMPLE",
+      "artifact": "RateSampleSet",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "RC2_CAP",
+      "to": "RC3_SAMPLE",
+      "artifact": "CapacitySampleSet",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "RC3_SAMPLE",
+      "to": "RC4_DERIVE",
+      "artifact": "SampleQuality",
+      "guard": "rate_status=PASS",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "RC3_SAMPLE",
+      "to": "RC5_DERIVE",
+      "artifact": "SampleQuality",
+      "guard": "capacity_status=PASS",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "RC4_DERIVE",
+      "to": "RC6_COMBINE",
+      "artifact": "RateDerivedSignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "RC5_DERIVE",
+      "to": "RC6_COMBINE",
+      "artifact": "CapacityDerivedSignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "RC6_COMBINE",
+      "to": "RC7_PUBLISH",
+      "artifact": "LaneMarketSignal",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "LANE_SIGNAL_PUBLISHED",
+    "THIN_MARKET",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "thin samples reduce confidence instead of being padded or hidden"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

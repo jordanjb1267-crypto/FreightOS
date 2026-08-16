@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "freightos://schemas/revenueos/promise-set.schema.json",
+  "title": "PromiseSet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "promise_set_id",
+    "offer_ref",
+    "claims",
+    "product_registry_version",
+    "status"
+  ],
+  "properties": {
+    "promise_set_id": {
+      "type": "string"
+    },
+    "offer_ref": {
+      "type": "string"
+    },
+    "product_registry_version": {
+      "type": "string"
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "claim_id",
+          "claim_version",
+          "class",
+          "evidence_ref"
+        ],
+        "properties": {
+          "claim_id": {
+            "type": "string"
+          },
+          "claim_version": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string"
+          },
+          "evidence_ref": {
+            "type": "string"
+          },
+          "exception_approval_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "DRAFT",
+        "CHECKED",
+        "APPROVED",
+        "SUPERSEDED",
+        "REJECTED"
+      ]
+    }
+  }
+}

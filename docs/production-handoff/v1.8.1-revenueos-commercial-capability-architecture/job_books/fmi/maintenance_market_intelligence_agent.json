@@ -1,0 +1,21 @@
+{
+  "name": "Maintenance Market Intelligence Agent",
+  "slug": "maintenance_market_intelligence_agent",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "hybrid_agent",
+  "mission": "produce parts, service, OEM, and provider-market intelligence",
+  "explicit_non_scope": [
+    "repair authorization",
+    "spend authority"
+  ],
+  "graph_membership": [
+    "FMI-G08"
+  ],
+  "candidate_commands": [
+    "none_without_separate_command_contract"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

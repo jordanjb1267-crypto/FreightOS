@@ -1,0 +1,21 @@
+{
+  "name": "Source Registry Steward",
+  "slug": "source_registry_steward",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "human_supervised_deterministic",
+  "mission": "govern source metadata, rights, freshness, and suspension",
+  "explicit_non_scope": [
+    "silent rights assumptions",
+    "source-content manipulation"
+  ],
+  "graph_membership": [
+    "FMI-G01"
+  ],
+  "candidate_commands": [
+    "propose_source_status_change"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}

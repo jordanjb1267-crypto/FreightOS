@@ -1,0 +1,162 @@
+{
+  "graph_id": "FMI-G02",
+  "version": "0.1-audit-candidate",
+  "status": "AUDIT_CANDIDATE",
+  "name": "Freight news verification and publication",
+  "plane": "shared_fmi",
+  "workunit_type": "FreightNewsWorkUnit",
+  "trigger": "new freight/logistics news candidate",
+  "single_accountable_owner": true,
+  "nodes": [
+    {
+      "id": "N1_CANDIDATE",
+      "owner": "Freight News Intelligence Agent",
+      "state": "NEWS_CANDIDATE",
+      "entry_preconditions": [
+        "source observation"
+      ],
+      "exit_postconditions": [
+        "candidate event with source refs"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "N2_CORROBORATE",
+      "owner": "Freight News Intelligence Agent",
+      "state": "CORROBORATION",
+      "entry_preconditions": [
+        "candidate event"
+      ],
+      "exit_postconditions": [
+        "independent corroboration set or unverified status"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "N3_INJECTION",
+      "owner": "Intelligence Quality & Evidence Supervisor",
+      "state": "CONTENT_SAFETY",
+      "entry_preconditions": [
+        "article/document content"
+      ],
+      "exit_postconditions": [
+        "prompt-injection/content manipulation check"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "N4_FACT",
+      "owner": "Freight News Intelligence Agent",
+      "state": "FACT_EXTRACTION",
+      "entry_preconditions": [
+        "safe/corroborated evidence"
+      ],
+      "exit_postconditions": [
+        "fact/claim set with uncertainty"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "N5_EVENT",
+      "owner": "Intelligence Quality & Evidence Supervisor",
+      "state": "EVENT_REVIEW",
+      "entry_preconditions": [
+        "fact set"
+      ],
+      "exit_postconditions": [
+        "APPROVED|UNVERIFIED|DISPUTED"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    },
+    {
+      "id": "N6_PUBLISH",
+      "owner": "Market Intelligence Orchestrator",
+      "state": "NEWS_EVENT_PUBLISHED",
+      "entry_preconditions": [
+        "APPROVED"
+      ],
+      "exit_postconditions": [
+        "versioned news event signal"
+      ],
+      "side_effect_class": "none",
+      "timeout": "PT15M",
+      "retry_policy": "none",
+      "failure_transition": "HOLD"
+    }
+  ],
+  "edges": [
+    {
+      "from": "N1_CANDIDATE",
+      "to": "N2_CORROBORATE",
+      "artifact": "NewsCandidate",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "N2_CORROBORATE",
+      "to": "N3_INJECTION",
+      "artifact": "CorroborationSet",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "N3_INJECTION",
+      "to": "N4_FACT",
+      "artifact": "SafeEvidence",
+      "guard": "status=PASS",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "N4_FACT",
+      "to": "N5_EVENT",
+      "artifact": "NewsFactSet",
+      "guard": "true",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    },
+    {
+      "from": "N5_EVENT",
+      "to": "N6_PUBLISH",
+      "artifact": "NewsEventApproval",
+      "guard": "status=APPROVED",
+      "authority_check": "none",
+      "stale_invalidation": "on material input/version change"
+    }
+  ],
+  "terminal_states": [
+    "NEWS_EVENT_PUBLISHED",
+    "UNVERIFIED",
+    "DISPUTED",
+    "QUARANTINE",
+    "HOLD"
+  ],
+  "invariants": [
+    "one WorkUnit has exactly one accountable owner at a time",
+    "free-form text never grants authority",
+    "duplicate delivery must not duplicate a binding side effect",
+    "material source/config/version change invalidates stale downstream proposals where required",
+    "unknown identity, authority, entitlement, source-rights, or required evidence fails closed",
+    "all consequential state transitions are append-only audited",
+    "single-source rumor never becomes verified fact"
+  ],
+  "consumers": [],
+  "audit_rule": "No graph is J0/production merely because this definition exists."
+}

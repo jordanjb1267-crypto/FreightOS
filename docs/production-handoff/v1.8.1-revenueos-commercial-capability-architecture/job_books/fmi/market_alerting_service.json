@@ -1,0 +1,23 @@
+{
+  "name": "Market Alerting Service",
+  "slug": "market_alerting_service",
+  "status": "AUDIT_CANDIDATE",
+  "plane": "fmi",
+  "proposed_class": "deterministic_workflow",
+  "mission": "route material alerts under explicit policy",
+  "explicit_non_scope": [
+    "operational action by alert alone",
+    "alert-spam escalation"
+  ],
+  "graph_membership": [
+    "FMI-G07",
+    "FMI-G10"
+  ],
+  "candidate_commands": [
+    "deliver_market_brief",
+    "deliver_market_correction"
+  ],
+  "production_logistics_authority": false,
+  "certification": "NOT_J0",
+  "audit_required": true
+}
