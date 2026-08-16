@@ -16,67 +16,45 @@
 //   4. A manifest-listed file changed             -> a binding document was edited in place.
 //   5. A file exists that the manifest omits      -> unlisted content is being carried as if bound.
 //
+// AWE-0 WIDENED THE SET, NOT THE RULES. Six accepted architecture packages installed after v1.4.0
+// were in exactly the position v1.3.0 and v1.4.0 were in before N0 — 607 files, cited as binding,
+// verified by nothing. Five of them ship `MANIFEST.json` rather than `MANIFEST.sha256`, and that
+// format difference is the whole reason they slipped through: this check parsed one format and had
+// nothing to say about the other. Both parsers now live in scripts/lib/governance-layers.mjs and
+// the format is declared per layer, so a package that renames its manifest cannot quietly change
+// which parser reads it — or whether one reads it at all.
+//
 // The base v1.2 layer is deliberately NOT re-verified here: CI already runs `sha256sum -c
 // SHA256SUMS.txt` against it and scripts/check-handoff-provenance.mjs covers its generated copies.
 // This checks the layers nothing else does, and cross-checks that the base layer declared here
 // still agrees with handoff-provenance.json so the two descriptions cannot drift apart.
 //
+// It checks INTEGRITY only. Whether a registered architecture package is bound to accepted ADR,
+// module-state and Horizon authority is a different question, asked by its sibling
+// scripts/check-architecture-governance.mjs. Neither substitutes for the other.
+//
 // No network access. Deterministic output. Exit 0 = clean, 1 = fail.
 
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
-const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const LAYERS_FILE = join(REPO_ROOT, 'governance-layers.json');
-const PROVENANCE_FILE = join(REPO_ROOT, 'handoff-provenance.json');
+import {
+  FOUNDING_LAYER_IDS,
+  GOVERNED_ARCHITECTURE_LAYER_IDS,
+  PROVENANCE_FILE,
+  REPO_ROOT,
+  loadRegistry,
+  manifestParser,
+  sha256,
+  walk,
+} from './lib/governance-layers.mjs';
+import { readFileSync } from 'node:fs';
 
 const failures = [];
 const fail = (message) => failures.push(message);
 
-function sha256(absolutePath) {
-  return createHash('sha256').update(readFileSync(absolutePath)).digest('hex');
-}
-
-/** Every file under `dir`, repo-relative, POSIX-separated, sorted. */
-function walk(dir, base = dir, found = []) {
-  for (const entry of readdirSync(dir).sort()) {
-    const abs = join(dir, entry);
-    if (statSync(abs).isDirectory()) walk(abs, base, found);
-    else found.push(relative(base, abs).split(sep).join('/'));
-  }
-  return found;
-}
-
-/**
- * Parse a `sha256sum` manifest.
- *
- * The format is `<hex><two spaces><path>`, and the path may itself contain spaces, so the split is
- * on the first separator only rather than on whitespace generally. A line that does not parse is a
- * failure rather than something to skip: a manifest this check cannot read is a manifest it cannot
- * enforce, and silently ignoring the line would be the quiet pass this gate exists to prevent.
- */
-function parseManifest(absolutePath, layerId) {
-  const entries = new Map();
-  const lines = readFileSync(absolutePath, 'utf8').split('\n');
-  for (const [index, raw] of lines.entries()) {
-    const line = raw.trimEnd();
-    if (line.length === 0) continue;
-    const match = /^([0-9a-f]{64}) [ *](.+)$/.exec(line);
-    if (!match) {
-      fail(`${layerId}: unparseable manifest line ${index + 1}: ${JSON.stringify(line)}`);
-      continue;
-    }
-    const path = match[2].replace(/^\.\//, '');
-    if (entries.has(path)) fail(`${layerId}: manifest lists ${path} more than once`);
-    entries.set(path, match[1]);
-  }
-  return entries;
-}
-
 function checkLayer(layer) {
-  const { id, root, integrityFile } = layer;
+  const { id, root, integrityFile, integrityFormat } = layer;
   const rootAbs = join(REPO_ROOT, root);
   if (!existsSync(rootAbs)) {
     fail(`${id}: declared root is missing: ${root}`);
@@ -88,7 +66,18 @@ function checkLayer(layer) {
     return 0;
   }
 
-  const listed = parseManifest(manifestAbs, id);
+  const parse = manifestParser(integrityFormat);
+  if (!parse) {
+    // Fail closed. An unknown format is not "skip this layer" — it is a layer nothing verifies,
+    // which is the exact condition this gate exists to end.
+    fail(
+      `${id}: unknown integrityFormat ${JSON.stringify(integrityFormat)}. ` +
+        `Declare "sha256sums" or "manifest-json".`,
+    );
+    return 0;
+  }
+
+  const listed = parse(manifestAbs, id, fail);
   // The manifest never lists itself; everything else on disk must be accounted for.
   const onDisk = new Set(walk(rootAbs).filter((p) => p !== integrityFile));
 
@@ -99,8 +88,21 @@ function checkLayer(layer) {
       continue;
     }
     const actual = sha256(abs);
-    if (actual !== expected) {
-      fail(`${id}: content changed: ${path}\n    expected ${expected}\n    actual   ${actual}`);
+    if (actual !== expected.sha256) {
+      fail(
+        `${id}: content changed: ${path}\n    expected ${expected.sha256}\n    actual   ${actual}`,
+      );
+    }
+    // A size that disagrees with a matching hash cannot happen by accident. Checking it costs one
+    // stat and turns a hand-edited manifest entry into a second, independent failure.
+    if (expected.bytes !== null) {
+      const actualBytes = statSync(abs).size;
+      if (actualBytes !== expected.bytes) {
+        fail(
+          `${id}: size changed: ${path}\n    expected ${expected.bytes} bytes\n` +
+            `    actual   ${actualBytes} bytes`,
+        );
+      }
     }
     onDisk.delete(path);
   }
@@ -111,20 +113,13 @@ function checkLayer(layer) {
   return listed.size;
 }
 
-if (!existsSync(LAYERS_FILE)) {
+const loaded = loadRegistry();
+if (loaded.error) {
   console.error('NETWORK_GOVERNANCE=FAIL');
-  console.error('- governance-layers.json is missing. It declares the controlling layers.');
+  console.error(`- ${loaded.error}`);
   process.exit(1);
 }
-
-let layers;
-try {
-  layers = JSON.parse(readFileSync(LAYERS_FILE, 'utf8'));
-} catch (error) {
-  console.error('NETWORK_GOVERNANCE=FAIL');
-  console.error(`- governance-layers.json is not valid JSON: ${error.message}`);
-  process.exit(1);
-}
+const layers = loaded.registry;
 
 if (!Array.isArray(layers.layers) || layers.layers.length === 0) {
   fail('governance-layers.json declares no layers');
@@ -133,13 +128,11 @@ if (typeof layers.subordination !== 'string' || layers.subordination.length === 
   fail('governance-layers.json declares no subordination rule');
 }
 
-// Anti-vacuity: the three controlling layers must all be declared. A validator that passes because
-// somebody deleted a layer entry would be worse than no validator.
-const REQUIRED_LAYERS = [
-  'production-handoff',
-  'security-privacy-resilience',
-  'network-architecture',
-];
+// Anti-vacuity: every controlling layer must be declared. A validator that passes because somebody
+// deleted a layer entry would be worse than no validator. The three founding layers were required
+// from N0; the six accepted architecture packages joined them at AWE-0 and are required on the
+// same terms — dropping one would return it to the unverified state AWE-0 exists to end.
+const REQUIRED_LAYERS = [...FOUNDING_LAYER_IDS, ...GOVERNED_ARCHITECTURE_LAYER_IDS];
 const declared = new Set((layers.layers ?? []).map((l) => l.id));
 for (const required of REQUIRED_LAYERS) {
   if (!declared.has(required)) fail(`governance-layers.json omits the required layer: ${required}`);

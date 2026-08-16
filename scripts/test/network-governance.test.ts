@@ -21,6 +21,9 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const VALIDATOR = join(ROOT, 'scripts', 'check-network-governance.mjs');
 const LAYERS = join(ROOT, 'governance-layers.json');
 const V14 = join(ROOT, 'docs', 'production-handoff', 'v1.4.0-network-architecture');
+// AWE-0 brought the JSON-manifest packages under the same gate. v1.7.0 is the smallest of the five
+// and is used here for the same three mutations the sha256sums format is put through.
+const V17 = join(ROOT, 'docs', 'production-handoff', 'v1.7.0-agentic-logistics-network-coherence');
 
 interface Run {
   ok: boolean;
@@ -60,11 +63,16 @@ describe('layered governance integrity', () => {
     expect(run.ok).toBe(true);
 
     // ANTI-VACUITY. A validator that verified nothing would also print PASS. The floor is set well
-    // below the real total (63 + 42 = 105) so that legitimately adding an artifact does not fail
-    // this, while a check that silently stopped walking the tree does.
+    // below the real total so that legitimately adding an artifact does not fail this, while a
+    // check that silently stopped walking the tree does.
+    //
+    // AWE-0 raised it. Before, 63 + 42 = 105 covered v1.4.0 and v1.3.0 and a floor of 100 was
+    // right. The six accepted architecture packages added 561 more, and leaving the floor at 100
+    // would have let all five JSON-manifest packages fall out of the walk unnoticed — which is the
+    // precise condition AWE-0 exists to end.
     const verified = /manifest-verified artifacts: (\d+)/.exec(run.output);
     expect(verified, 'validator printed no artifact count').not.toBeNull();
-    expect(Number(verified![1])).toBeGreaterThanOrEqual(100);
+    expect(Number(verified![1])).toBeGreaterThanOrEqual(650);
   });
 
   it('fails when a manifest-protected artifact is modified', () => {
@@ -126,6 +134,83 @@ describe('layered governance integrity', () => {
     const run = runValidator();
     expect(run.ok).toBe(false);
     expect(run.output).toContain('governance-layers.json is missing');
+  });
+});
+
+/**
+ * The JSON-manifest half — AWE-0.
+ *
+ * Five of the six accepted architecture packages ship `{"files":[{"path","sha256","bytes"}]}`
+ * rather than `sha256sum` lines, and that format difference is the whole reason 561 artifacts went
+ * unverified: the gate parsed one format and had nothing to say about the other. Silence read as
+ * PASS. The same three mutations are applied here, plus two the JSON format makes possible.
+ */
+describe('JSON-manifest package integrity', () => {
+  it('fails when a manifest-protected artifact is modified', () => {
+    const target = join(V17, '00_MASTER_COHERENCE_HANDOFF.md');
+    mutate(target, `${readFileSync(target, 'utf8')}\n<!-- unreviewed edit -->\n`);
+
+    const run = runValidator();
+    expect(run.ok, 'a modified v1.7.0 artifact did not fail the check').toBe(false);
+    expect(run.output).toContain('NETWORK_GOVERNANCE=FAIL');
+    expect(run.output).toContain('content changed');
+    expect(run.output).toContain('00_MASTER_COHERENCE_HANDOFF.md');
+  });
+
+  it('fails when an unlisted file is added beside a JSON-manifest package', () => {
+    mutate(join(V17, 'UNLISTED_ARTIFACT.md'), 'content nobody reviewed\n');
+
+    const run = runValidator();
+    expect(run.ok, 'an unlisted extra artifact did not fail the check').toBe(false);
+    expect(run.output).toContain('absent from the manifest');
+    expect(run.output).toContain('UNLISTED_ARTIFACT.md');
+  });
+
+  it('fails when a manifest-listed file is deleted', () => {
+    mutate(join(V17, '19_GOVERNANCE_AND_NON_REGRESSION.md'), null);
+
+    const run = runValidator();
+    expect(run.ok, 'a missing v1.7.0 artifact did not fail the check').toBe(false);
+    expect(run.output).toContain('manifest lists a file that is missing');
+  });
+
+  it('fails when the manifest itself is edited to disagree about a size', () => {
+    // The mutation only the JSON format admits, and the reason `bytes` is checked at all: a
+    // hand-edited manifest entry whose hash still matches. One stat turns that into a second,
+    // independent failure instead of a silent pass.
+    const manifestPath = join(V17, 'MANIFEST.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      files: { path: string; sha256: string; bytes: number }[];
+    };
+    manifest.files[0]!.bytes += 1;
+    mutate(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const run = runValidator();
+    expect(run.ok, 'a manifest size that disagrees with disk did not fail the check').toBe(false);
+    expect(run.output).toContain('size changed');
+  });
+
+  it('fails closed when a JSON manifest is unreadable rather than verifying nothing', () => {
+    // An empty parse result would verify zero files for this package while every other package
+    // still passed — the shape of failure that looks like success.
+    mutate(join(V17, 'MANIFEST.json'), '{ not json');
+
+    const run = runValidator();
+    expect(run.ok).toBe(false);
+    expect(run.output).toContain('manifest is not valid JSON');
+  });
+
+  it('fails when a governed architecture layer is dropped from the registry', () => {
+    const layers = JSON.parse(readFileSync(LAYERS, 'utf8'));
+    layers.layers = layers.layers.filter(
+      (l: { id: string }) => l.id !== 'revenueos-commercial-capability-architecture',
+    );
+    mutate(LAYERS, `${JSON.stringify(layers, null, 2)}\n`);
+
+    const run = runValidator();
+    expect(run.ok, 'dropping a governed architecture layer did not fail the check').toBe(false);
+    expect(run.output).toContain('omits the required layer');
+    expect(run.output).toContain('revenueos-commercial-capability-architecture');
   });
 });
 
