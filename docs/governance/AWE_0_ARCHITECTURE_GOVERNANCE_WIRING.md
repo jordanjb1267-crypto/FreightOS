@@ -1,8 +1,9 @@
 # AWE-0 — Architecture governance wiring
 
-**Status:** remediation record. Docs, registry and CI only.
+**Status:** remediation record, revision 2. Docs, registry and CI only.
 **Base:** `main` @ `5da675aea28a0a39d198266352c4e5bc84774754`.
 **Branch:** `remediation/awe-0-governance-wiring`.
+**First candidate:** `8528734` — reviewed independently, returned `AWE_0_REVIEW=REMEDIATE`.
 **Closes:** `W01-F-GOV-01` (`docs/workforce-engineering/PROPOSED_ADDITIVE_PR_SEQUENCE.md` card AWE-0)
 and the root defect in `docs/agentic-architecture-review/01_PACKAGE_INVENTORY_AND_PRECEDENCE.md`
 §3.1–§3.2.
@@ -14,8 +15,8 @@ and the root defect in `docs/agentic-architecture-review/01_PACKAGE_INVENTORY_AN
 ## 1. The root cause, reproduced
 
 Both accepted audits name the same defect: accepted architecture packages can be substantive and
-internally coherent while being bound to the repository's controlling authority by nothing. The
-audits were not taken on trust. Every count below was recomputed on this branch's base commit.
+internally coherent while being bound to the repository's controlling authority by nothing. Every
+count below was recomputed on this branch's base commit rather than taken from the audits.
 
 | Binding                                                  | v1.2 | v1.3.0 | v1.4.0 | v1.5.0 | FacilityOS | v1.6.0 | v1.7.0 | v1.8.0 | v1.8.1 |
 | -------------------------------------------------------- | :--: | :----: | :----: | :----: | :--------: | :----: | :----: | :----: | :----: |
@@ -29,266 +30,259 @@ audits were not taken on trust. Every count below was recomputed on this branch'
 
 \* one incidental occurrence, `shipper_control_tower` inside v1.7.0's generated `COMBINED_HANDOFF.md`.
 
-Two findings go beyond what the audits recorded, and both strengthen the case:
+**Package size, corrected.** The six packages hold **567 tracked files** (35 + 39 + 39 + 32 + 189 +
+233), of which 561 are manifest-listed once the six manifests are excluded. The first candidate said
+607 in four places; that figure was wrong and is corrected throughout. The accepted audits do not
+contain it and were not touched. `8528734`'s commit message still carries it — that commit is
+preserved unamended by instruction, and this record is the correction.
 
-1. **The gap is wider than ADRs.** The packages do not merely fail to cite ADRs — they name almost
-   no module id from the scope registry and no Horizon. There is nothing in their prose for a
-   validator to bind _to_. Any mechanism that tried to derive the binding by scanning package text
-   would have had nothing to read.
-2. **The binding cannot live inside the packages.** ADR-0014 and SR ruling 2 make an installed
-   package immutable, and both audits verified all six byte-exact against their manifests. Adding a
-   citation to a package document would break that package's own manifest. The relation therefore
-   has to be recorded outside the packages and enforced against them.
+Two facts shaped the mechanism:
 
-`governance-layers.json` declared three layers and `scripts/check-network-governance.mjs` verified
-105 artifacts. Six accepted packages — 607 files — sat outside both.
+1. **The gap is wider than ADRs.** The packages name almost no module id and no Horizon, so there is
+   nothing in their prose for a validator to bind _to_. Any mechanism deriving the binding by
+   scanning package text would have had nothing to read.
+2. **The binding cannot live inside the packages.** Owner ruling 2 (`docs/security-resilience/README.md`
+   §A.4a) freezes an installed versioned package after installation, and both audits verified all six
+   byte-exact. A citation added to a package document would break that package's own manifest.
 
-The mechanical reason the five post-v1.4.0 packages escaped is narrower than "nobody added them":
-they ship `MANIFEST.json`, and the validator parsed only `sha256sum` lines. Declaring them without
-teaching it the second format would have produced a passing gate that verified nothing.
+## 2. AWE-0 is not self-authorised
 
-## 2. Mechanism chosen
+The same owner ruling that froze the packages also directed where their pointers must live:
 
-One registry, extended. Two gates, each with one question.
+> Future additive handoff pointers belong in a **top-level handoff registry or index maintained
+> outside older checksummed packages** — not inside them.
 
-```
-governance-layers.json                     the single hand-maintained registry (extended)
-  └── scripts/lib/governance-layers.mjs    shared loader + both manifest parsers
-       ├── check-network-governance.mjs    INTEGRITY  — does each layer match its manifest?
-       └── check-architecture-governance.mjs  BINDING — is each package bound to ADR, module
-                                                        state and Horizon authority?
-```
+`governance-layers.json` is that registry. The clause is quoted in
+`architectureGovernance.mandate` and checked **verbatim** against the record by the validator, so the
+citation cannot drift from the text it cites.
 
-No second registry was created. `governance-layers.json` already exists for exactly this act — its
-own `$comment` records why it is deliberately separate from `handoff-provenance.json`, which
-`pnpm sync:handoff` regenerates wholesale and would silently drop any layer declaration added
-there. The split into two gates follows the repository's own precedent: `check-network-egress.mjs`
-and `check-egress-allowlist.mjs` read one inventory through one shared library and differ only in
-policy.
+The first candidate instead wrote "ADR-0014 and SR ruling 2 make an installed package immutable".
+The ADR-0014 half was wrong — its immutability clause is scoped to v1.2 (§5). The second half was
+_right in substance but ambiguous in citation_: "SR ruling 2" reads naturally as `adr/0027`
+(_"Accepted (engineering, SR-2)"_, verified actor binding), which contains no such ruling. It meant
+owner ruling 2 in the security/resilience record above. The registry now cites the record, the
+ruling and the clause text, and the validator checks the clause verbatim, so the shorthand cannot be
+misread again.
 
-## 3. Package identity
+## 3. Mechanism
 
-Each governed package carries a deterministic identity in the registry:
-
-| Field              | Meaning                                                   | Enforced by                                       |
-| ------------------ | --------------------------------------------------------- | ------------------------------------------------- |
-| `id`               | canonical lower-kebab identifier, unique                  | pattern + duplicate check                         |
-| `version`          | `vMAJOR.MINOR[.PATCH]`, must appear in the directory name | pattern + path/version cross-check                |
-| `root`             | repo path under `docs/production-handoff/`, unique        | existence + duplicate-path check                  |
-| `role`             | `base` \| `controlling` \| `additive-subordinate`         | enum                                              |
-| `precedence`       | unique, dense `1..N`                                      | uniqueness + density + subordination rule         |
-| `integrityFile`    | the manifest filename                                     | existence                                         |
-| `integrityFormat`  | `sha256sums` \| `manifest-json`                           | enum; an unknown format fails closed, never skips |
-| `governanceStatus` | `accepted`                                                | equality                                          |
-| `authorizes`       | `design-only` \| `implementation`                         | enum + the module and Horizon rules below         |
-
-Nothing already authoritative elsewhere is duplicated. Module states, Horizon authorization and ADR
-status are **read** from `config/scope/module_states.yaml` and `adr/`, never restated. The one
-genuinely new datum is `moduleScope`: the packages name no module ids, so the mapping is a reviewed
-governance act recorded here, with its basis in each layer's `note`.
-
-The six governed ids are also named as constants in `scripts/lib/governance-layers.mjs`, so deleting
-an entry to make the gate pass fails the gate instead — the anti-vacuity device
-`check-network-governance.mjs` already used for its three founding layers.
-
-## 4. ADR traceability
-
-Three relations, and one deliberate non-relation.
-
-| Relation           | Meaning                                                               |
-| ------------------ | --------------------------------------------------------------------- |
-| `governed-by`      | the ADR rules the matter; where they differ, the ADR wins             |
-| `constrained-by`   | the ADR bounds the package without deciding its content               |
-| `additive-beneath` | the package adds detail under the ADR and does not touch its decision |
-
-**`unresolved` is not a relation.** An architecture claim with no accepted ADR behind it goes in a
-separate `unresolvedAuthority` array, and the validator rejects any entry there that carries an
-`adr` field. This is the rule that keeps registration honest: a package proposal unsupported by
-accepted authority stays visibly unresolved instead of becoming authoritative by being registered.
-
-26 relations are declared across the six packages. Every one must name an ADR that exists in `adr/`,
-whose status parses, and which reads `Accepted`; every one must carry an evidence string. No ADR
-authority was invented — each relation cites either the ADR's own decision text or the accepted
-audit finding that established it (for example ADR-0015 governing v1.7's plane model, and ADR-0025
-governing FacilityOS detention, both recorded in
-`docs/agentic-architecture-review/01_PACKAGE_INVENTORY_AND_PRECEDENCE.md` §3.2 and §4).
-
-12 unresolved items are recorded. They are listed in §10.
-
-`adr/` uses two header shapes — `**Status:**` for 0001–0010 and 0014–0027, `## Status` for
-0011–0013. Both are parsed. Reading only the first would have treated three accepted ADRs as
-statusless; reading neither would have let any string through.
-
-## 5. Governance-layer registration
-
-The six packages join as `additive-subordinate` at precedence 4–9, behind the base handoff (1), the
-controlling security layer (2) and network architecture (3). The role is not assigned by preference
-— every one of the six self-declares it:
-
-| Package    | Self-declaration                                                                                                         |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------ |
-| v1.5.0     | "additive to all existing FreightOS production handoffs … does not replace or weaken any existing requirement"           |
-| FacilityOS | "does not override the existing FreightOS sequencing doctrine … remains promotion/customer-gated"                        |
-| v1.6.0     | "brokerage execution remains legal/promotion-gated … does not authorize … unlicensed brokerage"                          |
-| v1.7.0     | "Existing Constitution, security/resilience, legal/safety gates, sequencing doctrine and signed ADRs remain controlling" |
-| v1.8.0     | "the runtime must not create an agent solely because this package names one"                                             |
-| v1.8.1     | "additive design / governance handoff only", under "Existing controls remain controlling"                                |
-
-v1.3.0's `controlling` role, v1.4.0's semantics and the `subordination` clause are unchanged. The
-three founding layers gained `precedence` and `integrityFormat` and nothing else; they carry no
-`architecture` block, and the validator fails if one is added — reclassifying the controlling
-security layer as an architecture package is how the stricter rules would otherwise be dodged.
-
-Coverage is enforced in both directions. Any directory under `docs/production-handoff/` that holds
-at least one file and is declared in no layer fails the gate. An empty directory is not a package:
-Git cannot track one, so it can only be a local working-tree residue — both accepted audits record
-exactly such a residue — and failing on it would fail CI for a condition CI can never observe. The
-moment a file lands in one, it becomes a package and must be declared.
-
-## 6. Module-state binding
-
-`config/scope/module_states.yaml` remains the sole authority. The validator reads it and computes
-implementability from the registry's own `states` table rather than restating the answer:
-`implementation_allowed: false` closes the door, and so does `production_code_allowed: false`.
-
-The rule:
-
-> A package whose `moduleScope` includes any module that forbids implementation, or any module above
-> `horizon_authorized`, may not declare `authorizes: "implementation"`.
-
-All six are `design-only` today and all six scope at least one gated module, so the rule is
-satisfied and would fail closed on the first attempt to change that. 51 module bindings are
-verified; every id must resolve in the scope registry.
-
-**No module state was modified.** Changing `implementation_allowed` to satisfy an architecture
-document is precisely the inversion this gate exists to prevent.
-
-## 7. Horizon binding
-
-`horizon_authorized: 1`. Every governed package declares a `maxHorizon`, checked two ways:
-
-- it may not be **lower** than the highest horizon its `moduleScope` reaches — otherwise a package
-  could design for a Horizon 4 module while declaring Horizon 1, and every other check would agree;
-- if it is **above** `horizon_authorized` it must be `design-only`.
-
-v1.8.1 reaches Horizon 4 (`freight_exchange`, `LIQUIDITY_GATED`), the furthest out any accepted
-package designs for. Later-horizon architecture may exist as design; it is not current
-implementation authority.
-
-## 8. Precedence
-
-`precedence` orders the layers, lowest first, and is unique and dense. It is a tie-break between two
-texts that both apply — not a licence. Two rules keep it that way:
-
-1. An `additive-subordinate` layer may never carry a precedence at or below a `base` or
-   `controlling` layer.
-2. Regardless of precedence, the stricter accepted restriction wins. Security, tenant isolation,
-   authority, privacy, legal, resilience and certification constraints remain fail-closed. This is
-   the existing `subordination` clause, unchanged.
-
-`architectureGovernance.authorityAboveArchitecture` records what sits above every architecture layer
-and is enforced in code rather than by ordering: `adr/`, `docs/decisions/`, and
-`config/scope/module_states.yaml`.
-
-Repository tooling can now answer, from the registry alone: which ADR governs, which package applies
-to a module, which module-state gate applies, which Horizon applies, and which rule is stricter.
-
-## 9. The separation that matters
+One registry, extended. Two gates, each with one question, over one shared library.
 
 ```
-ARCHITECTURE EXISTS          files on disk
-ARCHITECTURE IS ACCEPTED     declared here, manifest verifies          ← this is all AWE-0 certifies
-IMPLEMENTATION IS AUTHORIZED config/scope/module_states.yaml
-CAPABILITY IS IMPLEMENTED    code, migrations, tests
-CAPABILITY IS CERTIFIED/LIVE acceptance gate signed, module activated
+governance-layers.json                        the single hand-maintained registry
+  ├── scripts/lib/governance-layers.mjs       loader, manifest parsers, ANCHORED expectations
+  ├── check-network-governance.mjs            INTEGRITY  — does each layer match its manifest?
+  └── check-architecture-governance.mjs       BINDING    — is each package bound to authority?
 ```
 
-A documentation package must never make a runtime gate pass because it was registered. That would be
-worthless as a promise, so it is structural: the validator scans every file under `packages/*/src/`
-and fails if any of them references `governance-layers.json`. 33 runtime source files are scanned;
-zero read the registry, and none may start.
+No second registry was created. The split into two gates follows the repository's own precedent:
+`check-network-egress.mjs` and `check-egress-allowlist.mjs` read one inventory through one shared
+library and differ only in policy.
+
+**Why so much lives in the library rather than the registry.** Every break the independent review
+found had one shape: a rule whose expectations lived inside the document it validated. A security
+layer demoted itself out of the anti-inversion rule; an unresolved-authority inventory deleted
+itself; a seventh package declared itself out of the binding obligation. Anchored expectations now
+live in `scripts/lib/governance-layers.mjs`, following `scripts/validate-scope.mjs`, whose
+`MODULE_EXPECTATIONS` hard-codes the module states CI must still see for exactly this reason.
+
+## 4. What the gates prove — and what they do not
+
+This section exists because the first candidate implied stronger claims than it delivered.
+
+| Tier                                                 | Status                                     |
+| ---------------------------------------------------- | ------------------------------------------ |
+| Relation is syntactically valid, kind in vocabulary  | **PROVEN**                                 |
+| Authority exists, is source-qualified, is Accepted   | **PROVEN**                                 |
+| Module ids resolve; Horizon agrees with module state | **PROVEN**                                 |
+| The binding still matches what a reviewer accepted   | **PROVEN** (digest)                        |
+| Required gates actually run in CI                    | **PROVEN** (parsed workflow)               |
+| Manifest entries stay inside their own package       | **PROVEN** (containment)                   |
+| **Semantic truth of an `evidence` string**           | **NOT PROVEN — human-reviewed rationale**  |
+| **That a `moduleScope` is the _right_ scope**        | **NOT PROVEN — a reviewed governance act** |
+| **Tamper resistance of the packages themselves**     | **NOT PROVEN — see F-07, §8**              |
+
+The registry says so in its own `evidenceRule`, and each gate carries a "what this does not claim"
+note in the repository's existing idiom (`check-egress-allowlist.mjs`: _"This raises the cost … and
+makes it reviewable. It is not a sandbox."_).
+
+## 5. Authority: identity, sources, relations
+
+**Two namespaces, and the repository already disambiguated them.** `adr/` and `docs/decisions/`
+reuse all eighteen numbers 0001–0018, so `ADR-0018` was resolving to the autonomy ceiling when a
+network decision on the N7 transport boundary was meant. The fix is the repository's own convention,
+not an invention — `docs/decisions/` records title themselves `ADR-N0018` and declare
+`**ADR ID:** N0018`, a form already used in runtime source, four migrations, a CI gate, nine
+governance documents and six tests:
+
+| Source             | Ids         | Directory         | Indexed |
+| ------------------ | ----------- | ----------------- | ------: |
+| `adr`              | `ADR-NNNN`  | `adr/`            |      27 |
+| `network-decision` | `ADR-NNNNN` | `docs/decisions/` |      16 |
+
+Every relation declares both the id and its source; the two must agree with each other and with
+where the id resolves. An unqualified reference is refused, not guessed. The two Phase decision
+_records_ (`0001`, `0002`) declare no ADR ID and are deliberately not citable. Twelve network
+decisions are `Proposed`; the gate refuses them as controlling authority, which leaves the accepted
+audit's Proposed-but-implemented CONFLICT visibly open rather than laundering it.
+
+**Relation accuracy (F-11).** The first candidate declared `governed-by ADR-0014` on all six
+packages. ADR-0014's decision text is about the repository name, the location of the **v1.2**
+preserved package, and provenance for v1.2-derived root copies; `handoff-provenance.json` covers that
+root only. Generalising its immutability clause to "an installed package" was broadening by
+interpretation. Corrections applied:
+
+| Package    | Relation                    | Change                                                                                                        |
+| ---------- | --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| all six    | `ADR-0014` `governed-by`    | → `constrained-by`; evidence narrowed to location, byte-pinning attributed to each package's own manifest     |
+| FacilityOS | `ADR-0025` `constrained-by` | → `governed-by` — ADR-0025 decides detention exhaustively                                                     |
+| v1.6.0     | `ADR-0015` `constrained-by` | → `governed-by` — ADR-0015 decides the brokerage plane outright                                               |
+| v1.6.0     | `ADR-0023` evidence         | struck "and distribution", which ADR-0023 does not decide                                                     |
+| v1.8.1     | `ADR-0007` evidence         | rewritten to ADR-0007's own text; the billing-disabled claim comes from the sequencing doctrine, not ADR-0007 |
+| FacilityOS | `ADR-0012` evidence         | restated in `governed-by` terms                                                                               |
+
+Final split: **governed-by 12, constrained-by 13, additive-beneath 1**. The split is declared in the
+registry and tallied by the gate, so silently downgrading a relation is a two-line diff.
+
+## 6. The authority model — precedence removed
+
+The first candidate carried a dense 1..N total ordering. The review found it over-strong and inert,
+and both are true:
+
+- **Inert.** A repository-wide grep found no consumer. The only reader was the validator asserting
+  properties of the field itself.
+- **Over-strong.** The accepted audit places v1.5 / FacilityOS / v1.6 at a **single** rank — an
+  equivalence class it declines to order. The dense-unique rule structurally forbade expressing that.
+  Four of the fifteen package pairs are genuinely incomparable on module scope, yet the number line
+  asserted authority across unrelated modules and legal planes for all fifteen.
+
+`precedence` is **removed**. Authority is a small lattice over classes plus strictest-wins:
+
+```
+base                  the preserved v1.2 handoff
+controlling           security, privacy, tenant isolation, authority, resilience — never yields
+additive-subordinate  additive design; yields to both; MUTUALLY INCOMPARABLE
+```
+
+Being installed later confers nothing. Where two additive-subordinate packages overlap on a module
+and genuinely disagree, that is a conflict to record in `unresolvedAuthority`, not a tie to break by
+version order. Class is anchored to the layer's **root path** in the shared library, so a layer
+cannot demote its own authority out of the rules that bind it (F-09).
+
+Repository tooling can answer: which packages apply to module X (a **set**, computed and printed —
+11 modules are claimed by more than one package today), which class outranks which, which
+module-state gate applies, which Horizon applies, and which authority governs a subject.
+
+## 7. The binding obligation — derived, not enumerated
+
+A layer must carry an `architecture` block when it is `additive-subordinate`, rooted under
+`docs/production-handoff/`, and claims no **verified** exemption. There is no package count and no id
+list, so a package acquires the obligation by existing.
+
+Three exemptions exist and each is proved against a repository fact, never accepted on the registry's
+word:
+
+| Anchor                      | Proof                                                            | True for |
+| --------------------------- | ---------------------------------------------------------------- | -------- |
+| `base-provenance`           | `handoff-provenance.json.handoffSource` equals this root         | v1.2     |
+| `controlling-security`      | the shared library anchors this root as `controlling`            | v1.3.0   |
+| `accepted-network-decision` | an **Accepted** `docs/decisions/` record cites this root by path | v1.4.0   |
+
+Measured across all nine layers, no other root scores above zero on the third, and a new package can
+satisfy none of the three. Registering a seventh package **unbound fails**; registering it
+**correctly passes** — both are tested.
+
+## 8. F-07 — the limitation deliberately left open
+
+Every manifest except v1.2's is **package-local**: it lives inside the package it describes.
+
+**What that proves.** Every listed file is present; its bytes hash to the recorded value (and for
+JSON manifests its size matches); and no unlisted file exists inside the package root. Because the
+manifest and artifacts are version-controlled together, any change to a listed artifact requires a
+corresponding visible change to the manifest in the same commit — an invisible in-place edit becomes
+a reviewable two-file diff. That is genuinely worth having: it is what closed the state where 567
+files were cited as binding and verified by nothing.
+
+**What it does not prove.** It is **not tamper resistance against a coordinated edit** that updates
+both the artifact and the manifest. Nothing outside the package pins the manifest, so such an edit
+passes both gates with the artifact count unchanged. This was reproduced.
+
+**No repository-native anchor exists that AWE-0 merely failed to connect to.** This was searched:
+`handoff-provenance.json` and `check-handoff-provenance.mjs` anchor **v1.2 only** (`handoffSource` is
+hard-coded to that root, and AWE-0 does already cross-check against it); the CI `sha256sum -c` step
+runs against v1.2 only and its `SHA256SUMS.txt` is itself package-local; there is no CODEOWNERS, no
+branch-protection configuration, no signing or attestation machinery in the repository.
+
+**F-07 remains OPEN.** A real trust root — external provenance, signed artifacts, branch protection,
+or a repository policy decision — is a separate architecture decision. Inventing a weak one here
+would be worse than naming the limit. A characterisation test asserts the limitation stays recorded.
+
+## 9. Findings and disposition
+
+| #    | Finding                                       | Disposition                                                                                                                              |
+| ---- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| F-01 | obligation pinned to a frozen six-id list     | **Fixed** — derived from role + position; verified exemptions; count removed                                                             |
+| F-02 | unresolved-authority inventory deletable      | **Fixed** — anchored inventory, `declared ⊇ known − resolved`, governed resolution path                                                  |
+| F-03 | ADR identifier namespace collision            | **Fixed** — two source-qualified namespaces, Proposed refused, counts declared                                                           |
+| F-04 | CI self-check was a substring match           | **Fixed** — workflow parsed; comments, `echo`, `true`, `if:`, `continue-on-error` all refused                                            |
+| F-05 | runtime-authority guard partial               | **Narrowed and widened** — whole package tree, all executable extensions, concatenation-normalised; residual limit documented and tested |
+| F-06 | binding form checked, content not             | **Made honest** — four tiers named; content pinned by a reviewed digest                                                                  |
+| F-07 | no external integrity anchor                  | **OPEN by instruction** — described precisely, not papered over                                                                          |
+| F-08 | manifest path traversal                       | **Fixed** — containment, absolute/normalisation/symlink/directory all refused                                                            |
+| F-09 | controlling layer could self-demote           | **Fixed** — roles anchored to root paths in the shared library                                                                           |
+| F-10 | anti-vacuity was one global sum               | **Fixed** — per-layer `expectedArtifacts`; global total kept as a coarse signal                                                          |
+| F-11 | ADR-0014 relations overbroad                  | **Fixed** — see §5; three further relations corrected in both directions                                                                 |
+| F-12 | 607 files claimed                             | **Fixed** — 567 tracked, corrected in all four places                                                                                    |
+| F-13 | schema allowed self-declared `implementation` | **Fixed** — `implementationAuthority` is the constant `"none"`; module state is read and reported                                        |
+
+**Low severity.** Version matching now requires a whole segment (`v1.7.0` no longer matches
+`v1.7.01`); `walk()` uses `lstat`, so a symlink loop fails cleanly instead of throwing ELOOP with no
+banner; the dead `contradicts` flag and its no-op `continue` are gone; a duplicate module id is
+refused rather than counted twice.
+
+**Tests that mutate real artifacts.** The pre-existing `network-governance.test.ts` cases tamper with
+the real v1.4.0 package; that pattern predates AWE-0 on the accepted base and is left as it was. Every
+case AWE-0 adds runs against a **disposable fixture package** instead, and the not-Accepted path is
+now tested against `ADR-N0015`, which is genuinely Proposed — so no accepted ADR is edited at all.
 
 ## 10. Deliberately left unresolved
 
-AWE-0 closes the wiring defect and nothing else. These are recorded in the registry so they stay
-visible, and are **not** closed here:
+Twelve items are recorded in the registry with stable ids and cannot be deleted without a governed
+resolution: both vocabulary gaps, owner decisions OD-A, OD-E, D-01, D-03, D-10, D-16, and the absent
+WorkUnit / graph / agent runtime substrate. Also untouched:
 
-| Topic                                                                    | Where it belongs            |
-| ------------------------------------------------------------------------ | --------------------------- |
-| canonical action / command vocabulary (two disjoint vocabularies)        | AWE-2                       |
-| canonical artifact vocabulary (v1.7 vs v1.8)                             | AWE-1 / AWE-2               |
-| canonical workforce roster of record                                     | owner decision OD-A         |
-| approving authority for a job certification                              | owner decision OD-E         |
-| WorkUnit / graph / agent runtime, entitlement, adapter, egress substrate | not commissioned by any ADR |
-| first governed egress channel                                            | owner decision D-03         |
-| lifting `billing_enabled` / `customer_sale_allowed`                      | owner decision D-16         |
-| 37 provisional job books and 36 typed durable graphs                     | owner decisions D-01, D-10  |
-
-Three further downstream findings are untouched and remain open exactly as the audits recorded them:
-
-- **Ten network ADRs in `docs/decisions/` remain "Proposed" while their content ships in migrations
-  0028–0035.** Accepting an ADR is an owner act. The validator's response is to fail closed — only
-  an `Accepted` ADR may govern or constrain a package — so the conflict cannot be laundered through
-  registration.
+- **Ten network ADRs remain "Proposed" while their content ships in migrations 0028–0035.** Accepting
+  an ADR is an owner act. The gate fails closed on Proposed authority so the conflict cannot be
+  laundered through registration.
 - **ADR-0003's status.** ADR-0015 records that it "supersedes in practice" ADR-0003's single
-  `authority_mode` dimension, while ADR-0003 still reads `Accepted`. No package here claims
-  authority from ADR-0003.
-- **The five defects inside v1.8.1's own machine-readable artifacts** (undefined `HOLD`, 192 failure
-  paths to an undefined state, zero kill-switch references, non-idempotent side-effecting nodes,
-  55 node owners with no Job Book). Registration verifies the package's integrity; it does not
-  repair its contents.
+  `authority_mode` dimension while ADR-0003 still reads `Accepted`. No package claims authority from
+  ADR-0003.
+- **The five defects inside v1.8.1's own machine-readable artifacts.** Registration verifies a
+  package's integrity; it does not repair its contents.
+- **F-07**, above.
 
 ## 11. What was not done
 
-No workforce or runtime architecture was repaired. Specifically: the 76-job workforce was not
-redesigned; AWE-D1 was not started; no Twin Job Book, WorkUnit, durable-graph, agent or Operational
-Twin runtime was created; RevenueOS and FMI were not implemented; none of the 37 RevenueOS/FMI
-candidates was registered as a production job or promoted to J0; no autonomy ceiling was raised; no
-market source or external egress was introduced; no adapter was built; billing was not changed; no
-disabled module was activated; no `implementation_allowed` was modified; no accepted handoff package
-was edited; no accepted audit finding was altered; and no unaccepted v1.9 material was read or used.
+No workforce or runtime architecture was repaired. The 76-job workforce was not redesigned; AWE-D1
+was not started; no Twin Job Book, WorkUnit, durable-graph, agent or Operational Twin runtime was
+created; RevenueOS and FMI were not implemented; none of the 37 RevenueOS/FMI candidates was
+registered as a production job or promoted to J0; no autonomy ceiling was raised; no market source or
+external egress was introduced; no adapter was built; billing was not changed; no disabled module was
+activated; no `implementation_allowed` was modified; no accepted handoff package was edited; no
+accepted audit finding was altered; and no unaccepted v1.9 material was read or used.
 
 ## 12. Files
 
-| File                                                      | Change                                                                                         |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `governance-layers.json`                                  | +6 layers, `architectureGovernance` policy block, `precedence` and `integrityFormat` on all 9  |
-| `scripts/lib/governance-layers.mjs`                       | new — shared loader and both manifest parsers                                                  |
-| `scripts/check-network-governance.mjs`                    | reads the shared lib; parses JSON manifests; verifies `bytes`; required-layer set widened to 9 |
-| `scripts/check-architecture-governance.mjs`               | new — the binding gate                                                                         |
-| `scripts/test/architecture-governance.test.ts`            | new — 24 tests, one per failure mode                                                           |
-| `scripts/test/network-governance.test.ts`                 | +6 JSON-manifest tamper tests; anti-vacuity floor 100 → 650                                    |
-| `.github/workflows/ci.yml`                                | new blocking step; existing step renamed to its true scope                                     |
-| `package.json`                                            | `validate:architecture`, wired into `validate`                                                 |
-| `docs/governance/AWE_0_ARCHITECTURE_GOVERNANCE_WIRING.md` | this record                                                                                    |
+| File                                           | Change                                                                                                                                                                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `governance-layers.json`                       | `precedence` removed; exemptions, source-qualified relations, stable unresolved ids, per-layer `expectedArtifacts`, mandate, authority model, CI wiring, declared counts |
+| `scripts/lib/governance-layers.mjs`            | anchored roles, exemption anchors, unresolved inventory, resolution ledger, reviewed digests, containment, safe walk, two-namespace index, workflow tokenizer            |
+| `scripts/lib/network-primitives.mjs`           | `SOURCE_FILE_PATTERN` exported and widened to `.cjs`/`.tsx` — one definition, now three gates                                                                            |
+| `scripts/check-network-governance.mjs`         | containment, per-layer completeness, coverage, honest F-07 note                                                                                                          |
+| `scripts/check-architecture-governance.mjs`    | derived obligation, source-qualified authority, reviewed digest, structural CI parse, widened runtime scan                                                               |
+| `scripts/test/architecture-governance.test.ts` | 50 tests, one per finding, fixtures instead of accepted artifacts                                                                                                        |
+| `scripts/test/network-governance.test.ts`      | 25 tests; new cases on a disposable fixture package                                                                                                                      |
+| `.github/workflows/ci.yml`                     | blocking step (unchanged since `8528734`)                                                                                                                                |
+| `package.json`                                 | `validate:architecture` (unchanged since `8528734`)                                                                                                                      |
 
-Manifest-verified artifacts: **105 → 666**.
-
-## 13. Adversarial tests
-
-Each of the ten failure modes has at least one test, and each pins the specific failure message
-rather than "the validator exited non-zero" — a gate that fails generically on every mutation proves
-only that it dislikes change.
-
-| #   | Failure mode                                               | Test                                                                                                        |
-| --- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| 1   | accepted package missing registration                      | drop v1.8.0 → `unregistered governance package`                                                             |
-| 2   | duplicate package identity                                 | duplicate id → `duplicate package identity`; duplicate root → `duplicate package path`                      |
-| 3   | nonexistent / unaccepted ADR                               | `ADR-9999` → `no such decision record`; ADR-0011 → `not Accepted`                                           |
-| 4   | malformed ADR relation                                     | unknown relation, empty evidence, `adr` on an unresolved item, package bound to nothing                     |
-| 5   | package path / version / status drift                      | `v9.9.9`, missing root, `governanceStatus: proposed`, unknown manifest format                               |
-| 6   | package integrity / tampering                              | edit, delete, unlisted extra, edited `bytes`, unparseable JSON manifest                                     |
-| 7   | executable capability in an implementation-disabled module | `authorizes: implementation` on `digital_brokerage` → `forbids implementation`                              |
-| 8   | architecture exceeding the authorized Horizon              | v1.8.1 → `above horizon_authorized=1`; under-declared `maxHorizon`                                          |
-| 9   | ambiguous precedence                                       | duplicate rank; subordinate above the controlling layer                                                     |
-| 10  | documentation registration read as runtime authority       | planted `packages/context/src/` reader → `would then make a runtime gate pass`; founding layer reclassified |
-
-Every mutation is restored in `afterEach`, so a failing assertion cannot leave a modified registry,
-ADR or planted source file behind. The unit project runs in a single fork, so no concurrent reader
-can land inside a mutation window.
-
-**Validator mutation proof.** Two rules were individually disabled in
-`check-architecture-governance.mjs` and the suite re-run. Neutralising the module-state
-contradiction rule failed exactly one test; neutralising the runtime-authority rule failed exactly
-one, and a different one. The validator was restored byte-identical after each. The tests detect the
-specific rule, not change in general.
+Manifest-verified artifacts: **105 → 666**, across 8 layers with per-layer expectations.

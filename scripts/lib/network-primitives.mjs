@@ -253,13 +253,29 @@ export const SIGNALLING_PATTERNS = [
 
 export const PACKAGES_DIR = join(REPO_ROOT, 'packages');
 
+/**
+ * Every extension this repository can execute or compile — ONE definition, now three gates.
+ *
+ * It was `/\.(ts|mts|cts|js|mjs)$/` inline, which omitted `.cjs` and `.tsx`. `.cjs` is not an
+ * oversight worth shrugging at: inside a `"type": "module"` package the extension is precisely what
+ * forces CommonJS, so a `.cjs` file importing `node:http` was live runtime code that the egress
+ * gates could not see. AWE-0's architecture gate then arrived with a fourth hand-rolled list —
+ * `/\.(m?ts|m?js|tsx)$/`, neither a superset nor a subset of this one — which is the drift this
+ * module's own header exists to prevent. Named and exported so the next gate imports it instead of
+ * writing a fifth.
+ *
+ * Today the repository contains only `.ts` and `.mts` under `packages/`, so widening changes no
+ * gate's verdict; it changes what a future file would be measured by.
+ */
+export const SOURCE_FILE_PATTERN = /\.(m?ts|cts|m?js|cjs|[jt]sx)$/;
+
 /** Runtime TypeScript/JavaScript. Test trees and `*.test.*` files excluded, as they always were. */
 export function collectTsFiles() {
   if (!existsSync(PACKAGES_DIR)) return [];
   return readdirSync(PACKAGES_DIR)
     .sort()
-    .flatMap((pkg) => walk(join(PACKAGES_DIR, pkg, 'src'), (f) => /\.(ts|mts|cts|js|mjs)$/.test(f)))
-    .filter((f) => !/\.test\.[cm]?[tj]s$/.test(f));
+    .flatMap((pkg) => walk(join(PACKAGES_DIR, pkg, 'src'), (f) => SOURCE_FILE_PATTERN.test(f)))
+    .filter((f) => !/\.test\.[cm]?[tj]sx?$/.test(f));
 }
 
 export function collectSqlFiles() {

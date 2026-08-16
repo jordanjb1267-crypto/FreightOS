@@ -15,25 +15,45 @@
 // §3.1-§3.2 records it and this repository reproduces it exactly: across the six accepted
 // architecture packages there are ZERO references to any of the 27 accepted ADRs, ZERO references
 // from any accepted ADR back to a package, ZERO mentions of any module id from
-// config/scope/module_states.yaml (one incidental exception in a v1.7 combined file), and ZERO
+// config/scope/module_states.yaml (one incidental occurrence in a v1.7 generated file), and ZERO
 // mentions of a Horizon outside v1.8.1. Substantive, internally coherent architecture, connected
 // to the repository's controlling authority by nothing at all.
 //
-// THE BINDING CANNOT LIVE INSIDE THE PACKAGES. ADR-0014 and SR ruling 2 make an installed package
-// immutable; both accepted audits verified all six byte-exact. Adding an ADR citation to a package
-// document would break its own manifest. So the relation is declared in governance-layers.json —
-// the hand-maintained registry that already exists for exactly this kind of reviewed governance
-// act — and enforced here.
+// THE BINDING CANNOT LIVE INSIDE THE PACKAGES. Owner ruling 2 (docs/security-resilience/README.md
+// §A.4a) freezes an installed versioned package after installation and directs that later handoff
+// pointers live in a registry maintained OUTSIDE the checksummed packages. Adding a citation to a
+// package document would also break that package's own manifest. So the relation is declared in
+// governance-layers.json — which is the registry owner ruling 2 called for — and enforced here.
 //
-// WHAT REGISTRATION DOES NOT DO. It does not authorize implementation. The ladder in
-// governance-layers.json `architectureGovernance.authorizationLadder` has five rungs and this file
-// can only certify the second. §"runtime authority" below asserts that structurally: no file under
-// packages/*/src/ may read the registry, so a documentation package cannot make a runtime gate
-// pass by being registered.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// WHAT THIS GATE PROVES, AND WHAT IT DOES NOT.
 //
-// Fail-closed throughout: an unreadable registry, an unknown relation, an ADR that is not Accepted,
-// a module the scope registry does not know, a Horizon above what is authorized, or a scan that
-// covered nothing are all failures rather than silence.
+// An independent adversarial review of the first candidate broke it seven ways, and every break
+// had the same shape: a rule whose expectations lived entirely inside the document it validated, or
+// a rule that checked a string where it needed to check a structure. The tiers below are stated
+// explicitly because the previous version implied a stronger claim than it delivered.
+//
+//   PROVEN, structurally:
+//     · the relation is syntactically valid and its kind is in the vocabulary
+//     · the authority target EXISTS, is SOURCE-QUALIFIED, and is ACCEPTED
+//     · module ids resolve in config/scope/module_states.yaml; Horizon agrees with module state
+//     · the registry has not drifted from the binding a reviewer last signed off (digest)
+//     · the required gates actually RUN in CI — parsed workflow, not a substring
+//
+//   NOT PROVEN, and labelled as such:
+//     · the SEMANTIC TRUTH of an `evidence` string. It is human-reviewed rationale. No validator
+//       can decide whether "ADR-0018 governs this package's autonomy ladder" is a correct reading
+//       of ADR-0018; that is an architecture-review obligation. What the digest gives is that the
+//       rationale cannot CHANGE without a reviewer re-accepting it.
+//     · that a package's moduleScope is the RIGHT scope. The immutable packages carry no
+//       machine-readable module metadata to check it against — the scope is a reviewed governance
+//       act, pinned by the digest, not a derived fact.
+//     · tamper resistance of the packages themselves. See the F-07 note in
+//       check-network-governance.mjs: manifests are package-local and a coordinated edit passes.
+//
+// Fail-closed throughout: an unreadable registry, an unknown relation, an authority that is not
+// Accepted, a module the scope registry does not know, a Horizon above what is authorized, a
+// digest mismatch, or a scan that covered nothing are all failures rather than silence.
 //
 // No network access. Deterministic output. Exit 0 = clean, 1 = fail.
 
@@ -42,15 +62,28 @@ import { join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
 
 import {
-  ADR_RELATIONS,
-  FOUNDING_LAYER_IDS,
-  GOVERNED_ARCHITECTURE_LAYER_IDS,
+  ANCHORED_LAYER_ROLES,
+  AUTHORITY_RELATIONS,
+  AUTHORITY_SOURCES,
+  EXEMPTION_ANCHORS,
+  KNOWN_UNRESOLVED_AUTHORITY,
   LAYER_ROLES,
   MANIFEST_FORMATS,
+  PROVENANCE_FILE,
   REPO_ROOT,
+  RESOLVED_AUTHORITY,
+  REVIEWED_BINDING_DIGESTS,
+  WORKFLOW_FILE,
+  bindingDigest,
+  buildAuthorityIndex,
   handoffPackageDirectories,
+  invokes,
+  isAccepted,
+  isGovernedArchitectureLayer,
   loadRegistry,
+  workflowRunCommands,
 } from './lib/governance-layers.mjs';
+import { SOURCE_FILE_PATTERN, walk as walkSource } from './lib/network-primitives.mjs';
 
 const errors = [];
 const notes = [];
@@ -71,10 +104,14 @@ function report() {
   }
   console.log('ARCHITECTURE_GOVERNANCE=PASS');
   console.log('PACKAGE_IDENTITY=PASS');
-  console.log('ADR_TRACEABILITY=PASS');
+  console.log('BINDING_OBLIGATION=PASS');
+  console.log('AUTHORITY_TRACEABILITY=PASS');
+  console.log('REVIEWED_BINDING=PASS');
+  console.log('UNRESOLVED_AUTHORITY_PRESERVED=PASS');
   console.log('MODULE_STATE_BINDING=PASS');
   console.log('HORIZON_BINDING=PASS');
-  console.log('PRECEDENCE=PASS');
+  console.log('AUTHORITY_MODEL=PASS');
+  console.log('CI_ENFORCEMENT=PASS');
   console.log('DOCS_ARE_NOT_RUNTIME_AUTHORITY=PASS');
   for (const n of notes) console.log(`  ${n}`);
   process.exit(0);
@@ -101,24 +138,50 @@ const governance = registry.architectureGovernance;
 if (!governance || typeof governance !== 'object') {
   fail(
     'governance-layers.json has no `architectureGovernance` block. It carries the authorization ' +
-      'ladder, the precedence rule and the expected package count, and without it this gate has ' +
-      'no policy to enforce.',
+      'ladder, the authority model and the CI wiring, and without it this gate has no policy to ' +
+      'enforce.',
   );
   report();
 }
-for (const field of ['authorizationLadder', 'precedenceRule', 'runtimeAuthorityRule']) {
+for (const field of [
+  'authorizationLadder',
+  'runtimeAuthorityRule',
+  'implementationAuthorityRule',
+  'evidenceRule',
+  'unresolvedAuthorityRule',
+]) {
   const value = governance[field];
   const present = Array.isArray(value)
     ? value.length > 0
     : typeof value === 'string' && value.length > 0;
   if (!present) fail(`architectureGovernance.${field} is missing or empty`);
 }
-if (typeof governance.expectedGovernedPackages !== 'number') {
-  fail(
-    'architectureGovernance.expectedGovernedPackages must be a number. It exists so that dropping ' +
-      'a governed package from this registry is TWO lines in a diff rather than one.',
-  );
-  report();
+
+// ---------------------------------------------------------------------------
+// 0b. The mandate — this registry is not self-authorised.
+//
+// Owner ruling 2 both froze installed packages and directed that later handoff pointers live in a
+// registry outside them. The clause is quoted here and checked VERBATIM against the record, so the
+// citation cannot drift from the text it cites and cannot be softened by rewording it here.
+// ---------------------------------------------------------------------------
+const mandate = governance.mandate;
+if (!mandate || typeof mandate !== 'object') {
+  fail('architectureGovernance.mandate is missing — the registry cites no authority for existing');
+} else if (typeof mandate.record !== 'string' || !existsSync(join(REPO_ROOT, mandate.record))) {
+  fail(`architectureGovernance.mandate.record does not exist: ${mandate.record}`);
+} else {
+  const recordText = read(mandate.record);
+  for (const clauseField of ['clause', 'immutabilityClause']) {
+    const clause = mandate[clauseField];
+    if (typeof clause !== 'string' || clause.trim().length === 0) {
+      fail(`architectureGovernance.mandate.${clauseField} is empty`);
+    } else if (!recordText.includes(clause)) {
+      fail(
+        `architectureGovernance.mandate.${clauseField} is not present verbatim in ` +
+          `${mandate.record}. A citation that no longer matches its source is not a citation.`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -126,10 +189,9 @@ if (typeof governance.expectedGovernedPackages !== 'number') {
 // ---------------------------------------------------------------------------
 const byId = new Map();
 const roots = new Map();
-const precedences = new Map();
 
 for (const layer of layers) {
-  const { id, version, root, role, precedence, integrityFile, integrityFormat } = layer;
+  const { id, version, root, role, integrityFile, integrityFormat } = layer;
 
   if (typeof id !== 'string' || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)) {
     fail(`layer id ${JSON.stringify(id)} is not a lower-kebab-case identifier`);
@@ -159,16 +221,40 @@ for (const layer of layers) {
     continue;
   }
 
-  // The directory name must carry the declared version. This is what catches a layer entry left
-  // pointing at v1.7.0 after its root was moved to a v1.7.1 directory — a path/version drift that
-  // every hash in the manifest would happily agree with.
-  if (typeof version === 'string' && !root.split('/').pop().includes(version)) {
-    fail(`${id}: declared version ${version} does not appear in the root directory name ${root}`);
+  // The directory name must carry the declared version AS A WHOLE SEGMENT. `.includes()` was not
+  // enough: a root named `v1.7.01-something` satisfied version `v1.7.0`, so a package could be
+  // renumbered without the check noticing. The version must be delimited by a boundary on both
+  // sides, which still admits every real root — `v1.2`, `v1.8.1-revenueos-…`, and the mid-name
+  // `facilityos-v1.0.0-enterprise-agent-operations`.
+  if (typeof version === 'string') {
+    const basename = root.split('/').pop();
+    const boundary = new RegExp(`(^|[^0-9A-Za-z.])${version.replace(/\./g, '\\.')}([^0-9.]|$)`);
+    if (!boundary.test(basename)) {
+      fail(
+        `${id}: declared version ${version} does not appear as a whole segment in the root ` +
+          `directory name ${basename}`,
+      );
+    }
   }
 
   if (!LAYER_ROLES.includes(role)) {
     fail(`${id}: role ${JSON.stringify(role)} is not one of ${LAYER_ROLES.join(', ')}`);
   }
+
+  // ANCHORED ROLE. The first candidate computed its anti-inversion rule from the same mutable
+  // `role` field it was validating, so v1.3.0 could demote itself out of the set that constrained
+  // everything else and the gate passed. Roles for the three founding roots are properties of the
+  // repository, held in scripts/lib/governance-layers.mjs and keyed by PATH, not by a field this
+  // file can edit. Everything else is additive-subordinate by construction.
+  const anchoredRole = ANCHORED_LAYER_ROLES[root] ?? 'additive-subordinate';
+  if (role !== anchoredRole) {
+    fail(
+      `${id}: declares role "${role}" but ${root} is anchored as "${anchoredRole}" in ` +
+        `scripts/lib/governance-layers.mjs. A layer cannot demote or promote its own authority by ` +
+        `editing the registry.`,
+    );
+  }
+
   if (!MANIFEST_FORMATS.includes(integrityFormat)) {
     fail(
       `${id}: integrityFormat ${JSON.stringify(integrityFormat)} is not one of ` +
@@ -177,32 +263,6 @@ for (const layer of layers) {
   }
   if (typeof integrityFile !== 'string' || !existsSync(join(rootAbs, integrityFile))) {
     fail(`${id}: declared integrityFile is missing: ${root}/${integrityFile}`);
-  }
-
-  if (!Number.isInteger(precedence) || precedence < 1) {
-    fail(`${id}: precedence must be a positive integer`);
-    continue;
-  }
-  if (precedences.has(precedence)) {
-    fail(
-      `ambiguous precedence: ${precedences.get(precedence)} and ${id} both declare precedence ` +
-        `${precedence}. Two layers at the same rank cannot be ordered, so nothing can answer ` +
-        `which one applies.`,
-    );
-  }
-  precedences.set(precedence, id);
-}
-
-// A dense 1..N ordering. A gap means a layer was removed without renumbering, and a reader cannot
-// tell that from a layer that was never there.
-const ranks = [...precedences.keys()].sort((a, b) => a - b);
-for (const [index, rank] of ranks.entries()) {
-  if (rank !== index + 1) {
-    fail(
-      `precedence values must be dense 1..${ranks.length}; found ${ranks.join(', ')}. ` +
-        `A gap hides whether a layer was removed or never declared.`,
-    );
-    break;
   }
 }
 
@@ -227,97 +287,196 @@ for (const directory of handoffPackageDirectories()) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Which layers carry architecture bindings, and which may not.
+// 3. THE BINDING OBLIGATION, derived rather than enumerated.
+//
+// The first candidate pinned the obligation to a frozen list of six ids and a count of six. A
+// seventh package could then be registered with no binding and both gates passed, while registering
+// it CORRECTLY failed on the frozen count. Membership is now a property of the layer:
+//
+//   role === 'additive-subordinate'  AND  root under docs/production-handoff/  AND  no VERIFIED
+//   exemption  ->  must carry `architecture`.
+//
+// A package that arrives after AWE-0 acquires the obligation by existing, and no edit to any script
+// avoids it. The one exemption is DECLARED on the layer and PROVED here against repository facts —
+// never accepted on the registry's word.
 // ---------------------------------------------------------------------------
-const governed = layers.filter((l) => l.architecture !== undefined && l.architecture !== null);
-const governedIds = new Set(governed.map((l) => l.id));
+const provenance = existsSync(PROVENANCE_FILE)
+  ? JSON.parse(readFileSync(PROVENANCE_FILE, 'utf8'))
+  : {};
 
-for (const id of GOVERNED_ARCHITECTURE_LAYER_IDS) {
-  if (!governedIds.has(id)) {
-    fail(
-      `${id} carries no \`architecture\` block. It is one of the accepted architecture packages ` +
-        `AWE-0 binds; removing its block would return it to the unbound state AWE-0 closed.`,
-    );
-  }
-}
-// The founding layers must NOT acquire one. Their authority predates AWE-0 and comes from the base
-// sha256sum gate, the controlling security role and the accepted docs/decisions/ N-series. Letting
-// one be reclassified as an architecture package is how the stricter rules get dodged.
-for (const id of FOUNDING_LAYER_IDS) {
-  if (governedIds.has(id)) {
-    fail(
-      `${id} must not carry an \`architecture\` block. Its authority predates AWE-0 and is not ` +
-        `established by this registry.`,
-    );
-  }
-}
-if (governed.length !== governance.expectedGovernedPackages) {
-  fail(
-    `architectureGovernance.expectedGovernedPackages is ${governance.expectedGovernedPackages} ` +
-      `but ${governed.length} layers carry an \`architecture\` block.`,
-  );
+/** Accepted decision records that cite a layer's root path — the v1.4.0 anchor, measured not assumed. */
+function acceptedDecisionsCiting(root) {
+  const dir = join(REPO_ROOT, 'docs', 'decisions');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => /^\d{4}-.*\.md$/.test(f))
+    .filter((f) => {
+      const text = readFileSync(join(dir, f), 'utf8');
+      const status = /^[-*]?\s*\*\*Status:\*\*\s*(.+)$/m.exec(text);
+      return isAccepted(status?.[1]?.trim()) && text.includes(root);
+    });
 }
 
-// ---------------------------------------------------------------------------
-// 4. Precedence — a subordinate layer may never outrank a controlling one.
-// ---------------------------------------------------------------------------
-const strongest = layers
-  .filter((l) => l.role === 'base' || l.role === 'controlling')
-  .map((l) => l.precedence)
-  .filter(Number.isInteger);
-const weakestControlling = strongest.length > 0 ? Math.max(...strongest) : 0;
+function verifyExemption(layer) {
+  const { id, root } = layer;
+  const exemption = layer.architectureExemption;
+  if (!exemption || typeof exemption !== 'object') {
+    fail(`${id}: architectureExemption must be an object with an anchor and a note`);
+    return false;
+  }
+  if (typeof exemption.note !== 'string' || exemption.note.trim().length === 0) {
+    fail(`${id}: architectureExemption declares no note`);
+  }
+  if (!EXEMPTION_ANCHORS.includes(exemption.anchor)) {
+    fail(
+      `${id}: architectureExemption.anchor ${JSON.stringify(exemption.anchor)} is not one of ` +
+        `${EXEMPTION_ANCHORS.join(', ')}. An exemption is earned against a repository fact, not ` +
+        `declared.`,
+    );
+    return false;
+  }
+
+  if (exemption.anchor === 'base-provenance') {
+    if (provenance.handoffSource !== root) {
+      fail(
+        `${id}: claims the base-provenance exemption, but handoff-provenance.json names ` +
+          `${JSON.stringify(provenance.handoffSource)} as handoffSource, not ${root}.`,
+      );
+      return false;
+    }
+    return true;
+  }
+  if (exemption.anchor === 'controlling-security') {
+    if (ANCHORED_LAYER_ROLES[root] !== 'controlling') {
+      fail(
+        `${id}: claims the controlling-security exemption, but ${root} is not anchored as the ` +
+          `controlling layer in scripts/lib/governance-layers.mjs.`,
+      );
+      return false;
+    }
+    return true;
+  }
+  // accepted-network-decision
+  const citing = acceptedDecisionsCiting(root);
+  if (citing.length === 0) {
+    fail(
+      `${id}: claims the accepted-network-decision exemption, but no Accepted record under ` +
+        `docs/decisions/ cites ${root}. That exemption is measured, not declared.`,
+    );
+    return false;
+  }
+  notes.push(`${id}: exemption anchored by ${citing.length} accepted decision record(s)`);
+  return true;
+}
+
+const governed = [];
+const exempted = [];
 
 for (const layer of layers) {
-  if (layer.role !== 'additive-subordinate') continue;
-  if (Number.isInteger(layer.precedence) && layer.precedence <= weakestControlling) {
+  if (!roots.has(layer.root) || roots.get(layer.root) !== layer.id) continue;
+  const hasBinding = layer.architecture !== undefined && layer.architecture !== null;
+  const claimsExemption =
+    layer.architectureExemption !== undefined && layer.architectureExemption !== null;
+
+  if (hasBinding && claimsExemption) {
     fail(
-      `${layer.id} is additive-subordinate at precedence ${layer.precedence}, at or above the ` +
-        `controlling layers (precedence <= ${weakestControlling}). No layer below may be weakened ` +
-        `to simplify a layer above.`,
+      `${layer.id}: declares both an \`architecture\` binding and an \`architectureExemption\`. ` +
+        `It is one or the other.`,
+    );
+    continue;
+  }
+
+  if (isGovernedArchitectureLayer(layer)) {
+    if (!hasBinding) {
+      fail(
+        `${layer.id}: is an additive-subordinate package under docs/production-handoff/ and ` +
+          `carries no \`architecture\` block and no verified exemption. Every governed ` +
+          `architecture package must be bound to the authority that governs it.`,
+      );
+      continue;
+    }
+    governed.push(layer);
+    continue;
+  }
+
+  // Not in the class. It must NOT carry a binding — otherwise the base or controlling layers could
+  // be reclassified as architecture packages and measured by the weaker, design-only ladder.
+  if (hasBinding) {
+    fail(
+      `${layer.id}: is not a governed architecture package (role "${layer.role}"${
+        claimsExemption ? ', exempt' : ''
+      }) and must not carry an \`architecture\` block. Its authority is not established by this ` +
+        `registry.`,
+    );
+    continue;
+  }
+  if (!claimsExemption) {
+    fail(`${layer.id}: carries neither an \`architecture\` block nor an \`architectureExemption\``);
+    continue;
+  }
+  if (verifyExemption(layer)) exempted.push(layer);
+}
+
+// ---------------------------------------------------------------------------
+// 4. Authority index — two sources, source-qualified, collisions declared.
+// ---------------------------------------------------------------------------
+const {
+  index: authorityIndex,
+  counts: authorityCounts,
+  errors: indexErrors,
+} = buildAuthorityIndex();
+for (const e of indexErrors) fail(e);
+if (authorityIndex.size === 0) {
+  fail('the decision index is empty — no authority was resolvable');
+  report();
+}
+for (const [source, spec] of Object.entries(AUTHORITY_SOURCES)) {
+  if ((authorityCounts[source] ?? 0) === 0) {
+    fail(
+      `${spec.dir}/ contributed no decision records — that authority source was not read. The ` +
+        `first AWE-0 candidate reported "ADR relations verified: 26" while one of its two declared ` +
+        `authority sources contributed exactly zero records and nothing said so.`,
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// 5. Accepted ADR authority — the index this repository actually has.
-// ---------------------------------------------------------------------------
-/**
- * Two header shapes exist in adr/ and both are load-bearing:
- *
- *   **Status:** Accepted (owner ruling, Phase 0)      — 0001-0010, 0014-0027
- *   ## Status\n\nAccepted.                            — 0011, 0012, 0013
- *
- * Reading only the first would silently treat three accepted ADRs as unaccepted, and reading
- * neither would let any string through. Anything that matches no shape is reported as unknown
- * rather than assumed Accepted.
- */
-function adrStatus(text) {
-  const inline = /^\*\*Status:\*\*\s*(.+)$/m.exec(text);
-  if (inline) return inline[1].trim();
-  const sectioned = /^##\s+Status\s*\n+([^\n]+)/m.exec(text);
-  if (sectioned) return sectioned[1].trim();
-  return null;
-}
-
-const adrIndex = new Map();
-const adrDir = join(REPO_ROOT, 'adr');
-if (!existsSync(adrDir)) {
-  fail('adr/ is missing — there is no accepted decision record to trace packages to');
-  report();
-}
-for (const file of readdirSync(adrDir).sort()) {
-  const match = /^(\d{4})-.*\.md$/.exec(file);
-  if (!match) continue;
-  const status = adrStatus(readFileSync(join(adrDir, file), 'utf8'));
-  adrIndex.set(`ADR-${match[1]}`, { file: `adr/${file}`, status });
-}
-if (adrIndex.size === 0) {
-  fail('adr/ contains no NNNN-*.md decision records — the ADR index is empty');
-  report();
+// Declared counts, in the `expectedCount` idiom of check-egress-allowlist.mjs: a new collision
+// between the two numbering spaces becomes a reviewed two-line diff rather than a silent widening.
+const sourceExpectations = governance.authoritySources;
+if (!sourceExpectations || typeof sourceExpectations !== 'object') {
+  fail('architectureGovernance.authoritySources is missing');
+} else {
+  for (const [source, spec] of Object.entries(AUTHORITY_SOURCES)) {
+    const expected = sourceExpectations[source]?.expectedRecords;
+    if (!Number.isInteger(expected)) {
+      fail(`architectureGovernance.authoritySources.${source}.expectedRecords must be an integer`);
+    } else if (expected !== authorityCounts[source]) {
+      fail(
+        `${spec.dir}/ holds ${authorityCounts[source]} citable records, expected ${expected}. ` +
+          `Update both in the same change, deliberately.`,
+      );
+    }
+  }
+  const adrNumbers = new Set(
+    [...authorityIndex.values()].filter((r) => r.source === 'adr').map((r) => r.id.slice(4)),
+  );
+  const colliding = [...authorityIndex.values()].filter(
+    (r) => r.source === 'network-decision' && adrNumbers.has(r.id.slice(5)),
+  ).length;
+  if (!Number.isInteger(sourceExpectations.expectedCollidingNumbers)) {
+    fail('architectureGovernance.authoritySources.expectedCollidingNumbers must be an integer');
+  } else if (sourceExpectations.expectedCollidingNumbers !== colliding) {
+    fail(
+      `${colliding} four-digit numbers exist in both authority sources, expected ` +
+        `${sourceExpectations.expectedCollidingNumbers}. A bare id is ambiguous across exactly ` +
+        `these; update both in the same change, deliberately.`,
+    );
+  }
+  notes.push(`ambiguous four-digit numbers across authority sources: ${colliding}`);
 }
 
 // ---------------------------------------------------------------------------
-// 6. Module and Horizon authority — read, never restated.
+// 5. Module and Horizon authority — read, never restated.
 // ---------------------------------------------------------------------------
 const scope = parse(read('config/scope/module_states.yaml'));
 const authorizedHorizon = scope.horizon_authorized;
@@ -325,6 +484,10 @@ if (!Number.isInteger(authorizedHorizon)) {
   fail('config/scope/module_states.yaml declares no integer horizon_authorized');
   report();
 }
+const declaredHorizons = Object.values(scope.modules ?? {})
+  .map((m) => m?.horizon ?? m?.earliest_horizon)
+  .filter(Number.isInteger);
+const highestDeclaredHorizon = declaredHorizons.length > 0 ? Math.max(...declaredHorizons) : 0;
 
 /**
  * Implementable means the module's STATE permits production code today, computed from the scope
@@ -339,16 +502,16 @@ function stateIsImplementable(stateName) {
   return s.production_code_allowed === true;
 }
 
-function moduleHorizon(entry) {
-  return entry?.horizon ?? entry?.earliest_horizon ?? null;
-}
+const moduleHorizon = (entry) => entry?.horizon ?? entry?.earliest_horizon ?? null;
 
 // ---------------------------------------------------------------------------
-// 7. The bindings themselves.
+// 6. The bindings themselves.
 // ---------------------------------------------------------------------------
 let relationCount = 0;
 let unresolvedCount = 0;
 let scopedModuleCount = 0;
+const relationKinds = Object.create(null);
+const modulesToPackages = new Map();
 
 for (const layer of governed) {
   const id = layer.id;
@@ -360,14 +523,21 @@ for (const layer of governed) {
         `${JSON.stringify(a.governanceStatus)}.`,
     );
   }
-  if (a.authorizes !== 'design-only' && a.authorizes !== 'implementation') {
+
+  // F-13. There is no self-declared implementation rung. The ladder says a declaration in this file
+  // can never reach "IMPLEMENTATION IS AUTHORIZED", so the field is a restatement of that, not a
+  // choice — any other value, including "implementation", "implemented", "certified" or "live", is
+  // a package trying to promote itself by documentation.
+  if (a.implementationAuthority !== 'none') {
     fail(
-      `${id}: authorizes must be "design-only" or "implementation"; found ${JSON.stringify(a.authorizes)}`,
+      `${id}: implementationAuthority must be "none"; found ` +
+        `${JSON.stringify(a.implementationAuthority)}. Architecture registration cannot authorize, ` +
+        `implement or certify anything. Implementation authority is read from ` +
+        `config/scope/module_states.yaml and signed gates, never declared here.`,
     );
-    continue;
   }
 
-  // --- ADR traceability ---
+  // --- Authority traceability ---
   const relations = Array.isArray(a.adrRelations) ? a.adrRelations : null;
   const unresolved = Array.isArray(a.unresolvedAuthority) ? a.unresolvedAuthority : null;
   if (relations === null) fail(`${id}: architecture.adrRelations must be an array`);
@@ -376,8 +546,8 @@ for (const layer of governed) {
 
   if (relations.length === 0 && unresolved.length === 0) {
     fail(
-      `${id}: declares neither an ADR relation nor an unresolved item. A package with no accepted ` +
-        `authority behind it must say so; silence reads as governed and is not.`,
+      `${id}: declares neither an authority relation nor an unresolved item. A package with no ` +
+        `accepted authority behind it must say so; silence reads as governed and is not.`,
     );
   }
 
@@ -387,70 +557,144 @@ for (const layer of governed) {
       fail(`${id}: malformed adrRelations entry: ${JSON.stringify(relation)}`);
       continue;
     }
-    const { adr, relation: kind, evidence } = relation;
-    if (typeof adr !== 'string' || !/^ADR-\d{4}$/.test(adr)) {
+    const { authority, authoritySource, relation: kind, evidence } = relation;
+
+    // SOURCE-QUALIFIED, always. adr/ and docs/decisions/ reuse all eighteen numbers 0001-0018, so a
+    // bare number is ambiguous between an Accepted repository ADR and a frequently Proposed network
+    // decision — `ADR-0018` is the autonomy ceiling in one namespace and the N7 external transport
+    // boundary in the other. The declared source and the id form must agree with each other AND
+    // with where the id actually resolves.
+    const spec = AUTHORITY_SOURCES[authoritySource];
+    if (!spec) {
       fail(
-        `${id}: adrRelations entry has no valid "adr" (expected ADR-NNNN): ${JSON.stringify(adr)}`,
+        `${id}: adrRelations entry declares authoritySource ` +
+          `${JSON.stringify(authoritySource)}; must be one of ${Object.keys(AUTHORITY_SOURCES).join(', ')}. ` +
+          `An unqualified authority reference is ambiguous across the two numbering spaces and is ` +
+          `refused rather than guessed.`,
       );
       continue;
     }
-    if (!ADR_RELATIONS.includes(kind)) {
+    if (typeof authority !== 'string' || !spec.idPattern.test(authority)) {
       fail(
-        `${id} -> ${adr}: relation ${JSON.stringify(kind)} is not one of ${ADR_RELATIONS.join(', ')}. ` +
-          `An unrecognised relation is an unenforceable one.`,
+        `${id}: authority ${JSON.stringify(authority)} is not a valid id for source ` +
+          `"${authoritySource}". Use ADR-NNNN for adr/ and ADR-NNNNN (N-qualified) for ` +
+          `docs/decisions/.`,
       );
       continue;
     }
+    if (!AUTHORITY_RELATIONS.includes(kind)) {
+      fail(
+        `${id} -> ${authority}: relation ${JSON.stringify(kind)} is not one of ` +
+          `${AUTHORITY_RELATIONS.join(', ')}. An unrecognised relation is an unenforceable one.`,
+      );
+      continue;
+    }
+    // Human-reviewed rationale. Its presence is checked; its truth is not, and the registry's
+    // evidenceRule says so rather than implying otherwise.
     if (typeof evidence !== 'string' || evidence.trim().length === 0) {
-      fail(`${id} -> ${adr}: relation declares no evidence. An unevidenced relation is a claim.`);
+      fail(
+        `${id} -> ${authority}: relation declares no evidence. An unevidenced relation is a claim.`,
+      );
     }
-    const key = `${adr}:${kind}`;
+    const key = `${authority}:${kind}`;
     if (seenRelations.has(key)) {
-      fail(`${id}: declares ${adr} as ${kind} more than once`);
+      fail(`${id}: declares ${authority} as ${kind} more than once`);
+      continue;
     }
     seenRelations.add(key);
 
-    const record = adrIndex.get(adr);
+    const record = authorityIndex.get(authority);
     if (!record) {
       fail(
-        `${id} -> ${adr}: no such decision record in adr/. A package cannot be governed by an ADR ` +
-          `that does not exist.`,
+        `${id} -> ${authority}: no such record in ${spec.dir}/. A package cannot be governed by an ` +
+          `authority that does not exist.`,
+      );
+      continue;
+    }
+    if (record.source !== authoritySource) {
+      fail(
+        `${id} -> ${authority}: declared source "${authoritySource}" but the id resolves in ` +
+          `${record.file} (${record.source}).`,
       );
       continue;
     }
     if (record.status === null) {
-      fail(`${id} -> ${adr}: ${record.file} declares no parseable status`);
+      fail(`${id} -> ${authority}: ${record.file} declares no parseable status`);
       continue;
     }
-    if (!/^accepted\b/i.test(record.status)) {
+    if (!record.accepted) {
       fail(
-        `${id} -> ${adr}: ${record.file} is "${record.status}", not Accepted. Only accepted ` +
-          `authority may govern or constrain a package.`,
+        `${id} -> ${authority}: ${record.file} is "${record.status}", not Accepted. Only accepted ` +
+          `authority may govern, constrain or be built beneath.`,
       );
+      continue;
     }
+    relationKinds[kind] = (relationKinds[kind] ?? 0) + 1;
     relationCount += 1;
   }
 
+  const seenUnresolved = new Set();
   for (const item of unresolved) {
     if (!item || typeof item !== 'object') {
       fail(`${id}: malformed unresolvedAuthority entry: ${JSON.stringify(item)}`);
       continue;
     }
+    if (typeof item.id !== 'string' || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(item.id)) {
+      fail(
+        `${id}: unresolvedAuthority entry has no lower-kebab-case "id": ${JSON.stringify(item.id)}`,
+      );
+      continue;
+    }
+    if (seenUnresolved.has(item.id)) {
+      fail(`${id}: unresolvedAuthority lists ${item.id} more than once`);
+      continue;
+    }
+    seenUnresolved.add(item.id);
     if (typeof item.topic !== 'string' || item.topic.trim().length === 0) {
-      fail(`${id}: unresolvedAuthority entry has no "topic"`);
+      fail(`${id}: unresolvedAuthority entry "${item.id}" has no "topic"`);
     }
     if (typeof item.note !== 'string' || item.note.trim().length === 0) {
-      fail(`${id}: unresolvedAuthority entry "${item.topic}" has no "note"`);
+      fail(`${id}: unresolvedAuthority entry "${item.id}" has no "note"`);
     }
-    // An unresolved item may not name an ADR field. That is the back door through which a gap
+    // An unresolved item may not name an authority. That is the back door through which a gap
     // becomes authority by being registered, and it is closed here rather than by convention.
-    if ('adr' in item) {
-      fail(
-        `${id}: unresolvedAuthority entry "${item.topic}" carries an "adr" field. Unresolved means ` +
-          `no accepted authority exists; if one does, declare it in adrRelations.`,
-      );
+    for (const forbidden of ['adr', 'authority', 'authoritySource', 'relation']) {
+      if (forbidden in item) {
+        fail(
+          `${id}: unresolvedAuthority entry "${item.id}" carries an "${forbidden}" field. ` +
+            `Unresolved means no accepted authority exists; if one does, declare it in adrRelations.`,
+        );
+      }
     }
     unresolvedCount += 1;
+  }
+
+  // THE INVENTORY. `unresolvedAuthority` is the mechanism that keeps an unbacked architecture claim
+  // visible, and a mechanism whose whole job is preserving a record cannot protect itself from
+  // inside the record. Deleting all twelve entries left the first candidate's gates green.
+  const known = KNOWN_UNRESOLVED_AUTHORITY[id] ?? [];
+  for (const knownId of known) {
+    if (seenUnresolved.has(knownId)) continue;
+    const resolution = RESOLVED_AUTHORITY[`${id}:${knownId}`];
+    if (!resolution) {
+      fail(
+        `${id}: unresolvedAuthority no longer records "${knownId}", which ` +
+          `scripts/lib/governance-layers.mjs knows to be open. An item may only disappear by being ` +
+          `moved into RESOLVED_AUTHORITY with the accepted authority that closed it.`,
+      );
+      continue;
+    }
+    const closingAuthority = authorityIndex.get(resolution.resolvedBy);
+    if (!closingAuthority) {
+      fail(
+        `${id}: "${knownId}" is recorded resolved by ${resolution.resolvedBy}, which does not exist`,
+      );
+    } else if (!closingAuthority.accepted) {
+      fail(
+        `${id}: "${knownId}" is recorded resolved by ${resolution.resolvedBy}, which is ` +
+          `"${closingAuthority.status}", not Accepted.`,
+      );
+    }
   }
 
   // --- Module-state binding ---
@@ -462,10 +706,15 @@ for (const layer of governed) {
 
   const seenModules = new Set();
   let scopeMaxHorizon = 0;
-  let contradicts = false;
+  let gatedModules = 0;
 
   for (const moduleId of moduleScope) {
-    if (seenModules.has(moduleId)) fail(`${id}: moduleScope lists ${moduleId} more than once`);
+    // A duplicate is an error AND is skipped, so it cannot inflate the completeness counter that
+    // proves this gate did something. Counting it twice would let a package pad the number.
+    if (seenModules.has(moduleId)) {
+      fail(`${id}: moduleScope lists ${moduleId} more than once`);
+      continue;
+    }
     seenModules.add(moduleId);
 
     const entry = scope.modules?.[moduleId];
@@ -477,6 +726,8 @@ for (const layer of governed) {
       continue;
     }
     scopedModuleCount += 1;
+    if (!modulesToPackages.has(moduleId)) modulesToPackages.set(moduleId, []);
+    modulesToPackages.get(moduleId).push(id);
 
     const horizon = moduleHorizon(entry);
     if (!Number.isInteger(horizon)) {
@@ -484,24 +735,7 @@ for (const layer of governed) {
       continue;
     }
     scopeMaxHorizon = Math.max(scopeMaxHorizon, horizon);
-
-    const implementable = stateIsImplementable(entry.state);
-    if (a.authorizes === 'implementation' && !implementable) {
-      contradicts = true;
-      fail(
-        `${id}: declares authorizes="implementation" while its scope includes ${moduleId}, which ` +
-          `is ${entry.state} and forbids implementation. Architecture may design ahead of a gated ` +
-          `module; it may not imply permission for one. Declare design-only or promote the module ` +
-          `through config/scope/module_states.yaml.`,
-      );
-    }
-    if (a.authorizes === 'implementation' && horizon > authorizedHorizon) {
-      contradicts = true;
-      fail(
-        `${id}: declares authorizes="implementation" while its scope includes ${moduleId} at ` +
-          `horizon ${horizon}, above horizon_authorized=${authorizedHorizon}.`,
-      );
-    }
+    if (!stateIsImplementable(entry.state) || horizon > authorizedHorizon) gatedModules += 1;
   }
 
   // --- Horizon binding ---
@@ -515,48 +749,113 @@ for (const layer of governed) {
         `${scopeMaxHorizon}. A package cannot under-declare the Horizon it designs for.`,
     );
   }
-  if (a.maxHorizon > authorizedHorizon && a.authorizes !== 'design-only') {
-    contradicts = true;
+  // The other direction, which `maxHorizon: 99` walked straight through: a Horizon nothing in the
+  // module registry reaches is not a conservative over-declaration, it is a number with no referent.
+  if (a.maxHorizon > highestDeclaredHorizon) {
     fail(
-      `${id}: reaches Horizon ${a.maxHorizon} above horizon_authorized=${authorizedHorizon} and ` +
-        `is not declared design-only. Later-horizon architecture may exist as design; it is not ` +
-        `current implementation authority.`,
+      `${id}: declares maxHorizon=${a.maxHorizon}, above the highest horizon any module in ` +
+        `config/scope/module_states.yaml reaches (${highestDeclaredHorizon}). A Horizon with no ` +
+        `module behind it binds nothing.`,
     );
   }
-  if (contradicts) continue;
+
+  notes.push(
+    `${id}: ${seenModules.size} modules in scope, ${gatedModules} gated or above ` +
+      `horizon_authorized=${authorizedHorizon}; observed implementation authority: none`,
+  );
+}
+
+// Relation-kind tally. Silently downgrading a governed-by to a weaker relation erases a real
+// binding while leaving every other rule satisfied, so the split is declared and compared.
+const expectedKinds = governance.expectedRelationCounts;
+if (!expectedKinds || typeof expectedKinds !== 'object') {
+  fail('architectureGovernance.expectedRelationCounts is missing');
+} else {
+  for (const kind of AUTHORITY_RELATIONS) {
+    const expected = expectedKinds[kind];
+    const actual = relationKinds[kind] ?? 0;
+    if (!Number.isInteger(expected)) {
+      fail(`architectureGovernance.expectedRelationCounts.${kind} must be an integer`);
+    } else if (expected !== actual) {
+      fail(
+        `relation kind "${kind}" appears ${actual} times, expected ${expected}. Update both in ` +
+          `the same change, deliberately.`,
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 7. THE REVIEWED BINDING — the honest half of "content is not validated".
+//
+// No validator can decide whether an evidence string is a correct reading of an ADR, or whether a
+// moduleScope is the right scope. The independent review proved the consequence: removing
+// digital_brokerage from the brokerage package, repointing ADR-0018 to ADR-0001 with fabricated
+// evidence, and replacing rationale with lorem ipsum all passed.
+//
+// What CAN be deterministic is that the binding a human reviewed is the binding still in the file.
+// The digest covers the whole `architecture` block, so any edit to scope, relation, kind, evidence
+// or Horizon invalidates it until a reviewer re-accepts it in scripts/lib/governance-layers.mjs.
+// That is the same shape as handoff-provenance.json's `overrides`, which pin an authorised
+// divergence by {adr, reason, sha256} rather than trying to prove the divergence correct.
+// ---------------------------------------------------------------------------
+for (const layer of governed) {
+  const expected = REVIEWED_BINDING_DIGESTS[layer.id];
+  const actual = bindingDigest(layer.architecture);
+  if (!expected) {
+    fail(
+      `${layer.id}: no reviewed binding digest in scripts/lib/governance-layers.mjs. A binding ` +
+        `nobody has accepted is not a reviewed binding. Add ${JSON.stringify(actual)} once the ` +
+        `content has been reviewed.`,
+    );
+    continue;
+  }
+  if (expected !== actual) {
+    fail(
+      `${layer.id}: the architecture binding has changed since it was reviewed.\n` +
+        `    reviewed ${expected}\n    actual   ${actual}\n` +
+        `    Evidence, module scope, relation strength and Horizon are human-reviewed content. ` +
+        `Re-review the block and update REVIEWED_BINDING_DIGESTS in the same change.`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
 // 8. Documentation is not runtime authorization.
 //
-// The one rule that would be worthless as a promise. If a runtime module ever reads this registry,
-// registering a document becomes a way to make a runtime check pass — the exact confusion the
-// authorization ladder exists to prevent.
+// The rule that would be worthless as a promise. If a runtime module reads this registry,
+// registering a document becomes a way to make a runtime check pass.
+//
+// WHAT THIS SCAN PROVES. Every JS/TS file under packages/ — every extension the repository can
+// execute, every directory, not merely `src/` — contains no literal reference to the registry. The
+// first candidate walked only `packages/*/src`, skipped any directory named `dist`, and matched
+// `/\.(m?ts|m?js|tsx)$/`, so `packages/<pkg>/lib`, `src/dist/`, `.cjs` and `.cts` all walked past
+// it — and `packages/<pkg>/lib` is not even gitignored, so it commits through an ordinary PR.
+//
+// WHAT IT DOES NOT PROVE. A reference assembled at runtime — `'governance-' + 'layers.json'`,
+// `join(root, 'governance', '-layers.json')`, an array join — is not detected, and closing that
+// needs dataflow analysis this repository has deliberately declined to build (the same limit
+// check-egress-allowlist.mjs states for "obfuscated or dynamically-constructed capability
+// acquisition"). The MATERIAL control is the ladder, not this scan: the registry confers no
+// authority, so a caller that read it would gain nothing. This raises the cost of introducing such
+// a reader and makes it reviewable. It is not a sandbox.
 // ---------------------------------------------------------------------------
-function sourceFiles(dir) {
-  if (!existsSync(dir)) return [];
-  const found = [];
-  for (const entry of readdirSync(dir)) {
-    const abs = join(dir, entry);
-    if (statSync(abs).isDirectory()) {
-      if (entry === 'node_modules' || entry === 'dist') continue;
-      found.push(...sourceFiles(abs));
-    } else if (/\.(m?ts|m?js|tsx)$/.test(entry)) {
-      found.push(abs);
-    }
-  }
-  return found;
-}
-
-let runtimeFilesScanned = 0;
 const packagesDir = join(REPO_ROOT, 'packages');
+let runtimeFilesScanned = 0;
 if (existsSync(packagesDir)) {
-  for (const pkg of readdirSync(packagesDir)) {
+  for (const pkg of readdirSync(packagesDir).sort()) {
     if (!statSync(join(packagesDir, pkg)).isDirectory()) continue;
-    for (const file of sourceFiles(join(packagesDir, pkg, 'src'))) {
+    // The WHOLE package tree, not just src/. `walkSource` is the repository's existing collector and
+    // already excludes node_modules; SOURCE_FILE_PATTERN is its single definition of an executable
+    // extension, exported so this gate does not carry a fourth divergent copy.
+    for (const file of walkSource(join(packagesDir, pkg), (f) => SOURCE_FILE_PATTERN.test(f))) {
       runtimeFilesScanned += 1;
       const source = readFileSync(file, 'utf8');
-      if (/governance-layers/.test(source)) {
+      // Two passes. The literal, and the same source with quotes, concatenation operators and
+      // whitespace removed — which catches `'governance-' + 'layers.json'` and
+      // `['governance', 'layers.json'].join('-')` without pretending to be dataflow analysis.
+      const collapsed = source.replace(/['"`+\s,]/g, '');
+      if (/governance-layers/.test(source) || /governance-layers/.test(collapsed)) {
         fail(
           `${relative(REPO_ROOT, file).split(sep).join('/')} references governance-layers.json. ` +
             `Runtime code must not read the architecture registry: registering a documentation ` +
@@ -568,21 +867,44 @@ if (existsSync(packagesDir)) {
 }
 
 // ---------------------------------------------------------------------------
-// 9. Governed architecture must stay inside CI.
+// 9. Governed architecture must stay inside CI — structurally, not by substring.
+//
+// The first candidate asserted only that ci.yml CONTAINED the gate filenames. `run: true # node
+// scripts/check-architecture-governance.mjs` satisfied that while the gate never ran, and so did a
+// comment, an `echo`, the step's own `name:`, `if: false` and `continue-on-error: true`. The
+// workflow is now parsed and its run scripts tokenized; `yaml` is already a direct dependency and
+// scripts/validate-scope.mjs already parses YAML the same way.
 // ---------------------------------------------------------------------------
-const WORKFLOW = '.github/workflows/ci.yml';
-if (!existsSync(join(REPO_ROOT, WORKFLOW))) {
-  fail(`${WORKFLOW} is missing — nothing runs these gates`);
+const ciWiring = governance.ciWiring;
+if (!ciWiring || typeof ciWiring !== 'object' || !Array.isArray(ciWiring.requiredGates)) {
+  fail('architectureGovernance.ciWiring.requiredGates must be an array of validator paths');
+} else if (!existsSync(WORKFLOW_FILE)) {
+  fail(`${ciWiring.workflow ?? '.github/workflows/ci.yml'} is missing — nothing runs these gates`);
 } else {
-  const workflow = read(WORKFLOW);
-  for (const gate of ['check-network-governance.mjs', 'check-architecture-governance.mjs']) {
-    if (!workflow.includes(gate)) {
+  if (ciWiring.requiredGates.length !== ciWiring.expectedRequiredGates) {
+    fail(
+      `architectureGovernance.ciWiring lists ${ciWiring.requiredGates.length} required gates but ` +
+        `declares expectedRequiredGates=${ciWiring.expectedRequiredGates}.`,
+    );
+  }
+  const { commands, steps, jobs, problems } = workflowRunCommands(
+    readFileSync(WORKFLOW_FILE, 'utf8'),
+  );
+  for (const problem of problems) fail(`${ciWiring.workflow}: ${problem}`);
+  if (steps === 0)
+    fail(`${ciWiring.workflow}: no blocking run steps were found — the walk did nothing`);
+
+  for (const gate of ciWiring.requiredGates) {
+    const invocation = commands.find((c) => invokes(c.argv, gate));
+    if (!invocation) {
       fail(
-        `${WORKFLOW} does not run ${gate}. A governed package outside CI verification is an ` +
-          `undeclared package with extra steps.`,
+        `${ciWiring.workflow} does not actually RUN ${gate}. It must appear as a command in a ` +
+          `step's \`run:\` script — not in a comment, not inside an \`echo\`, not behind \`true\`, ` +
+          `and not in a step that is conditional or non-blocking.`,
       );
     }
   }
+  notes.push(`ci jobs walked: ${jobs}, blocking run steps: ${steps}, commands: ${commands.length}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -590,8 +912,9 @@ if (!existsSync(join(REPO_ROOT, WORKFLOW))) {
 // ---------------------------------------------------------------------------
 if (governed.length === 0)
   fail('no governed architecture packages were checked — the gate did nothing');
+if (exempted.length === 0) fail('no layer exemptions were verified — the anchor check did nothing');
 if (relationCount === 0)
-  fail('no ADR relations were verified — the traceability check did nothing');
+  fail('no authority relations were verified — the traceability check did nothing');
 if (scopedModuleCount === 0) fail('no module bindings were verified — the scope check did nothing');
 if (runtimeFilesScanned === 0) {
   fail(
@@ -599,12 +922,31 @@ if (runtimeFilesScanned === 0) {
   );
 }
 
+const shared = [...modulesToPackages.entries()].filter(([, pkgs]) => pkgs.length > 1);
+
 notes.push(`layers declared: ${layers.length}`);
-notes.push(`governed architecture packages: ${governed.length}`);
-notes.push(`ADR relations verified: ${relationCount}`);
-notes.push(`unresolved authority items recorded: ${unresolvedCount}`);
+notes.push(`governed architecture packages: ${governed.length} (derived, not enumerated)`);
+notes.push(`layers exempt with a verified anchor: ${exempted.length}`);
+notes.push(
+  `authority records indexed: adr/ ${authorityCounts.adr}, docs/decisions/ ${authorityCounts['network-decision']}` +
+    ` (+${authorityCounts.unkeyedDecisionRecords} non-ADR decision records, not citable)`,
+);
+notes.push(
+  `authority relations verified: ${relationCount} ` +
+    `(${AUTHORITY_RELATIONS.map((k) => `${k} ${relationKinds[k] ?? 0}`).join(', ')})`,
+);
+notes.push(
+  `unresolved authority items recorded: ${unresolvedCount} (known open: ${Object.values(
+    KNOWN_UNRESOLVED_AUTHORITY,
+  ).reduce((n, v) => n + v.length, 0)}, resolved: ${Object.keys(RESOLVED_AUTHORITY).length})`,
+);
 notes.push(`module bindings verified: ${scopedModuleCount}`);
-notes.push(`horizon_authorized: ${authorizedHorizon}`);
+notes.push(
+  `modules claimed by more than one package (incomparable, strictest-wins): ${shared.length}`,
+);
+notes.push(
+  `horizon_authorized: ${authorizedHorizon}, highest module horizon: ${highestDeclaredHorizon}`,
+);
 notes.push(`runtime source files scanned: ${runtimeFilesScanned}`);
 notes.push(`empty handoff directories skipped (not packages): ${emptyDirectories}`);
 

@@ -2,28 +2,78 @@
   "$comment": "Hand-maintained. Declares the LAYERED governance packages that control this repository, how their integrity is verified, and — since AWE-0 — how each accepted architecture package is bound to the repository's ADR, module-state and Horizon authority. Verified in CI by scripts/check-network-governance.mjs (integrity) and scripts/check-architecture-governance.mjs (binding). This file exists separately from handoff-provenance.json on purpose: that file is regenerated wholesale by scripts/sync-handoff.mjs, which rebuilds its object from HANDOFF_VERSION/HANDOFF_SOURCE and preserves only `overrides`, so any layer declaration added there would be silently dropped on the next `pnpm sync:handoff`. Overloading its single handoffVersion string to mean three packages would also make the base-layer provenance check ambiguous.",
   "subordination": "Network architecture is ADDITIVE and SUBORDINATE to the production handoff and to the security, privacy, tenant-isolation, authority, resilience and non-regression requirements that precede it. Where a network requirement and a security requirement conflict, the stricter restriction wins and the network requirement yields. No layer below may be weakened to simplify a layer above.",
   "architectureGovernance": {
-    "$comment": "AWE-0. Closes W01-F-GOV-01 and the root defect recorded in docs/agentic-architecture-review/01_PACKAGE_INVENTORY_AND_PRECEDENCE.md §3.1-§3.2: six accepted architecture packages (607 files) were substantive and internally coherent while being declared nowhere, verified by nothing, and connected to no accepted ADR in either direction. Registration binds a package to authority. It NEVER confers any.",
-    "expectedGovernedPackages": 6,
+    "$comment": "AWE-0. Closes W01-F-GOV-01 and the root defect recorded in docs/agentic-architecture-review/01_PACKAGE_INVENTORY_AND_PRECEDENCE.md §3.1-§3.2: six accepted architecture packages (567 tracked files) were substantive and internally coherent while being declared nowhere, verified by nothing, and connected to no accepted ADR in either direction. Registration binds a package to authority. It NEVER confers any. Revised after an independent adversarial review; see docs/governance/AWE_0_ARCHITECTURE_GOVERNANCE_WIRING.md for what each rule here does and does not prove.",
+    "mandate": {
+      "$comment": "AWE-0 is not self-authorised. Owner ruling 2, recorded in the merged security/resilience record, both froze installed packages and directed that later handoff pointers live in a registry OUTSIDE them. This file is that registry. The clause below is verified verbatim by scripts/check-architecture-governance.mjs, so the citation cannot drift from the text it cites. It is a merged governance record, not an ADR, and is not citable as a per-package adrRelation.",
+      "record": "docs/security-resilience/README.md",
+      "ruling": "owner ruling 2, §A.4a forward rule",
+      "clause": "Future additive handoff pointers belong in a **top-level handoff registry or index maintained\n   outside older checksummed packages** — not inside them.",
+      "immutabilityClause": "An installed versioned handoff package becomes **immutable after installation**, except through an\n   explicitly approved corrective amendment."
+    },
     "authorizationLadder": [
       "ARCHITECTURE EXISTS — files are on disk under docs/production-handoff/.",
-      "ARCHITECTURE IS ACCEPTED — the package is declared here with governanceStatus=accepted and its manifest verifies.",
-      "IMPLEMENTATION IS AUTHORIZED — config/scope/module_states.yaml puts the module in an implementable state at or below horizon_authorized. A package declaration cannot reach this rung.",
+      "ARCHITECTURE IS ACCEPTED — the package is declared here with governanceStatus=accepted and its manifest verifies. This is the highest rung any declaration in this file can reach.",
+      "IMPLEMENTATION IS AUTHORIZED — config/scope/module_states.yaml puts the module in an implementable state at or below horizon_authorized. Read, never declared here.",
       "CAPABILITY IS IMPLEMENTED — code, migrations and tests exist and pass.",
       "CAPABILITY IS CERTIFIED/LIVE — the applicable acceptance gate is signed and the module is activated."
     ],
-    "runtimeAuthorityRule": "No runtime gate may read this file. Registering a documentation package must never make a runtime check pass. scripts/check-architecture-governance.mjs asserts that no file under packages/*/src/ references governance-layers.json, so the separation is structural rather than promised.",
-    "precedenceRule": "`precedence` orders the governance LAYERS only, lowest number first. It is a tie-break for two texts that both apply, not a licence: regardless of precedence the stricter accepted restriction wins, and security, tenant-isolation, authority, privacy, legal, resilience and certification constraints fail closed. An additive-subordinate layer may never carry a lower precedence number than a base or controlling layer.",
+    "implementationAuthorityRule": "Every governed package declares implementationAuthority=\"none\" and no other value is accepted. It is a restatement of rung 2, not a choice: a package cannot self-declare authorized, implemented, certified or live, because the fields that decide those live in config/scope/module_states.yaml and in signed gates. The validator READS module state per package and reports what it observes; the registry never asserts it.",
+    "runtimeAuthorityRule": "No runtime gate may read this file. scripts/check-architecture-governance.mjs scans every JS/TS source file under packages/ — every extension the repository can execute, every directory, not just src/ — and fails if any references the registry. What that proves and what it does not is stated in the gate's own \"WHAT THIS DOES NOT CLAIM\" note: it detects a literal reference, not a dynamically constructed one. The material control is the ladder itself — the registry grants nothing, so reading it would gain a caller nothing.",
+    "evidenceRule": "An `evidence` string is HUMAN-REVIEWED RATIONALE. No validator proves it true. What the validator proves is: the authority exists, is source-qualified, is Accepted, the relation kind is in the vocabulary, and the whole binding still matches the digest a reviewer signed off in scripts/lib/governance-layers.mjs. Semantic correctness of the rationale is an architecture-review obligation and is labelled as one rather than implied to be machine-checked.",
+    "authorityModel": {
+      "$comment": "Replaces the dense 1..N precedence ordering the first AWE-0 candidate carried. An independent review found that ordering over-strong and inert: it implied a total 'later package wins' rank across packages that are frequently INCOMPARABLE — v1.6.0 brokerage and FacilityOS say nothing about each other — and nothing in the repository consumed it. Authority is a small lattice over CLASSES plus strictest-wins, not a rank over instances.",
+      "classes": {
+        "base": "The preserved v1.2 handoff: constitution, sequencing doctrine, activation gates.",
+        "controlling": "Security, privacy, tenant isolation, authority, resilience. Never yields.",
+        "additive-subordinate": "Additive design. Yields to base and controlling. Mutually INCOMPARABLE."
+      },
+      "resolution": [
+        "A controlling requirement beats any additive-subordinate requirement.",
+        "A base requirement beats any additive-subordinate requirement.",
+        "Two additive-subordinate packages are INCOMPARABLE. Being installed later confers nothing. Where two of them overlap on a module and genuinely disagree, that is a conflict to record in unresolvedAuthority, not a tie to break by version order.",
+        "Regardless of class, the stricter accepted restriction wins. Security, tenant-isolation, authority, privacy, legal, resilience and certification constraints fail closed.",
+        "Class is anchored to the layer's root path in scripts/lib/governance-layers.mjs and cannot be changed by editing this file. A layer cannot demote its own authority out of the rules that bind it."
+      ],
+      "answerable": "Which packages apply to module X (a SET, computed by the validator from moduleScope and printed), which class outranks which (the lattice above), which module-state gate applies (config/scope/module_states.yaml), which Horizon applies (horizon_authorized), and which authority governs a subject (adrRelations)."
+    },
     "authorityAboveArchitecture": [
-      "adr/ — accepted repository ADRs, enforced in code",
-      "docs/decisions/ — accepted network ADRs",
+      "adr/ — accepted repository ADRs, cited as ADR-NNNN, enforced in code",
+      "docs/decisions/ — accepted network decision records, cited as ADR-NNNNN (N-qualified)",
       "config/scope/module_states.yaml — machine-readable module and Horizon authority, enforced by scripts/validate-scope.mjs"
     ],
-    "adrRelationVocabulary": {
-      "governed-by": "The ADR rules the matter. Where the package and the ADR differ, the ADR wins.",
-      "constrained-by": "The ADR bounds the package without deciding its content.",
-      "additive-beneath": "The package adds detail under the ADR and does not touch its decision."
+    "authoritySources": {
+      "$comment": "adr/ and docs/decisions/ reuse all eighteen numbers 0001-0018, so a bare four-digit reference is ambiguous between an Accepted repository ADR and a frequently Proposed network decision. The repository already disambiguates them — docs/decisions/ records title themselves `ADR-N0018` and declare `**ADR ID:** N0018`, and that form is used in runtime source, migrations, a CI gate, nine governance documents and six tests — so AWE-0 adopts the existing convention rather than inventing one. Counts are declared so a new collision is a reviewed two-line diff.",
+      "adr": {
+        "expectedRecords": 27
+      },
+      "network-decision": {
+        "expectedRecords": 16,
+        "nonDecisionFiles": 2
+      },
+      "expectedCollidingNumbers": 16
     },
-    "unresolvedAuthorityRule": "An architecture claim with no accepted ADR behind it belongs in `unresolvedAuthority`, which may not name an ADR. Registering a package does not resolve anything it leaves open; the entries below stay visible until an owner decision or a later package closes them."
+    "expectedRelationCounts": {
+      "$comment": "Tallied by kind so that silently downgrading a governed-by to a weaker relation — the move that erases a real binding while leaving the gate green — is a two-line diff. Update both in the same change, deliberately.",
+      "governed-by": 12,
+      "constrained-by": 13,
+      "additive-beneath": 1
+    },
+    "ciWiring": {
+      "$comment": "The gates that must actually RUN. The predecessor of this block asserted only that ci.yml CONTAINED these filenames, which a YAML comment, an echo, `run: true # node ...`, `if: false` or `continue-on-error: true` all satisfy while the gate never executes or never blocks. The rule is now about the parsed workflow.",
+      "workflow": ".github/workflows/ci.yml",
+      "requiredGates": [
+        "scripts/check-network-governance.mjs",
+        "scripts/check-architecture-governance.mjs",
+        "scripts/validate-scope.mjs"
+      ],
+      "expectedRequiredGates": 3
+    },
+    "adrRelationVocabulary": {
+      "governed-by": "The record rules the matter. Where the package and the record differ, the record wins.",
+      "constrained-by": "The record bounds the package without deciding its content.",
+      "additive-beneath": "The package adds detail under the record and does not touch its decision."
+    },
+    "unresolvedAuthorityRule": "An architecture claim with no accepted authority behind it belongs in `unresolvedAuthority`, which may not name an authority. Each item carries a stable id, and the inventory of known ids is anchored in scripts/lib/governance-layers.mjs: declaring more is always allowed, but an id may only DISAPPEAR by being moved into RESOLVED_AUTHORITY with the accepted authority that closed it. Registering a package resolves nothing it leaves open."
   },
   "layers": [
     {
@@ -31,10 +81,13 @@
       "version": "v1.2",
       "root": "docs/production-handoff/v1.2",
       "role": "base",
-      "precedence": 1,
       "integrityFile": "SHA256SUMS.txt",
       "integrityFormat": "sha256sums",
       "generatedCopies": "handoff-provenance.json",
+      "architectureExemption": {
+        "anchor": "base-provenance",
+        "note": "handoff-provenance.json names this root as handoffSource and pins all 45 generated copies to it, and CI runs `sha256sum -c SHA256SUMS.txt` against it directly. Its authority is anchored outside this registry — it is the only layer for which that is true."
+      },
       "note": "The base handoff. Its integrity is verified in CI by `sha256sum -c SHA256SUMS.txt`, and its generated operational copies at the repository root are verified by scripts/check-handoff-provenance.mjs. handoff-provenance.json describes THIS layer only."
     },
     {
@@ -42,10 +95,14 @@
       "version": "v1.3.0",
       "root": "docs/production-handoff/v1.3.0-security-resilience",
       "role": "controlling",
-      "precedence": 2,
       "integrityFile": "MANIFEST.sha256",
       "integrityFormat": "sha256sums",
+      "expectedArtifacts": 42,
       "generatedCopies": null,
+      "architectureExemption": {
+        "anchor": "controlling-security",
+        "note": "The controlling security layer. Its role is anchored to this root in scripts/lib/governance-layers.mjs and cannot be claimed or renounced by editing this file. It is the layer the subordination clause above says never yields, so it is not architecture bound BY the model — it is part of what binds."
+      },
       "note": "Controlling security layer. Generates no root copies. Its manifest was unverified by CI before N0 — the same gap the audit found in v1.4.0, and it is closed by the same validator."
     },
     {
@@ -53,25 +110,29 @@
       "version": "v1.4.0",
       "root": "docs/production-handoff/v1.4.0-network-architecture",
       "role": "additive-subordinate",
-      "precedence": 3,
       "integrityFile": "MANIFEST.sha256",
       "integrityFormat": "sha256sums",
+      "expectedArtifacts": 63,
       "generatedCopies": null,
-      "note": "Network architecture. Additive and subordinate. Installing it authorizes no runtime behavior: no participants, integrations, agents, dispatch, marketplace or settlement activate because a document describes them. Carries no `architecture` block: its ADR authority is the accepted docs/decisions/ N-series recorded during N0-N7, not AWE-0."
+      "architectureExemption": {
+        "anchor": "accepted-network-decision",
+        "note": "Unlike the six architecture packages, v1.4.0 is already joined to the decision record: ADR-N0014 (docs/decisions/0014-n4-transactional-transport-intent.md, Accepted) cites this root by path, and the N0-N7 workstream produced sixteen decision records against it. The validator verifies that citation rather than accepting this claim; measured across all nine layers, no other root scores above zero."
+      },
+      "note": "Network architecture. Additive and subordinate. Installing it authorizes no runtime behavior: no participants, integrations, agents, dispatch, marketplace or settlement activate because a document describes them."
     },
     {
       "id": "enterprise-agent-operations",
       "version": "v1.5.0",
       "root": "docs/production-handoff/v1.5.0-enterprise-agent-operations",
       "role": "additive-subordinate",
-      "precedence": 4,
       "integrityFile": "MANIFEST.json",
       "integrityFormat": "manifest-json",
+      "expectedArtifacts": 34,
       "generatedCopies": null,
       "note": "Enterprise agent operations. Self-declared: \"additive to all existing FreightOS production handoffs, especially v1.3.0 Security/Privacy/Resilience and v1.4.0 Network Architecture. It does not replace or weaken any existing accepted requirement.\" moduleScope is the reviewed registration act this file exists to hold; the package itself names no module id from config/scope/module_states.yaml.",
       "architecture": {
         "governanceStatus": "accepted",
-        "authorizes": "design-only",
+        "implementationAuthority": "none",
         "moduleScope": [
           "freightos_shared_core",
           "carrier_core",
@@ -84,28 +145,33 @@
         "maxHorizon": 2,
         "adrRelations": [
           {
-            "adr": "ADR-0013",
+            "authority": "ADR-0013",
+            "authoritySource": "adr",
             "relation": "governed-by",
-            "evidence": "ADR-0013 authorizes Horizon 1 production implementation only and preserves the rest of the ecosystem as contracts, schemas, disabled configuration, fixtures and simulation. It is the decision that lets this package be complete design while remaining unimplementable."
+            "evidence": "ADR-0013 authorizes Horizon 1 production implementation only and preserves the rest of the ecosystem as contracts, schemas, disabled configuration, fixtures and simulation. It is the decision that lets this package be complete design while remaining unimplementable, and where the package differed it would win."
           },
           {
-            "adr": "ADR-0014",
-            "relation": "governed-by",
-            "evidence": "ADR-0014 fixes the handoff location and the immutability of an installed package. This package lives under docs/production-handoff/ and is byte-pinned by its MANIFEST.json."
-          },
-          {
-            "adr": "ADR-0004",
+            "authority": "ADR-0014",
+            "authoritySource": "adr",
             "relation": "constrained-by",
-            "evidence": "ADR-0004 requires agents to act through typed commands. An enterprise agent-operations design may not introduce an action path that bypasses the command boundary."
+            "evidence": "ADR-0014 fixes the handoff tree as docs/production-handoff/ rather than docs/handoff/, which is why this package sits where it does. Its immutability and provenance clauses are scoped to the v1.2 preserved package — handoff-provenance.json covers that root only — so they do not reach this package. What byte-pins this package is its own MANIFEST.json, verified by scripts/check-network-governance.mjs."
           },
           {
-            "adr": "ADR-0018",
+            "authority": "ADR-0004",
+            "authoritySource": "adr",
             "relation": "constrained-by",
-            "evidence": "ADR-0018 computes the autonomy ceiling from module state rather than trusting a declared value; scripts/validate-scope.mjs clamps every agent to it. No agent-operations design raises that ceiling."
+            "evidence": "ADR-0004 decides that agents never write directly to domain tables and that mutations use validated handlers, policy, approvals, transactions and audit. An enterprise agent-operations design may not introduce an action path that bypasses that boundary."
+          },
+          {
+            "authority": "ADR-0018",
+            "authoritySource": "adr",
+            "relation": "constrained-by",
+            "evidence": "ADR-0018 computes effective autonomy as the minimum of the declared ceiling, the module ceiling and the horizon ceiling, and forbids any code path that raises it. scripts/validate-scope.mjs clamps every agent to that. No agent-operations design raises it."
           }
         ],
         "unresolvedAuthority": [
           {
+            "id": "action-command-vocabulary",
             "topic": "canonical action / command vocabulary",
             "note": "docs/agentic-architecture-review/06_ACTION_COMMAND_POLICY_VOCABULARY_AUDIT.md finds two disjoint command vocabularies across the corpus and no accepted registry either side must conform to. AWE-2 is the named remedy; AWE-0 records the gap rather than closing it."
           }
@@ -117,14 +183,14 @@
       "version": "v1.0.0",
       "root": "docs/production-handoff/facilityos-v1.0.0-enterprise-agent-operations",
       "role": "additive-subordinate",
-      "precedence": 5,
       "integrityFile": "MANIFEST.json",
       "integrityFormat": "manifest-json",
+      "expectedArtifacts": 38,
       "generatedCopies": null,
       "note": "FacilityOS enterprise agent operations. Self-declared: \"this package does not override the existing FreightOS sequencing doctrine. Full FacilityOS remains promotion/customer-gated until the controlling FreightOS gates explicitly authorize implementation.\"",
       "architecture": {
         "governanceStatus": "accepted",
-        "authorizes": "design-only",
+        "implementationAuthority": "none",
         "moduleScope": [
           "freightos_shared_core",
           "minimum_facility_primitives",
@@ -135,33 +201,39 @@
         "maxHorizon": 3,
         "adrRelations": [
           {
-            "adr": "ADR-0013",
+            "authority": "ADR-0013",
+            "authoritySource": "adr",
             "relation": "governed-by",
             "evidence": "ADR-0013 authorizes Horizon 1 only; facilityos_lite is PROMOTION_GATED at h2 and facilityos_full CUSTOMER_GATED at h3, so this package is architecture ahead of build by the doctrine's own design."
           },
           {
-            "adr": "ADR-0014",
-            "relation": "governed-by",
-            "evidence": "ADR-0014 fixes the handoff location and the immutability of an installed package."
-          },
-          {
-            "adr": "ADR-0012",
-            "relation": "governed-by",
-            "evidence": "ADR-0012 is the decision that adds FacilityOS and a provider-independent autonomous vehicle gateway. It is the accepted authority this package elaborates."
-          },
-          {
-            "adr": "ADR-0011",
+            "authority": "ADR-0014",
+            "authoritySource": "adr",
             "relation": "constrained-by",
-            "evidence": "ADR-0011 separates freight mission orchestration from safety-critical motion control: no PLC, conveyor, dock restraint, safety interlock or industrial motion command. scripts/validate-scope.mjs enforces the verb list in CI."
+            "evidence": "ADR-0014 fixes the handoff tree as docs/production-handoff/ rather than docs/handoff/. Its immutability and provenance clauses are scoped to the v1.2 preserved package and do not reach this one; this package is byte-pinned by its own MANIFEST.json under scripts/check-network-governance.mjs."
           },
           {
-            "adr": "ADR-0025",
+            "authority": "ADR-0012",
+            "authoritySource": "adr",
+            "relation": "governed-by",
+            "evidence": "ADR-0012 decides to add FacilityOS as the origin/destination operational coordination layer and a provider-independent Autonomous Vehicle Gateway over the mode-neutral core, and rules that provider-specific APIs must not define the FreightOS domain. Where this package and that decision differ, ADR-0012 wins."
+          },
+          {
+            "authority": "ADR-0011",
+            "authoritySource": "adr",
             "relation": "constrained-by",
-            "evidence": "ADR-0025 supplies the policy-driven detention mechanism, the required policy-field table and scope precedence. docs/agentic-architecture-review/01_PACKAGE_INVENTORY_AND_PRECEDENCE.md §3.2 records that FacilityOS 11_APPOINTMENTS_CAPACITY_AND_DETENTION.md:40-57 still leaves all of it open, so the repository is ahead of the package here and ADR-0025 governs."
+            "evidence": "ADR-0011 separates freight mission orchestration from safety-critical motion control: no dynamic driving task, robotics, PLC, conveyor, dock restraint, safety interlock or industrial motion command. scripts/validate-scope.mjs enforces the verb list in CI."
+          },
+          {
+            "authority": "ADR-0025",
+            "authoritySource": "adr",
+            "relation": "governed-by",
+            "evidence": "ADR-0025 does not merely bound detention, it decides it: a required policy-field table, the clock-start and stop derivation, the state machine, fail-closed POLICY_REQUIRED when no active policy exists, and a prohibition on any code-level default free-time allowance. FacilityOS 11_APPOINTMENTS_CAPACITY_AND_DETENTION.md leaves those open, so the repository is ahead of the package and ADR-0025 governs."
           }
         ],
         "unresolvedAuthority": [
           {
+            "id": "action-command-vocabulary",
             "topic": "canonical action / command vocabulary",
             "note": "Same corpus-wide gap recorded for v1.5.0; see docs/agentic-architecture-review/06_ACTION_COMMAND_POLICY_VOCABULARY_AUDIT.md."
           }
@@ -173,14 +245,14 @@
       "version": "v1.6.0",
       "root": "docs/production-handoff/v1.6.0-brokerage-enterprise-agent-operations",
       "role": "additive-subordinate",
-      "precedence": 6,
       "integrityFile": "MANIFEST.json",
       "integrityFormat": "manifest-json",
+      "expectedArtifacts": 38,
       "generatedCopies": null,
       "note": "Brokerage enterprise agent operations. Self-declared: \"brokerage execution remains legal/promotion-gated. Installing this package does not authorize FreightOS, RIG, a customer, or any agent to perform unlicensed brokerage.\"",
       "architecture": {
         "governanceStatus": "accepted",
-        "authorizes": "design-only",
+        "implementationAuthority": "none",
         "moduleScope": [
           "freightos_shared_core",
           "digital_brokerage",
@@ -190,28 +262,33 @@
         "maxHorizon": 3,
         "adrRelations": [
           {
-            "adr": "ADR-0013",
+            "authority": "ADR-0013",
+            "authoritySource": "adr",
             "relation": "governed-by",
             "evidence": "ADR-0013 authorizes Horizon 1 only; digital_brokerage is LEGAL_AND_MARKET_GATED at h3 with BROKERAGE_EXECUTION_ENABLED=false in config/scope/module_states.yaml."
           },
           {
-            "adr": "ADR-0014",
+            "authority": "ADR-0014",
+            "authoritySource": "adr",
+            "relation": "constrained-by",
+            "evidence": "ADR-0014 fixes the handoff tree as docs/production-handoff/ rather than docs/handoff/. Its immutability and provenance clauses are scoped to the v1.2 preserved package and do not reach this one; this package is byte-pinned by its own MANIFEST.json under scripts/check-network-governance.mjs."
+          },
+          {
+            "authority": "ADR-0015",
+            "authoritySource": "adr",
             "relation": "governed-by",
-            "evidence": "ADR-0014 fixes the handoff location and the immutability of an installed package."
+            "evidence": "ADR-0015 does not merely bound the brokerage plane, it decides it: brokerage is rejected unconditionally while BROKERAGE_EXECUTION_ENABLED is false — a mandatory default, not a tunable — and the carrier_agent x brokerage pairing is unrepresentable in the enumerated pairing table enforced in TypeScript and SQL. This package's core subject matter is that plane, so where the two differ ADR-0015 wins."
           },
           {
-            "adr": "ADR-0015",
+            "authority": "ADR-0023",
+            "authoritySource": "adr",
             "relation": "constrained-by",
-            "evidence": "ADR-0015 replaces the single authority_mode dimension with legal_authority_class x operating_context and is enforced in TypeScript and SQL. Brokerage-versus-carrier authority resolves through that model, not through package prose."
-          },
-          {
-            "adr": "ADR-0023",
-            "relation": "constrained-by",
-            "evidence": "ADR-0023 fixes the X12 licensing and connector boundary, which bounds what a brokerage integration design may assume about EDI content and distribution."
+            "evidence": "ADR-0023 prohibits copying licensed X12 content, inventing segment mappings, inferring loops or qualifiers, and representing an abstract interface as X12 conformance. That bounds what a brokerage integration design may assume about EDI content."
           }
         ],
         "unresolvedAuthority": [
           {
+            "id": "action-command-vocabulary",
             "topic": "canonical action / command vocabulary",
             "note": "Same corpus-wide gap recorded for v1.5.0; see docs/agentic-architecture-review/06_ACTION_COMMAND_POLICY_VOCABULARY_AUDIT.md."
           }
@@ -223,14 +300,14 @@
       "version": "v1.7.0",
       "root": "docs/production-handoff/v1.7.0-agentic-logistics-network-coherence",
       "role": "additive-subordinate",
-      "precedence": 7,
       "integrityFile": "MANIFEST.json",
       "integrityFormat": "manifest-json",
+      "expectedArtifacts": 31,
       "generatedCopies": null,
       "note": "Cross-participant coherence layer. Self-declared (19_GOVERNANCE_AND_NON_REGRESSION.md): \"Existing Constitution, security/resilience, legal/safety gates, sequencing doctrine and signed ADRs remain controlling.\" It self-subordinates to the layers below it and to this file.",
       "architecture": {
         "governanceStatus": "accepted",
-        "authorizes": "design-only",
+        "implementationAuthority": "none",
         "moduleScope": [
           "freightos_shared_core",
           "carrier_core",
@@ -249,32 +326,38 @@
         "maxHorizon": 3,
         "adrRelations": [
           {
-            "adr": "ADR-0013",
+            "authority": "ADR-0013",
+            "authoritySource": "adr",
             "relation": "governed-by",
             "evidence": "ADR-0013 authorizes Horizon 1 only. v1.7 labels the shipper and service-provider Twins \"future\" and both routes \"architecture definition, not current module activation\", which is the doctrine restated."
           },
           {
-            "adr": "ADR-0014",
-            "relation": "governed-by",
-            "evidence": "ADR-0014 fixes the handoff location and the immutability of an installed package."
+            "authority": "ADR-0014",
+            "authoritySource": "adr",
+            "relation": "constrained-by",
+            "evidence": "ADR-0014 fixes the handoff tree as docs/production-handoff/ rather than docs/handoff/. Its immutability and provenance clauses are scoped to the v1.2 preserved package and do not reach this one; this package is byte-pinned by its own MANIFEST.json under scripts/check-network-governance.mjs."
           },
           {
-            "adr": "ADR-0015",
+            "authority": "ADR-0015",
+            "authoritySource": "adr",
             "relation": "governed-by",
-            "evidence": "docs/agentic-architecture-review/01_PACKAGE_INVENTORY_AND_PRECEDENCE.md §4 records that where v1.7 §13 restates the legal model differently from ADR-0015, ADR-0015 governs. The two-dimension model is enforced in TypeScript and SQL; v1.7's six \"planes\" are prose."
+            "evidence": "ADR-0015 rules that where the legal class and another dimension disagree, the legal class governs. Its two-dimension model is enforced in TypeScript and SQL; v1.7 §13's six \"planes\" are prose. Where they differ, ADR-0015 wins."
           },
           {
-            "adr": "ADR-0002",
+            "authority": "ADR-0002",
+            "authoritySource": "adr",
             "relation": "additive-beneath",
-            "evidence": "ADR-0002 keeps the core mode-neutral. v1.7's road/rail/ocean coherence work adds modal detail beneath that decision without moving mode into the core."
+            "evidence": "ADR-0002 makes Shipment, Journey and TransportLeg universal and provides for versioned modal adapters. v1.7's road/rail/ocean coherence work adds detail beneath that decision without moving mode into the core; its moduleScope includes rail_adapter and ocean_adapter."
           }
         ],
         "unresolvedAuthority": [
           {
+            "id": "artifact-vocabulary",
             "topic": "canonical artifact vocabulary",
             "note": "docs/agentic-architecture-review/09_NETWORK_HANDOFF_AND_EVIDENCE_COHERENCE.md finds v1.7 and v1.8 carrying different artifact vocabularies with no shared registry. AWE-2/AWE-1 are the named remedies."
           },
           {
+            "id": "action-command-vocabulary",
             "topic": "canonical action / command vocabulary",
             "note": "Same corpus-wide gap recorded for v1.5.0; see docs/agentic-architecture-review/06_ACTION_COMMAND_POLICY_VOCABULARY_AUDIT.md."
           }
@@ -286,14 +369,14 @@
       "version": "v1.8.0",
       "root": "docs/production-handoff/v1.8.0-agent-workforce-engineering-certification",
       "role": "additive-subordinate",
-      "precedence": 8,
       "integrityFile": "MANIFEST.json",
       "integrityFormat": "manifest-json",
+      "expectedArtifacts": 188,
       "generatedCopies": null,
       "note": "Workforce engineering and certification, 76 job books across five departments. Self-limiting (11_WORKFORCE_CLASSIFICATION_REPORT.md:17): \"the runtime must not create an agent solely because this package names one\", and (09_IMPLEMENTATION_SEQUENCE.md) \"This sequence does not override module-state governance.\" Its merged W0/W1 audit at docs/workforce-engineering/ governs its classification by the package's own terms.",
       "architecture": {
         "governanceStatus": "accepted",
-        "authorizes": "design-only",
+        "implementationAuthority": "none",
         "moduleScope": [
           "freightos_shared_core",
           "carrier_core",
@@ -309,36 +392,43 @@
         "maxHorizon": 3,
         "adrRelations": [
           {
-            "adr": "ADR-0013",
+            "authority": "ADR-0013",
+            "authoritySource": "adr",
             "relation": "governed-by",
-            "evidence": "ADR-0013 authorizes Horizon 1 only. Of the five participant planes this package staffs, exactly one — carrier — sits in an ACTIVE_BUILD module at the authorized horizon (docs/agentic-architecture-review/01_PACKAGE_INVENTORY_AND_PRECEDENCE.md §6)."
+            "evidence": "ADR-0013 authorizes Horizon 1 only. Of the five participant planes this package staffs, exactly one — carrier — sits in an ACTIVE_BUILD module at the authorized horizon."
           },
           {
-            "adr": "ADR-0014",
-            "relation": "governed-by",
-            "evidence": "ADR-0014 fixes the handoff location and the immutability of an installed package."
-          },
-          {
-            "adr": "ADR-0018",
-            "relation": "governed-by",
-            "evidence": "docs/agentic-architecture-review/07_AUTHORITY_LEGAL_AUTONOMY_COHERENCE.md records this package's J0-J7 ladder reaching A5 against ADR-0018's computed ceiling. ADR-0018 is enforced by scripts/validate-scope.mjs and governs; a job ladder in a document raises nothing."
-          },
-          {
-            "adr": "ADR-0004",
+            "authority": "ADR-0014",
+            "authoritySource": "adr",
             "relation": "constrained-by",
-            "evidence": "ADR-0004 requires agents to act through typed commands, which bounds what any job book may specify as an agent action."
+            "evidence": "ADR-0014 fixes the handoff tree as docs/production-handoff/ rather than docs/handoff/. Its immutability and provenance clauses are scoped to the v1.2 preserved package and do not reach this one; this package is byte-pinned by its own MANIFEST.json under scripts/check-network-governance.mjs."
+          },
+          {
+            "authority": "ADR-0018",
+            "authoritySource": "adr",
+            "relation": "governed-by",
+            "evidence": "This package's J0-J7 ladder reaches A5, which directly conflicts with ADR-0018's computed ceiling — the minimum of declared, module and horizon ceilings, with no code path permitted to raise it. ADR-0018 is enforced by scripts/validate-scope.mjs and wins; a job ladder in a document raises nothing."
+          },
+          {
+            "authority": "ADR-0004",
+            "authoritySource": "adr",
+            "relation": "constrained-by",
+            "evidence": "ADR-0004 decides that agents never write directly to domain tables and that mutations use validated handlers, policy, approvals, transactions and audit. That bounds what any job book may specify as an agent action."
           }
         ],
         "unresolvedAuthority": [
           {
+            "id": "workforce-roster-of-record",
             "topic": "canonical workforce roster of record",
             "note": "Owner decision OD-A (docs/agentic-architecture-review/17_OWNER_DECISIONS.md), inherited from W0/W1 OD-1: five rosters disagree — 32 CI-validated agent manifests, 53 prose roles, 22 v1.5 canonical roles, 17 FacilityOS manifests, 76 self-declared non-authoritative jobs. NON_BLOCKING for AWE-0; blocks AWE-1 and AWE-D1."
           },
           {
+            "id": "job-certification-approving-authority",
             "topic": "approving authority for a job certification",
             "note": "Owner decision OD-E (docs/agentic-architecture-review/17_OWNER_DECISIONS.md). No accepted ADR names who may sign a J-level certification."
           },
           {
+            "id": "artifact-vocabulary",
             "topic": "canonical artifact vocabulary",
             "note": "Same gap recorded for v1.7.0; see docs/agentic-architecture-review/09_NETWORK_HANDOFF_AND_EVIDENCE_COHERENCE.md."
           }
@@ -350,14 +440,14 @@
       "version": "v1.8.1",
       "root": "docs/production-handoff/v1.8.1-revenueos-commercial-capability-architecture",
       "role": "additive-subordinate",
-      "precedence": 9,
       "integrityFile": "MANIFEST.sha256",
       "integrityFormat": "sha256sums",
+      "expectedArtifacts": 232,
       "generatedCopies": null,
       "note": "RevenueOS commercial capability, FMI and Operational Twin architecture. Self-declared: \"additive design / governance handoff only\", under a heading \"Existing controls remain controlling\". Its independent audit at docs/revenueos-architecture-review/ scores it COHERENT_WITH_REQUIRED_CHANGES and records five defects inside its own machine-readable artifacts; AWE-0 registers the package and repairs none of them.",
       "architecture": {
         "governanceStatus": "accepted",
-        "authorizes": "design-only",
+        "implementationAuthority": "none",
         "moduleScope": [
           "freightos_shared_core",
           "carrier_core",
@@ -375,45 +465,54 @@
         "maxHorizon": 4,
         "adrRelations": [
           {
-            "adr": "ADR-0013",
+            "authority": "ADR-0013",
+            "authoritySource": "adr",
             "relation": "governed-by",
             "evidence": "ADR-0013 authorizes Horizon 1 only. freight_exchange is LIQUIDITY_GATED at h4, the furthest-out module any accepted package designs for."
           },
           {
-            "adr": "ADR-0014",
-            "relation": "governed-by",
-            "evidence": "ADR-0014 fixes the handoff location and the immutability of an installed package."
-          },
-          {
-            "adr": "ADR-0007",
-            "relation": "governed-by",
-            "evidence": "ADR-0007 makes pricing versioned configuration. config/pricing/products.yaml carries billing_enabled=false and customer_sale_allowed=false for all 11 products, asserted by scripts/validate-scope.mjs:402-409. A commercial architecture document changes neither."
-          },
-          {
-            "adr": "ADR-0018",
+            "authority": "ADR-0014",
+            "authoritySource": "adr",
             "relation": "constrained-by",
-            "evidence": "docs/revenueos-architecture-review/README.md records the package's own rule that entitlement and mode never raise autonomy. ADR-0018's computed ceiling is what actually holds that line."
+            "evidence": "ADR-0014 fixes the handoff tree as docs/production-handoff/ rather than docs/handoff/. Its immutability and provenance clauses are scoped to the v1.2 preserved package and do not reach this one; this package is byte-pinned by its own MANIFEST.sha256 under scripts/check-network-governance.mjs."
           },
           {
-            "adr": "ADR-0015",
+            "authority": "ADR-0007",
+            "authoritySource": "adr",
+            "relation": "governed-by",
+            "evidence": "ADR-0007 decides the form of every pricing artifact: catalogs, meters, bands, entitlements, discounts and overrides are immutable versions, not scattered constants. RevenueOS designs exactly those objects, so where its commercial model and ADR-0007 differ, ADR-0007 wins."
+          },
+          {
+            "authority": "ADR-0018",
+            "authoritySource": "adr",
             "relation": "constrained-by",
-            "evidence": "ADR-0015's legal_authority_class x operating_context model bounds what a commercial plane may assert about a participant's authority."
+            "evidence": "The package's own rule is that entitlement and mode never raise autonomy. ADR-0018's computed ceiling — the minimum of declared, module and horizon ceilings, with no code path permitted to raise it — is what actually holds that line."
+          },
+          {
+            "authority": "ADR-0015",
+            "authoritySource": "adr",
+            "relation": "constrained-by",
+            "evidence": "ADR-0015's legal_authority_class x operating_context model, with its enumerated pairing table, bounds what a commercial plane may assert about a participant's authority."
           }
         ],
         "unresolvedAuthority": [
           {
+            "id": "workunit-graph-agent-runtime-substrate",
             "topic": "WorkUnit, graph runtime, agent runtime, entitlement, adapter and egress substrate",
             "note": "docs/revenueos-architecture-review/README.md finding 1: the package is one to three layers above its substrate — no WorkUnit, graph engine, agent runtime, command registry, approval engine, entitlement model or adapter exists, and egress is pinned at zero by two CI gates. No accepted ADR commissions any of them."
           },
           {
+            "id": "first-governed-egress-channel",
             "topic": "first governed egress channel",
             "note": "Owner decision D-03 (docs/revenueos-architecture-review/OWNER_DECISIONS.md), BLOCKING for that package's Phases 3-5. NON_BLOCKING for AWE-0: config/network/egress-allowlist.json stays empty and both egress gates stay at zero."
           },
           {
+            "id": "commercial-activation-flags",
             "topic": "lifting billing_enabled / customer_sale_allowed",
             "note": "Owner decision D-16 (docs/revenueos-architecture-review/OWNER_DECISIONS.md). Not taken. The commercial plane remains CI-prohibited, which that audit records as the correct posture."
           },
           {
+            "id": "provisional-job-books-and-graphs",
             "topic": "37 provisional job books and 36 typed durable graphs",
             "note": "All 37 carry production_logistics_authority=false, certification=NOT_J0, status=AUDIT_CANDIDATE. Owner decisions D-01 and D-10 are open. Registration promotes none of them."
           }
