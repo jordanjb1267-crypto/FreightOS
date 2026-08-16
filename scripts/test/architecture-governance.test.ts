@@ -19,9 +19,8 @@ import { afterEach, describe, expect, it } from 'vitest';
  * named after the finding it closes, and each pins the SPECIFIC failure message — a validator that
  * fails generically on every mutation proves only that it dislikes change.
  *
- * Two tests deliberately assert a PASS: registering a seventh package correctly, and the
- * documented residual limit of the runtime-authority scan. A gate that cannot be satisfied
- * correctly is as broken as one that cannot be failed.
+ * A correctly registered seventh package deliberately asserts PASS. A gate that cannot be
+ * satisfied correctly is as broken as one that cannot be failed.
  *
  * NOTHING HERE MUTATES AN ACCEPTED PACKAGE OR AN ACCEPTED ADR. The first candidate edited
  * `adr/0011-safety-critical-control-boundary.md` in place to test the not-Accepted path; the
@@ -94,6 +93,7 @@ interface Layer {
   architectureExemption?: { anchor: string; note: string };
 }
 interface Registry {
+  subordination: string;
   architectureGovernance: Record<string, unknown> & {
     expectedRelationCounts: Record<string, number>;
     authoritySources: Record<string, { expectedRecords?: number }> & {
@@ -101,6 +101,17 @@ interface Registry {
     };
     ciWiring: { requiredGates: string[]; expectedRequiredGates: number };
     mandate: { record: string; clause: string; immutabilityClause: string };
+    authorityModel: {
+      classes?: Record<string, string>;
+      resolution: string[];
+      precedence: {
+        edges: { higher: string; lower: string }[];
+        incomparable: string[][];
+        strictestWinsSubjects: string[];
+        conflictDisposition: string;
+        classAnchor: string;
+      };
+    };
   };
   layers: Layer[];
 }
@@ -128,9 +139,7 @@ const layerOf = (registry: Registry, id: string): Layer => {
  * every mutation below fail for that reason and prove nothing about the rule under test. Tests that
  * target the digest itself do not call this.
  */
-function reacceptBinding(id: string): void {
-  const registry = readRegistry();
-  const architecture = layerOf(registry, id).architecture!;
+function digestArchitecture(architecture: Architecture): string {
   const canonical = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(canonical);
     if (value && typeof value === 'object') {
@@ -151,12 +160,21 @@ function reacceptBinding(id: string): void {
     ],
     { encoding: 'utf8' },
   );
+  return digest;
+}
+
+function recordBindingDigest(id: string, digest: string): void {
   // Quote-agnostic: the library is prettier-formatted with single quotes, and pinning the helper to
   // one style is how this fixture silently stopped re-accepting anything.
   const pattern = new RegExp(`(['"]${id}['"]:\\s*['"])[0-9a-f]{64}(['"])`);
   const lib = readFileSync(LIB, 'utf8');
   if (!pattern.test(lib)) throw new Error(`fixture drift: no reviewed digest recorded for ${id}`);
   mutate(LIB, lib.replace(pattern, `$1${digest}$2`));
+}
+
+function reacceptBinding(id: string): void {
+  const registry = readRegistry();
+  recordBindingDigest(id, digestArchitecture(layerOf(registry, id).architecture!));
 }
 
 afterEach(() => {
@@ -304,6 +322,33 @@ describe('architecture governance binding', () => {
     expect(run.output).toContain('no Accepted record under docs/decisions/ cites');
   });
 
+  it('AWE-RR-02: refuses an accepted-decision exemption for a prefix-similar package root', () => {
+    plant(join(ROOT, 'docs/production-handoff/v1.4.0-network/README.md'), '# prefix probe\n');
+    plant(
+      join(ROOT, 'docs/production-handoff/v1.4.0-network/MANIFEST.json'),
+      `${JSON.stringify({ package: 'prefix-probe', version: '0.0.0', files: [] }, null, 2)}\n`,
+    );
+    const run = withRegistry((registry) => {
+      registry.layers.push({
+        id: 'awe0-prefix-probe',
+        version: 'v1.4.0',
+        root: 'docs/production-handoff/v1.4.0-network',
+        role: 'additive-subordinate',
+        integrityFile: 'MANIFEST.json',
+        integrityFormat: 'manifest-json',
+        expectedArtifacts: 1,
+        architectureExemption: {
+          anchor: 'accepted-network-decision',
+          note: 'must not inherit v1.4.0-network-architecture by textual prefix',
+        },
+      });
+    });
+
+    expect(run.ok, 'a prefix-similar package inherited another package exemption').toBe(false);
+    expect(run.output).toContain('awe0-prefix-probe');
+    expect(run.output).toContain('no Accepted record under docs/decisions/ cites');
+  });
+
   // ── F-02: the unresolved-authority inventory must be preserved ──────────────────────────────
 
   it('F-02: fails when recorded unresolved authority is deleted', () => {
@@ -349,7 +394,7 @@ describe('architecture governance binding', () => {
       readFileSync(LIB, 'utf8').replace(
         'export const RESOLVED_AUTHORITY = Object.freeze({});',
         `export const RESOLVED_AUTHORITY = Object.freeze({\n` +
-          `  'enterprise-agent-operations:action-command-vocabulary': {\n` +
+          `  'docs/production-handoff/v1.5.0-enterprise-agent-operations:action-command-vocabulary': {\n` +
           `    resolvedBy: 'ADR-0004',\n    note: 'test fixture',\n  },\n});`,
       ),
     );
@@ -372,7 +417,7 @@ describe('architecture governance binding', () => {
       readFileSync(LIB, 'utf8').replace(
         'export const RESOLVED_AUTHORITY = Object.freeze({});',
         `export const RESOLVED_AUTHORITY = Object.freeze({\n` +
-          `  'enterprise-agent-operations:action-command-vocabulary': {\n` +
+          `  'docs/production-handoff/v1.5.0-enterprise-agent-operations:action-command-vocabulary': {\n` +
           `    resolvedBy: 'ADR-N0015',\n    note: 'a Proposed record cannot close anything',\n  },\n});`,
       ),
     );
@@ -381,6 +426,32 @@ describe('architecture governance binding', () => {
     const run = runValidator();
     expect(run.ok).toBe(false);
     expect(run.output).toContain('not Accepted');
+  });
+
+  it('AWE-RR-03: layer id rename plus digest reacceptance cannot erase known unresolved authority', () => {
+    const registry = readRegistry();
+    const layer = layerOf(registry, 'enterprise-agent-operations');
+    const oldId = layer.id;
+    layer.id = 'enterprise-agent-operations-renamed';
+    layer.architecture!.unresolvedAuthority = [];
+    mutate(LAYERS, `${JSON.stringify(registry, null, 2)}\n`);
+
+    const digest = digestArchitecture(layer.architecture!);
+    const oldEntry = new RegExp(`(['"]${oldId}['"]:\\s*['"])[0-9a-f]{64}(['"])`);
+    mutate(
+      LIB,
+      readFileSync(LIB, 'utf8').replace(
+        oldEntry,
+        `'enterprise-agent-operations-renamed': '${digest}'`,
+      ),
+    );
+
+    const run = runValidator();
+    expect(run.ok, 'renaming a mutable layer id erased known unresolved authority').toBe(false);
+    expect(run.output).toContain(
+      'unresolvedAuthority no longer records "action-command-vocabulary"',
+    );
+    expect(run.output).toContain('v1.5.0-enterprise-agent-operations');
   });
 
   // ── F-03: authority references must be source-qualified ─────────────────────────────────────
@@ -514,6 +585,62 @@ describe('architecture governance binding', () => {
         ),
     ],
     [
+      'the step made non-blocking with string continue-on-error',
+      (y) =>
+        y.replace(
+          '- name: Architecture governance binding (ADR, module state, Horizon)\n',
+          '- name: Architecture governance binding (ADR, module state, Horizon)\n        continue-on-error: "true"\n',
+        ),
+    ],
+    [
+      'the step made non-blocking with expression continue-on-error',
+      (y) =>
+        y.replace(
+          '- name: Architecture governance binding (ADR, module state, Horizon)\n',
+          '- name: Architecture governance binding (ADR, module state, Horizon)\n        continue-on-error: ${{ always() }}\n',
+        ),
+    ],
+    [
+      'the command present only in a heredoc',
+      (y) =>
+        y.replace(
+          'run: node scripts/check-architecture-governance.mjs',
+          'run: |\n          cat <<EOF\n          node scripts/check-architecture-governance.mjs\n          EOF',
+        ),
+    ],
+    [
+      'the command inside an uncalled shell function',
+      (y) =>
+        y.replace(
+          'run: node scripts/check-architecture-governance.mjs',
+          'run: |\n          check_architecture() {\n            node scripts/check-architecture-governance.mjs\n          }\n          true',
+        ),
+    ],
+    [
+      'the command inside a dead shell branch',
+      (y) =>
+        y.replace(
+          'run: node scripts/check-architecture-governance.mjs',
+          'run: |\n          if false; then\n            node scripts/check-architecture-governance.mjs\n          fi',
+        ),
+    ],
+    [
+      'the command followed by failure masking with || true',
+      (y) =>
+        y.replace(
+          'run: node scripts/check-architecture-governance.mjs',
+          'run: node scripts/check-architecture-governance.mjs || true',
+        ),
+    ],
+    [
+      'the command followed by failure masking with semicolon true',
+      (y) =>
+        y.replace(
+          'run: node scripts/check-architecture-governance.mjs',
+          'run: node scripts/check-architecture-governance.mjs; true',
+        ),
+    ],
+    [
       'the step replaced by a different validator',
       (y) =>
         y.replace(
@@ -545,6 +672,39 @@ describe('architecture governance binding', () => {
     const run = runValidator();
     expect(run.ok).toBe(false);
     expect(run.output).toContain('neither pull_request nor push');
+  });
+
+  it('AWE-RR-04: fails when path filters make governed changes unreachable', () => {
+    mutate(
+      WORKFLOW,
+      readFileSync(WORKFLOW, 'utf8').replace(
+        'pull_request:',
+        'pull_request:\n    paths:\n      - README.md',
+      ),
+    );
+    const run = runValidator();
+    expect(run.ok).toBe(false);
+    expect(run.output).toContain('declares path filters');
+  });
+
+  it('AWE-RR-05: required governance gates cannot remove the architecture gate itself', () => {
+    mutate(
+      WORKFLOW,
+      readFileSync(WORKFLOW, 'utf8').replace(
+        'run: node scripts/check-architecture-governance.mjs',
+        'run: node scripts/validate-scope.mjs',
+      ),
+    );
+    const run = withRegistry((registry) => {
+      registry.architectureGovernance.ciWiring.requiredGates =
+        registry.architectureGovernance.ciWiring.requiredGates.filter(
+          (gate) => gate !== 'scripts/check-architecture-governance.mjs',
+        );
+      registry.architectureGovernance.ciWiring.expectedRequiredGates = 2;
+    });
+    expect(run.ok, 'requiredGates metadata removed its own validator').toBe(false);
+    expect(run.output).toContain('must exactly match the anchored required gate set');
+    expect(run.output).toContain('does not actually RUN scripts/check-architecture-governance.mjs');
   });
 
   // ── F-05: the runtime-authority guard ───────────────────────────────────────────────────────
@@ -602,21 +762,16 @@ describe('architecture governance binding', () => {
     });
   }
 
-  it('F-05: documents the residual limit rather than claiming to close it', () => {
-    // A reference whose separator is supplied at runtime is not detectable without dataflow
-    // analysis, and the gate says so instead of implying otherwise. This test exists so the
-    // limitation is a recorded, reviewed property and not a surprise for the next reviewer.
+  it('AWE-RR-07: detects the reviewed array-join construction of governance-layers.json', () => {
     plant(
       join(ROOT, 'packages/context/src/probe.ts'),
       'const seg = ["governance", "layers.json"];\nexport const R = seg.join("-");\n',
     );
     const run = runValidator();
-    expect(run.output, 'the residual limit has closed — update the documentation').toContain(
-      'ARCHITECTURE_GOVERNANCE=PASS',
+    expect(run.ok, 'array-join construction of governance-layers.json was not detected').toBe(
+      false,
     );
-    const scanned = /runtime source files scanned: (\d+)/.exec(run.output);
-    // The file WAS read. The gate's limit is detection, not coverage.
-    expect(Number(scanned![1])).toBeGreaterThanOrEqual(34);
+    expect(run.output).toContain('references governance-layers.json');
   });
 
   // ── F-06: form is checked; content is pinned to a review ────────────────────────────────────
@@ -702,6 +857,73 @@ describe('architecture governance binding', () => {
     expect(run.output).toContain('carries an "authority" field');
   });
 
+  it('AWE-RR-06: fails when the authority model is deleted', () => {
+    const run = withRegistry((registry) => {
+      delete (registry.architectureGovernance as Partial<Registry['architectureGovernance']>)
+        .authorityModel;
+    });
+    expect(run.ok).toBe(false);
+    expect(run.output).toContain('architectureGovernance.authorityModel is missing');
+    expect(run.output).not.toMatch(/^AUTHORITY_MODEL=PASS$/m);
+  });
+
+  it('AWE-RR-06: fails when the authority model is empty', () => {
+    const run = withRegistry((registry) => {
+      registry.architectureGovernance.authorityModel =
+        {} as Registry['architectureGovernance']['authorityModel'];
+    });
+    expect(run.ok).toBe(false);
+    expect(run.output).toContain('architectureGovernance.authorityModel.classes is missing');
+    expect(run.output).not.toMatch(/^AUTHORITY_MODEL=PASS$/m);
+  });
+
+  it('AWE-RR-06: fails when the subordination doctrine is inverted in prose', () => {
+    const run = withRegistry((registry) => {
+      registry.subordination = 'Network architecture controls and weakens security requirements.';
+      registry.architectureGovernance.authorityModel.resolution[0] =
+        'An additive-subordinate requirement beats any controlling requirement.';
+    });
+    expect(run.ok).toBe(false);
+    expect(run.output).toContain('subordination no longer matches');
+    expect(run.output).toContain('authorityModel.resolution no longer matches');
+    expect(run.output).not.toMatch(/^AUTHORITY_MODEL=PASS$/m);
+  });
+
+  it('AWE-RR-06: fails on unsupported contradictory precedence edges', () => {
+    const run = withRegistry((registry) => {
+      registry.architectureGovernance.authorityModel.precedence.edges.push({
+        higher: 'additive-subordinate',
+        lower: 'controlling',
+      });
+    });
+    expect(run.ok).toBe(false);
+    expect(run.output).toContain('unsupported edge additive-subordinate>controlling');
+    expect(run.output).not.toMatch(/^AUTHORITY_MODEL=PASS$/m);
+  });
+
+  it('AWE-RR-06: fails on authority precedence cycles', () => {
+    const run = withRegistry((registry) => {
+      registry.architectureGovernance.authorityModel.precedence.edges.push({
+        higher: 'additive-subordinate',
+        lower: 'base',
+      });
+    });
+    expect(run.ok).toBe(false);
+    expect(run.output).toContain('precedence contains a cycle');
+    expect(run.output).not.toMatch(/^AUTHORITY_MODEL=PASS$/m);
+  });
+
+  it('AWE-RR-06: fails when strictest-wins subjects are weakened', () => {
+    const run = withRegistry((registry) => {
+      registry.architectureGovernance.authorityModel.precedence.strictestWinsSubjects = [
+        'security',
+      ];
+    });
+    expect(run.ok).toBe(false);
+    expect(run.output).toContain('strictestWinsSubjects');
+    expect(run.output).not.toMatch(/^AUTHORITY_MODEL=PASS$/m);
+  });
+
   // ── F-07: the characterisation test for a limitation deliberately left open ──────────────────
 
   it('F-07: a coordinated artifact+manifest edit still passes, and that is documented', () => {
@@ -765,6 +987,21 @@ describe('architecture governance binding', () => {
       const entry = restore.pop()!;
       writeFileSync(entry.path, entry.content!);
     }
+  });
+
+  it('AWE-RR-08: unknown authority-like architecture metadata fails even after digest reacceptance', () => {
+    const registry = readRegistry();
+    const architecture = layerOf(registry, 'enterprise-agent-operations').architecture! as
+      (Architecture & { runtimeAuthority?: string }) | Architecture;
+    (architecture as Architecture & { runtimeAuthority: string }).runtimeAuthority = 'live';
+    mutate(LAYERS, `${JSON.stringify(registry, null, 2)}\n`);
+    reacceptBinding('enterprise-agent-operations');
+
+    const run = runValidator();
+    expect(run.ok, 'unknown authority-bearing metadata was accepted').toBe(false);
+    expect(run.output).toContain(
+      'architecture field "runtimeAuthority" is not in the allowed schema',
+    );
   });
 
   it('fails on an exact version mismatch such as v1.7.0 against v1.7.01', () => {

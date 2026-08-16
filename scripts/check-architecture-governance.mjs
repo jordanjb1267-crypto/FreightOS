@@ -62,15 +62,18 @@ import { join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
 
 import {
+  ANCHORED_CI_REQUIRED_GATES,
   ANCHORED_LAYER_ROLES,
   AUTHORITY_RELATIONS,
+  AUTHORITY_MODEL_CONTRACT,
   AUTHORITY_SOURCES,
   EXEMPTION_ANCHORS,
-  KNOWN_UNRESOLVED_AUTHORITY,
+  KNOWN_UNRESOLVED_AUTHORITY_BY_ROOT,
   LAYER_ROLES,
   MANIFEST_FORMATS,
   PROVENANCE_FILE,
   REPO_ROOT,
+  REQUIRED_SUBORDINATION,
   RESOLVED_AUTHORITY,
   REVIEWED_BINDING_DIGESTS,
   WORKFLOW_FILE,
@@ -129,6 +132,153 @@ if (loaded.error) {
 const registry = loaded.registry;
 const layers = Array.isArray(registry.layers) ? registry.layers : [];
 
+function sameStringArray(actual, expected) {
+  return (
+    Array.isArray(actual) &&
+    actual.length === expected.length &&
+    actual.every((value, index) => value === expected[index])
+  );
+}
+
+function edgeKey(edge) {
+  return `${edge?.higher ?? ''}>${edge?.lower ?? ''}`;
+}
+
+function hasCycle(edges) {
+  const graph = new Map();
+  for (const edge of edges) {
+    if (!graph.has(edge.higher)) graph.set(edge.higher, []);
+    graph.get(edge.higher).push(edge.lower);
+  }
+  const visiting = new Set();
+  const visited = new Set();
+  const visit = (node) => {
+    if (visiting.has(node)) return true;
+    if (visited.has(node)) return false;
+    visiting.add(node);
+    for (const next of graph.get(node) ?? []) {
+      if (visit(next)) return true;
+    }
+    visiting.delete(node);
+    visited.add(node);
+    return false;
+  };
+  return [...graph.keys()].some(visit);
+}
+
+function validateAuthorityModel(model) {
+  if (!model || typeof model !== 'object') {
+    fail('architectureGovernance.authorityModel is missing');
+    return;
+  }
+  if (!model.classes || typeof model.classes !== 'object') {
+    fail('architectureGovernance.authorityModel.classes is missing');
+  } else {
+    const classKeys = Object.keys(model.classes).sort();
+    const expectedKeys = [...AUTHORITY_MODEL_CONTRACT.classes].sort();
+    if (!sameStringArray(classKeys, expectedKeys)) {
+      fail(
+        `architectureGovernance.authorityModel.classes must declare exactly ` +
+          `${expectedKeys.join(', ')}`,
+      );
+    }
+    for (const key of AUTHORITY_MODEL_CONTRACT.classes) {
+      if (typeof model.classes[key] !== 'string' || model.classes[key].trim().length === 0) {
+        fail(`architectureGovernance.authorityModel.classes.${key} is missing or empty`);
+      }
+    }
+  }
+
+  if (!sameStringArray(model.resolution, AUTHORITY_MODEL_CONTRACT.resolution)) {
+    fail(
+      'architectureGovernance.authorityModel.resolution no longer matches the anchored ' +
+        'precedence doctrine. AUTHORITY_MODEL=PASS is only emitted for the reviewed doctrine.',
+    );
+  }
+
+  const precedence = model.precedence;
+  if (!precedence || typeof precedence !== 'object') {
+    fail('architectureGovernance.authorityModel.precedence is missing');
+    return;
+  }
+
+  const edges = Array.isArray(precedence.edges) ? precedence.edges : null;
+  if (!edges) {
+    fail('architectureGovernance.authorityModel.precedence.edges must be an array');
+  } else {
+    const expected = new Set(AUTHORITY_MODEL_CONTRACT.precedenceEdges.map(edgeKey));
+    const actual = new Set();
+    for (const edge of edges) {
+      if (
+        !edge ||
+        typeof edge !== 'object' ||
+        !AUTHORITY_MODEL_CONTRACT.classes.includes(edge.higher) ||
+        !AUTHORITY_MODEL_CONTRACT.classes.includes(edge.lower)
+      ) {
+        fail(
+          `architectureGovernance.authorityModel.precedence has invalid edge ${JSON.stringify(edge)}`,
+        );
+        continue;
+      }
+      if (edge.higher === edge.lower) {
+        fail(
+          `architectureGovernance.authorityModel.precedence contains a self-edge ${edge.higher}`,
+        );
+      }
+      actual.add(edgeKey(edge));
+    }
+    if (hasCycle(edges.filter((e) => e && typeof e === 'object'))) {
+      fail('architectureGovernance.authorityModel.precedence contains a cycle');
+    }
+    for (const required of expected) {
+      if (!actual.has(required)) {
+        fail(
+          `architectureGovernance.authorityModel.precedence is missing required edge ${required}`,
+        );
+      }
+    }
+    for (const observed of actual) {
+      if (!expected.has(observed)) {
+        fail(
+          `architectureGovernance.authorityModel.precedence declares unsupported edge ${observed}`,
+        );
+      }
+    }
+  }
+
+  const incomparable = Array.isArray(precedence.incomparable) ? precedence.incomparable : [];
+  const expectedIncomparable = JSON.stringify(AUTHORITY_MODEL_CONTRACT.incomparable);
+  if (JSON.stringify(incomparable) !== expectedIncomparable) {
+    fail(
+      'architectureGovernance.authorityModel.precedence.incomparable must preserve the reviewed ' +
+        'additive-subordinate incomparability rule',
+    );
+  }
+  if (
+    !sameStringArray(
+      precedence.strictestWinsSubjects,
+      AUTHORITY_MODEL_CONTRACT.strictestWinsSubjects,
+    )
+  ) {
+    fail(
+      'architectureGovernance.authorityModel.precedence.strictestWinsSubjects must preserve the ' +
+        'reviewed strictest-wins subject set',
+    );
+  }
+  if (precedence.conflictDisposition !== AUTHORITY_MODEL_CONTRACT.conflictDisposition) {
+    fail(
+      'architectureGovernance.authorityModel.precedence.conflictDisposition must be ' +
+        JSON.stringify(AUTHORITY_MODEL_CONTRACT.conflictDisposition),
+    );
+  }
+  if (precedence.classAnchor !== AUTHORITY_MODEL_CONTRACT.classAnchor) {
+    fail(
+      'architectureGovernance.authorityModel.precedence.classAnchor must be ' +
+        JSON.stringify(AUTHORITY_MODEL_CONTRACT.classAnchor),
+    );
+  }
+}
+
 if (layers.length === 0) {
   fail('governance-layers.json declares no layers');
   report();
@@ -156,6 +306,13 @@ for (const field of [
     : typeof value === 'string' && value.length > 0;
   if (!present) fail(`architectureGovernance.${field} is missing or empty`);
 }
+if (registry.subordination !== REQUIRED_SUBORDINATION) {
+  fail(
+    'governance-layers.json subordination no longer matches the anchored reviewed doctrine. ' +
+      'AUTHORITY_MODEL=PASS cannot be emitted for an inverted or weakened subordination rule.',
+  );
+}
+validateAuthorityModel(governance.authorityModel);
 
 // ---------------------------------------------------------------------------
 // 0b. The mandate — this registry is not self-authorised.
@@ -305,6 +462,11 @@ const provenance = existsSync(PROVENANCE_FILE)
   : {};
 
 /** Accepted decision records that cite a layer's root path — the v1.4.0 anchor, measured not assumed. */
+function citesExactPackageRoot(text, root) {
+  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^0-9A-Za-z._/-])${escaped}(/|[^0-9A-Za-z._/-]|$)`).test(text);
+}
+
 function acceptedDecisionsCiting(root) {
   const dir = join(REPO_ROOT, 'docs', 'decisions');
   if (!existsSync(dir)) return [];
@@ -313,7 +475,7 @@ function acceptedDecisionsCiting(root) {
     .filter((f) => {
       const text = readFileSync(join(dir, f), 'utf8');
       const status = /^[-*]?\s*\*\*Status:\*\*\s*(.+)$/m.exec(text);
-      return isAccepted(status?.[1]?.trim()) && text.includes(root);
+      return isAccepted(status?.[1]?.trim()) && citesExactPackageRoot(text, root);
     });
 }
 
@@ -417,6 +579,16 @@ for (const layer of layers) {
   if (verifyExemption(layer)) exempted.push(layer);
 }
 
+for (const root of Object.keys(KNOWN_UNRESOLVED_AUTHORITY_BY_ROOT)) {
+  if (!roots.has(root)) {
+    fail(
+      `scripts/lib/governance-layers.mjs records known unresolved authority for ${root}, but ` +
+        `that package root is not declared in governance-layers.json. Known-open authority cannot ` +
+        `be erased by moving or removing the registry record.`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 4. Authority index — two sources, source-qualified, collisions declared.
 // ---------------------------------------------------------------------------
@@ -504,6 +676,21 @@ function stateIsImplementable(stateName) {
 
 const moduleHorizon = (entry) => entry?.horizon ?? entry?.earliest_horizon ?? null;
 
+const ARCHITECTURE_FIELDS = Object.freeze(
+  new Set([
+    'governanceStatus',
+    'implementationAuthority',
+    'moduleScope',
+    'maxHorizon',
+    'adrRelations',
+    'unresolvedAuthority',
+  ]),
+);
+const ADR_RELATION_FIELDS = Object.freeze(
+  new Set(['authority', 'authoritySource', 'relation', 'evidence']),
+);
+const UNRESOLVED_AUTHORITY_FIELDS = Object.freeze(new Set(['id', 'topic', 'note']));
+
 // ---------------------------------------------------------------------------
 // 6. The bindings themselves.
 // ---------------------------------------------------------------------------
@@ -516,6 +703,16 @@ const modulesToPackages = new Map();
 for (const layer of governed) {
   const id = layer.id;
   const a = layer.architecture;
+
+  for (const key of Object.keys(a ?? {})) {
+    if (!ARCHITECTURE_FIELDS.has(key)) {
+      fail(
+        `${id}: architecture field ${JSON.stringify(key)} is not in the allowed schema. ` +
+          `Architecture registration is descriptive; new authority-like metadata requires an ` +
+          `explicit validator contract.`,
+      );
+    }
+  }
 
   if (a.governanceStatus !== 'accepted') {
     fail(
@@ -556,6 +753,11 @@ for (const layer of governed) {
     if (!relation || typeof relation !== 'object') {
       fail(`${id}: malformed adrRelations entry: ${JSON.stringify(relation)}`);
       continue;
+    }
+    for (const key of Object.keys(relation)) {
+      if (!ADR_RELATION_FIELDS.has(key)) {
+        fail(`${id}: adrRelations entry field ${JSON.stringify(key)} is not in the allowed schema`);
+      }
     }
     const { authority, authoritySource, relation: kind, evidence } = relation;
 
@@ -639,6 +841,14 @@ for (const layer of governed) {
       fail(`${id}: malformed unresolvedAuthority entry: ${JSON.stringify(item)}`);
       continue;
     }
+    for (const key of Object.keys(item)) {
+      if (!UNRESOLVED_AUTHORITY_FIELDS.has(key)) {
+        fail(
+          `${id}: unresolvedAuthority entry "${item.id ?? '<unknown>'}" field ` +
+            `${JSON.stringify(key)} is not in the allowed schema`,
+        );
+      }
+    }
     if (typeof item.id !== 'string' || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(item.id)) {
       fail(
         `${id}: unresolvedAuthority entry has no lower-kebab-case "id": ${JSON.stringify(item.id)}`,
@@ -672,13 +882,13 @@ for (const layer of governed) {
   // THE INVENTORY. `unresolvedAuthority` is the mechanism that keeps an unbacked architecture claim
   // visible, and a mechanism whose whole job is preserving a record cannot protect itself from
   // inside the record. Deleting all twelve entries left the first candidate's gates green.
-  const known = KNOWN_UNRESOLVED_AUTHORITY[id] ?? [];
+  const known = KNOWN_UNRESOLVED_AUTHORITY_BY_ROOT[layer.root] ?? [];
   for (const knownId of known) {
     if (seenUnresolved.has(knownId)) continue;
-    const resolution = RESOLVED_AUTHORITY[`${id}:${knownId}`];
+    const resolution = RESOLVED_AUTHORITY[`${layer.root}:${knownId}`];
     if (!resolution) {
       fail(
-        `${id}: unresolvedAuthority no longer records "${knownId}", which ` +
+        `${id} (${layer.root}): unresolvedAuthority no longer records "${knownId}", which ` +
           `scripts/lib/governance-layers.mjs knows to be open. An item may only disappear by being ` +
           `moved into RESOLVED_AUTHORITY with the accepted authority that closed it.`,
       );
@@ -832,14 +1042,30 @@ for (const layer of governed) {
 // `/\.(m?ts|m?js|tsx)$/`, so `packages/<pkg>/lib`, `src/dist/`, `.cjs` and `.cts` all walked past
 // it — and `packages/<pkg>/lib` is not even gitignored, so it commits through an ordinary PR.
 //
-// WHAT IT DOES NOT PROVE. A reference assembled at runtime — `'governance-' + 'layers.json'`,
-// `join(root, 'governance', '-layers.json')`, an array join — is not detected, and closing that
-// needs dataflow analysis this repository has deliberately declined to build (the same limit
-// check-egress-allowlist.mjs states for "obfuscated or dynamically-constructed capability
-// acquisition"). The MATERIAL control is the ladder, not this scan: the registry confers no
+// WHAT IT DOES NOT PROVE. This is not general JavaScript dataflow analysis. It detects literal
+// references, simple string concatenation and the reviewed component-join forms that produced
+// `governance-layers.json` during rereview. More obfuscated construction remains outside the
+// deterministic claim, so the MATERIAL control is still the ladder: the registry confers no
 // authority, so a caller that read it would gain nothing. This raises the cost of introducing such
 // a reader and makes it reviewable. It is not a sandbox.
 // ---------------------------------------------------------------------------
+function referencesGovernanceRegistry(source) {
+  const collapsed = source.replace(/['"`+\s,]/g, '');
+  if (/governance-layers(?:\.json)?/.test(source)) return true;
+  if (/governance-layers(?:\.json)?/.test(collapsed)) return true;
+  if (
+    /['"`]governance['"`]\s*,\s*['"`]layers\.json['"`][\s\S]{0,240}\.join\(\s*['"`]-['"`]\s*\)/.test(
+      source,
+    )
+  ) {
+    return true;
+  }
+  if (/join\([^)]*['"`]governance['"`][^)]*['"`]-layers\.json['"`][^)]*\)/.test(source)) {
+    return true;
+  }
+  return false;
+}
+
 const packagesDir = join(REPO_ROOT, 'packages');
 let runtimeFilesScanned = 0;
 if (existsSync(packagesDir)) {
@@ -851,11 +1077,7 @@ if (existsSync(packagesDir)) {
     for (const file of walkSource(join(packagesDir, pkg), (f) => SOURCE_FILE_PATTERN.test(f))) {
       runtimeFilesScanned += 1;
       const source = readFileSync(file, 'utf8');
-      // Two passes. The literal, and the same source with quotes, concatenation operators and
-      // whitespace removed — which catches `'governance-' + 'layers.json'` and
-      // `['governance', 'layers.json'].join('-')` without pretending to be dataflow analysis.
-      const collapsed = source.replace(/['"`+\s,]/g, '');
-      if (/governance-layers/.test(source) || /governance-layers/.test(collapsed)) {
+      if (referencesGovernanceRegistry(source)) {
         fail(
           `${relative(REPO_ROOT, file).split(sep).join('/')} references governance-layers.json. ` +
             `Runtime code must not read the architecture registry: registering a documentation ` +
@@ -881,6 +1103,18 @@ if (!ciWiring || typeof ciWiring !== 'object' || !Array.isArray(ciWiring.require
 } else if (!existsSync(WORKFLOW_FILE)) {
   fail(`${ciWiring.workflow ?? '.github/workflows/ci.yml'} is missing — nothing runs these gates`);
 } else {
+  if (!sameStringArray(ciWiring.requiredGates, ANCHORED_CI_REQUIRED_GATES)) {
+    fail(
+      `architectureGovernance.ciWiring.requiredGates must exactly match the anchored required ` +
+        `gate set in scripts/lib/governance-layers.mjs: ${ANCHORED_CI_REQUIRED_GATES.join(', ')}`,
+    );
+  }
+  if (ciWiring.expectedRequiredGates !== ANCHORED_CI_REQUIRED_GATES.length) {
+    fail(
+      `architectureGovernance.ciWiring.expectedRequiredGates must be ` +
+        `${ANCHORED_CI_REQUIRED_GATES.length}, the anchored required-gate count`,
+    );
+  }
   if (ciWiring.requiredGates.length !== ciWiring.expectedRequiredGates) {
     fail(
       `architectureGovernance.ciWiring lists ${ciWiring.requiredGates.length} required gates but ` +
@@ -894,7 +1128,7 @@ if (!ciWiring || typeof ciWiring !== 'object' || !Array.isArray(ciWiring.require
   if (steps === 0)
     fail(`${ciWiring.workflow}: no blocking run steps were found — the walk did nothing`);
 
-  for (const gate of ciWiring.requiredGates) {
+  for (const gate of ANCHORED_CI_REQUIRED_GATES) {
     const invocation = commands.find((c) => invokes(c.argv, gate));
     if (!invocation) {
       fail(
@@ -937,7 +1171,7 @@ notes.push(
 );
 notes.push(
   `unresolved authority items recorded: ${unresolvedCount} (known open: ${Object.values(
-    KNOWN_UNRESOLVED_AUTHORITY,
+    KNOWN_UNRESOLVED_AUTHORITY_BY_ROOT,
   ).reduce((n, v) => n + v.length, 0)}, resolved: ${Object.keys(RESOLVED_AUTHORITY).length})`,
 );
 notes.push(`module bindings verified: ${scopedModuleCount}`);

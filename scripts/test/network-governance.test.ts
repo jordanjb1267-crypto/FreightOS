@@ -174,10 +174,9 @@ describe('JSON-manifest integrity and manifest containment', () => {
     created.push(path);
   }
 
-  /** Rebuild the fixture manifest from whatever is on disk, optionally with extra entries. */
-  function writeManifest(extra: { path: string; sha256: string; bytes: number }[] = []): void {
-    const files = readdirSync(FIXTURE_DIR, { withFileTypes: true })
-      .filter((e) => e.isFile() && e.name !== 'MANIFEST.json')
+  function fixtureFiles() {
+    return readdirSync(FIXTURE_DIR, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name !== 'MANIFEST.json' && e.name !== 'MANIFEST.sha256')
       .map((e) => e.name)
       .map((f) => {
         const bytes = readFileSync(join(FIXTURE_DIR, f));
@@ -187,6 +186,11 @@ describe('JSON-manifest integrity and manifest containment', () => {
           bytes: bytes.length,
         };
       });
+  }
+
+  /** Rebuild the fixture manifest from whatever is on disk, optionally with extra entries. */
+  function writeManifest(extra: { path: string; sha256: string; bytes: number }[] = []): void {
+    const files = fixtureFiles();
     const path = join(FIXTURE_DIR, 'MANIFEST.json');
     writeFileSync(
       path,
@@ -195,16 +199,30 @@ describe('JSON-manifest integrity and manifest containment', () => {
     if (!created.includes(path)) created.push(path);
   }
 
+  function writeShaManifest(extra: { path: string; sha256: string }[] = []): void {
+    const lines = [
+      ...fixtureFiles().map((f) => `${f.sha256}  ${f.path}`),
+      ...extra.map((f) => `${f.sha256}  ${f.path}`),
+    ];
+    const path = join(FIXTURE_DIR, 'MANIFEST.sha256');
+    writeFileSync(path, `${lines.join('\n')}\n`);
+    if (!created.includes(path)) created.push(path);
+  }
+
   /** Declare the fixture as a layer. Integrity is the only gate under test here. */
-  function registerFixture(expectedArtifacts: number): void {
+  function registerFixture(
+    expectedArtifacts: number,
+    integrityFile = 'MANIFEST.json',
+    integrityFormat = 'manifest-json',
+  ): void {
     const layers = JSON.parse(readFileSync(LAYERS, 'utf8'));
     layers.layers.push({
       id: 'awe0-fixture',
       version: 'v0.0.0',
       root: FIXTURE_ROOT,
       role: 'additive-subordinate',
-      integrityFile: 'MANIFEST.json',
-      integrityFormat: 'manifest-json',
+      integrityFile,
+      integrityFormat,
       expectedArtifacts,
       generatedCopies: null,
       note: 'Disposable test fixture.',
@@ -218,6 +236,16 @@ describe('JSON-manifest integrity and manifest containment', () => {
     writeFixtureFile('B.md', '# B\n');
     writeManifest();
     registerFixture(2);
+  }
+
+  function canonicalAliasEntries(): { path: string; sha256: string; bytes: number }[] {
+    const bytes = readFileSync(join(FIXTURE_DIR, 'README.md'));
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    return [
+      { path: 'dir/../README.md', sha256, bytes: bytes.length },
+      { path: 'dir//README.md', sha256, bytes: bytes.length },
+      { path: 'dir/./README.md', sha256, bytes: bytes.length },
+    ];
   }
 
   /** The sha256 and byte length of a real file elsewhere in the repository. */
@@ -268,6 +296,43 @@ describe('JSON-manifest integrity and manifest containment', () => {
     const run = runValidator();
     expect(run.ok, 'a missing artifact did not fail the check').toBe(false);
     expect(run.output).toContain('manifest lists a file that is missing');
+  });
+
+  it('AWE-RR-01: rejects JSON manifest aliases instead of counting them as artifacts', () => {
+    writeFixtureFile('README.md', '# only real artifact\n');
+    const bytes = readFileSync(join(FIXTURE_DIR, 'README.md'));
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    writeFileSync(
+      join(FIXTURE_DIR, 'MANIFEST.json'),
+      `${JSON.stringify(
+        {
+          package: 'awe0-fixture',
+          version: '0.0.0',
+          files: [{ path: 'README.md', sha256, bytes: bytes.length }, ...canonicalAliasEntries()],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    created.push(join(FIXTURE_DIR, 'MANIFEST.json'));
+    registerFixture(4);
+
+    const run = runValidator();
+    expect(run.ok, 'JSON aliases that all resolve to one file were accepted').toBe(false);
+    expect(run.output).toContain('manifest path is not canonical');
+    expect(run.output).not.toContain('NETWORK_GOVERNANCE=PASS');
+  });
+
+  it('AWE-RR-01: rejects sha256 manifest aliases under the same canonical identity contract', () => {
+    writeFixtureFile('README.md', '# only real artifact\n');
+    const entries = canonicalAliasEntries();
+    writeShaManifest([{ path: 'README.md', sha256: entries[0]!.sha256 }, ...entries]);
+    registerFixture(4, 'MANIFEST.sha256', 'sha256sums');
+
+    const run = runValidator();
+    expect(run.ok, 'sha256 aliases that all resolve to one file were accepted').toBe(false);
+    expect(run.output).toContain('manifest path is not canonical');
+    expect(run.output).not.toContain('NETWORK_GOVERNANCE=PASS');
   });
 
   it('fails when the manifest is edited to disagree about a size', () => {

@@ -37,7 +37,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, posix as pathPosix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
@@ -49,6 +49,41 @@ export const WORKFLOW_FILE = join(REPO_ROOT, '.github', 'workflows', 'ci.yml');
 
 export const MANIFEST_FORMATS = Object.freeze(['sha256sums', 'manifest-json']);
 export const LAYER_ROLES = Object.freeze(['base', 'controlling', 'additive-subordinate']);
+export const ANCHORED_CI_REQUIRED_GATES = Object.freeze([
+  'scripts/check-network-governance.mjs',
+  'scripts/check-architecture-governance.mjs',
+  'scripts/validate-scope.mjs',
+]);
+
+export const REQUIRED_SUBORDINATION =
+  'Network architecture is ADDITIVE and SUBORDINATE to the production handoff and to the security, privacy, tenant-isolation, authority, resilience and non-regression requirements that precede it. Where a network requirement and a security requirement conflict, the stricter restriction wins and the network requirement yields. No layer below may be weakened to simplify a layer above.';
+
+export const AUTHORITY_MODEL_CONTRACT = Object.freeze({
+  classes: LAYER_ROLES,
+  precedenceEdges: Object.freeze([
+    Object.freeze({ higher: 'controlling', lower: 'additive-subordinate' }),
+    Object.freeze({ higher: 'base', lower: 'additive-subordinate' }),
+  ]),
+  incomparable: Object.freeze([Object.freeze(['additive-subordinate', 'additive-subordinate'])]),
+  strictestWinsSubjects: Object.freeze([
+    'security',
+    'tenant-isolation',
+    'authority',
+    'privacy',
+    'legal',
+    'resilience',
+    'certification',
+  ]),
+  conflictDisposition: 'record-in-unresolvedAuthority',
+  classAnchor: 'root-path',
+  resolution: Object.freeze([
+    'A controlling requirement beats any additive-subordinate requirement.',
+    'A base requirement beats any additive-subordinate requirement.',
+    'Two additive-subordinate packages are INCOMPARABLE. Being installed later confers nothing. Where two of them overlap on a module and genuinely disagree, that is a conflict to record in unresolvedAuthority, not a tie to break by version order.',
+    'Regardless of class, the stricter accepted restriction wins. Security, tenant-isolation, authority, privacy, legal, resilience and certification constraints fail closed.',
+    "Class is anchored to the layer's root path in scripts/lib/governance-layers.mjs and cannot be changed by editing this file. A layer cannot demote its own authority out of the rules that bind it.",
+  ]),
+});
 
 /**
  * ANCHORED ROLES — the fix for "a controlling security layer can demote itself".
@@ -116,23 +151,29 @@ export const EXEMPTION_ANCHORS = Object.freeze([
  * it has been moved into RESOLVED_AUTHORITY with a citation — a deliberate two-file change that a
  * reviewer sees, which is the "explicit change control" half of the requirement.
  *
- * Ids are stable and are the registry's join key. They are not descriptions; renaming one is a
- * failure, not a rewording.
+ * Package roots are the stable join key. Layer ids are registry metadata; rereview proved that
+ * renaming one could otherwise erase a known-open item after reaccepting the binding digest.
  */
-export const KNOWN_UNRESOLVED_AUTHORITY = Object.freeze({
-  'enterprise-agent-operations': Object.freeze(['action-command-vocabulary']),
-  'facilityos-enterprise-agent-operations': Object.freeze(['action-command-vocabulary']),
-  'brokerage-enterprise-agent-operations': Object.freeze(['action-command-vocabulary']),
-  'agentic-logistics-network-coherence': Object.freeze([
+export const KNOWN_UNRESOLVED_AUTHORITY_BY_ROOT = Object.freeze({
+  'docs/production-handoff/v1.5.0-enterprise-agent-operations': Object.freeze([
+    'action-command-vocabulary',
+  ]),
+  'docs/production-handoff/facilityos-v1.0.0-enterprise-agent-operations': Object.freeze([
+    'action-command-vocabulary',
+  ]),
+  'docs/production-handoff/v1.6.0-brokerage-enterprise-agent-operations': Object.freeze([
+    'action-command-vocabulary',
+  ]),
+  'docs/production-handoff/v1.7.0-agentic-logistics-network-coherence': Object.freeze([
     'artifact-vocabulary',
     'action-command-vocabulary',
   ]),
-  'agent-workforce-engineering-certification': Object.freeze([
+  'docs/production-handoff/v1.8.0-agent-workforce-engineering-certification': Object.freeze([
     'workforce-roster-of-record',
     'job-certification-approving-authority',
     'artifact-vocabulary',
   ]),
-  'revenueos-commercial-capability-architecture': Object.freeze([
+  'docs/production-handoff/v1.8.1-revenueos-commercial-capability-architecture': Object.freeze([
     'workunit-graph-agent-runtime-substrate',
     'first-governed-egress-channel',
     'commercial-activation-flags',
@@ -147,7 +188,7 @@ export const KNOWN_UNRESOLVED_AUTHORITY = Object.freeze({
  * item, and the validator requires that authority to exist and be Accepted — resolution is a
  * governed act, not a deletion.
  *
- * Shape: `'<packageId>:<itemId>': { resolvedBy: '<authority id>', note: '<what closed it>' }`
+ * Shape: `'<packageRoot>:<itemId>': { resolvedBy: '<authority id>', note: '<what closed it>' }`
  */
 export const RESOLVED_AUTHORITY = Object.freeze({});
 
@@ -279,6 +320,39 @@ export function sha256(absolutePath) {
   return createHash('sha256').update(readFileSync(absolutePath)).digest('hex');
 }
 
+export function canonicalManifestPath(declaredPath) {
+  if (typeof declaredPath !== 'string' || declaredPath.length === 0) {
+    return { error: 'manifest path is empty' };
+  }
+  if (declaredPath.includes('\0')) {
+    return { error: 'manifest path contains a NUL byte' };
+  }
+  if (declaredPath.includes('\\')) {
+    return {
+      error: `manifest path must use canonical POSIX separators, not backslashes: ${declaredPath}`,
+    };
+  }
+  if (isAbsolute(declaredPath) || /^[A-Za-z]:[\\/]/.test(declaredPath)) {
+    return { error: `manifest path is absolute: ${declaredPath}` };
+  }
+
+  const normalized = pathPosix.normalize(declaredPath);
+  if (
+    normalized === '.' ||
+    normalized === '..' ||
+    normalized.startsWith('../') ||
+    normalized === ''
+  ) {
+    return { error: `manifest path escapes the package root: ${declaredPath}` };
+  }
+  if (normalized !== declaredPath) {
+    return {
+      error: `manifest path is not canonical: ${declaredPath} resolves as ${normalized}`,
+    };
+  }
+  return { path: normalized };
+}
+
 /**
  * Commands a GitHub workflow actually RUNS, from the parsed document rather than its bytes.
  *
@@ -332,6 +406,20 @@ export function workflowRunCommands(workflowText) {
           `gates do not run on a change`,
       );
     }
+    const triggerEntries =
+      triggers && typeof triggers === 'object' && !Array.isArray(triggers)
+        ? Object.entries(triggers)
+        : [];
+    for (const [triggerName, trigger] of triggerEntries) {
+      if (!['pull_request', 'push'].includes(triggerName)) continue;
+      if (!trigger || typeof trigger !== 'object') continue;
+      if ('paths' in trigger || 'paths-ignore' in trigger) {
+        problems.push(
+          `workflow trigger "${triggerName}" declares path filters, so governed changes can make ` +
+            `required governance gates unreachable`,
+        );
+      }
+    }
   }
 
   const jobs = doc.jobs && typeof doc.jobs === 'object' ? doc.jobs : {};
@@ -349,7 +437,7 @@ export function workflowRunCommands(workflowText) {
       );
       continue;
     }
-    if (job['continue-on-error'] === true) {
+    if (job['continue-on-error'] !== undefined) {
       problems.push(`job "${jobName}" sets continue-on-error; its steps do not block`);
       continue;
     }
@@ -357,24 +445,50 @@ export function workflowRunCommands(workflowText) {
 
     for (const step of job.steps) {
       if (!step || typeof step !== 'object' || typeof step.run !== 'string') continue;
-      if (step.if !== undefined) continue; // conditional step: may not run
-      if (step['continue-on-error'] === true) continue; // failure does not block
+      if (step.if !== undefined) {
+        problems.push(
+          `job "${jobName}" has a conditional run step; conditional steps are not enforcement`,
+        );
+        continue;
+      }
+      if (step['continue-on-error'] !== undefined) {
+        problems.push(
+          `job "${jobName}" has a run step with continue-on-error; its failure does not block`,
+        );
+        continue;
+      }
       steps += 1;
+      if (
+        /(^|\n)\s*(if|for|while|case)\b/.test(step.run) ||
+        /\w+\s*\(\)\s*\{/.test(step.run) ||
+        /<</.test(step.run)
+      ) {
+        problems.push(
+          `job "${jobName}" has a run step with shell control structure, function or heredoc; ` +
+            `required governance gates must be direct blocking commands`,
+        );
+        continue;
+      }
 
       for (const raw of step.run.split('\n')) {
         // Strip a trailing comment. `#` only starts one at the beginning of a token, so a `#` inside
         // a word or a URL fragment is left alone. This is what turns `true # node x` into `true`.
         const line = raw.replace(/(^|\s)#.*$/, '$1').trim();
         if (line.length === 0) continue;
-        for (const segment of line.split(/&&|\|\||[;|]/)) {
-          const argv = segment
-            .trim()
-            .split(/\s+/)
-            .filter((t) => t.length > 0)
-            .map((t) => t.replace(/^['"]|['"]$/g, ''));
-          if (argv.length === 0) continue;
-          commands.push({ job: jobName, argv });
+        if (/&&|\|\||[;|]/.test(line)) {
+          problems.push(
+            `job "${jobName}" run command uses shell control operators; required governance gates ` +
+              `must be direct blocking commands`,
+          );
+          continue;
         }
+        const argv = line
+          .trim()
+          .split(/\s+/)
+          .filter((t) => t.length > 0)
+          .map((t) => t.replace(/^['"]|['"]$/g, ''));
+        if (argv.length === 0) continue;
+        commands.push({ job: jobName, argv });
       }
     }
   }
@@ -396,7 +510,7 @@ export const NON_EXECUTING_COMMANDS = Object.freeze(
 export function invokes(argv, gate) {
   if (argv.length === 0) return false;
   if (NON_EXECUTING_COMMANDS.has(argv[0])) return false;
-  return argv.slice(1).includes(gate);
+  return argv[0] === 'node' && argv.length === 2 && argv[1] === gate;
 }
 
 /**
@@ -436,20 +550,9 @@ export function walk(dir, base = dir, found = []) {
  * anywhere on the resolved path, and anything that is not a regular file.
  */
 export function resolveManifestEntry(rootAbs, declaredPath) {
-  if (typeof declaredPath !== 'string' || declaredPath.length === 0) {
-    return { error: 'manifest path is empty' };
-  }
-  if (declaredPath.includes('\0')) {
-    return { error: 'manifest path contains a NUL byte' };
-  }
-  if (isAbsolute(declaredPath) || /^[A-Za-z]:[\\/]/.test(declaredPath)) {
-    return { error: `manifest path is absolute: ${declaredPath}` };
-  }
-
-  const normalized = normalize(declaredPath);
-  if (normalized === '..' || normalized.startsWith(`..${sep}`) || normalized.startsWith('../')) {
-    return { error: `manifest path escapes the package root: ${declaredPath}` };
-  }
+  const canonical = canonicalManifestPath(declaredPath);
+  if (canonical.error) return canonical;
+  const normalized = canonical.path;
 
   const abs = resolve(rootAbs, normalized);
   const rel = relative(rootAbs, abs);
@@ -478,7 +581,7 @@ export function resolveManifestEntry(rootAbs, declaredPath) {
   if (!lstatSync(abs).isFile()) {
     return { error: `manifest path is not a regular file: ${declaredPath}` };
   }
-  return { abs };
+  return { abs, path: normalized };
 }
 
 /**
@@ -517,7 +620,12 @@ export function parseSha256Sums(absolutePath, layerId, fail) {
       fail(`${layerId}: unparseable manifest line ${index + 1}: ${JSON.stringify(line)}`);
       continue;
     }
-    const path = match[2].replace(/^\.\//, '');
+    const canonical = canonicalManifestPath(match[2]);
+    if (canonical.error) {
+      fail(`${layerId}: ${canonical.error}`);
+      continue;
+    }
+    const path = canonical.path;
     if (entries.has(path)) fail(`${layerId}: manifest lists ${path} more than once`);
     entries.set(path, { sha256: match[1], bytes: null });
   }
@@ -556,7 +664,12 @@ export function parseJsonManifest(absolutePath, layerId, fail) {
       fail(`${layerId}: manifest entry ${file.path} has no valid "sha256"`);
       continue;
     }
-    const path = file.path.replace(/^\.\//, '');
+    const canonical = canonicalManifestPath(file.path);
+    if (canonical.error) {
+      fail(`${layerId}: ${canonical.error}`);
+      continue;
+    }
+    const path = canonical.path;
     if (entries.has(path)) fail(`${layerId}: manifest lists ${path} more than once`);
     entries.set(path, {
       sha256: file.sha256,

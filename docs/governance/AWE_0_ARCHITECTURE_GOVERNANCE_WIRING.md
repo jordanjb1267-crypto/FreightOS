@@ -219,21 +219,28 @@ would be worse than naming the limit. A characterisation test asserts the limita
 
 ## 9. Findings and disposition
 
-| #    | Finding                                       | Disposition                                                                                                                              |
-| ---- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| F-01 | obligation pinned to a frozen six-id list     | **Fixed** — derived from role + position; verified exemptions; count removed                                                             |
-| F-02 | unresolved-authority inventory deletable      | **Fixed** — anchored inventory, `declared ⊇ known − resolved`, governed resolution path                                                  |
-| F-03 | ADR identifier namespace collision            | **Fixed** — two source-qualified namespaces, Proposed refused, counts declared                                                           |
-| F-04 | CI self-check was a substring match           | **Fixed** — workflow parsed; comments, `echo`, `true`, `if:`, `continue-on-error` all refused                                            |
-| F-05 | runtime-authority guard partial               | **Narrowed and widened** — whole package tree, all executable extensions, concatenation-normalised; residual limit documented and tested |
-| F-06 | binding form checked, content not             | **Made honest** — four tiers named; content pinned by a reviewed digest                                                                  |
-| F-07 | no external integrity anchor                  | **OPEN by instruction** — described precisely, not papered over                                                                          |
-| F-08 | manifest path traversal                       | **Fixed** — containment, absolute/normalisation/symlink/directory all refused                                                            |
-| F-09 | controlling layer could self-demote           | **Fixed** — roles anchored to root paths in the shared library                                                                           |
-| F-10 | anti-vacuity was one global sum               | **Fixed** — per-layer `expectedArtifacts`; global total kept as a coarse signal                                                          |
-| F-11 | ADR-0014 relations overbroad                  | **Fixed** — see §5; three further relations corrected in both directions                                                                 |
-| F-12 | 607 files claimed                             | **Fixed** — 567 tracked, corrected in all four places                                                                                    |
-| F-13 | schema allowed self-declared `implementation` | **Fixed** — `implementationAuthority` is the constant `"none"`; module state is read and reported                                        |
+### Second remediation provenance
+
+The first remediation candidate (`b686b782c3aaf998ab028380fc0ac0112a97ce0d`) was independently
+rereviewed and was not accepted. The rereview confirmed six acceptance blockers (`AWE-RR-01` through
+`AWE-RR-06`) and three additional defects (`AWE-RR-07` through `AWE-RR-09`). This follow-up
+remediation closes those rereview findings without rewriting that preserved candidate.
+
+| #    | Finding                                       | Disposition                                                                                                                            |
+| ---- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| F-01 | obligation pinned to a frozen six-id list     | **Fixed, rereview-hardened** — derived from role + position; accepted-decision exemptions require exact canonical package identity     |
+| F-02 | unresolved-authority inventory deletable      | **Fixed, rereview-hardened** — anchored to stable package roots, `declared ⊇ known − resolved`, governed resolution path               |
+| F-03 | ADR identifier namespace collision            | **Fixed** — two source-qualified namespaces, Proposed refused, counts declared                                                         |
+| F-04 | CI self-check was a substring match           | **Fixed, rereview-hardened** — required gates must be direct, reachable, blocking commands; path filters and self-removal are refused  |
+| F-05 | runtime-authority guard partial               | **Rereview-hardened** — whole package tree, all executable extensions, concatenation/join-normalised for reviewed representative forms |
+| F-06 | binding form checked, content not             | **Made honest, rereview-hardened** — content pinned by digest and AUTHORITY_MODEL=PASS requires an executable authority-model contract |
+| F-07 | no external integrity anchor                  | **OPEN by instruction** — described precisely, not papered over                                                                        |
+| F-08 | manifest path traversal                       | **Fixed, rereview-hardened** — manifest identity is canonical package-relative path; aliases cannot count as distinct artifacts        |
+| F-09 | controlling layer could self-demote           | **Fixed** — roles anchored to root paths in the shared library                                                                         |
+| F-10 | anti-vacuity was one global sum               | **Fixed** — per-layer `expectedArtifacts`; global total kept as a coarse signal                                                        |
+| F-11 | ADR-0014 relations overbroad                  | **Fixed** — see §5; three further relations corrected in both directions                                                               |
+| F-12 | 607 files claimed                             | **Fixed** — 567 tracked, corrected in all four places                                                                                  |
+| F-13 | schema allowed self-declared `implementation` | **Fixed, rereview-hardened** — `implementationAuthority` is `"none"` and unknown architecture authority metadata fails closed          |
 
 **Low severity.** Version matching now requires a whole segment (`v1.7.0` no longer matches
 `v1.7.01`); `walk()` uses `lstat`, so a symlink loop fails cleanly instead of throwing ELOOP with no
