@@ -1,0 +1,221 @@
+{
+  "$schema": "https://freightos.local/schemas/ccep-policy.schema.json",
+  "contractName": "Cross-Agent Continuous Engineering Protocol machine-enforced contract",
+  "protocolVersion": "1.0",
+  "machineEnforcedSubset": [
+    "role identifiers",
+    "review class identifiers and independence classification",
+    "permission class separation",
+    "external authority separation",
+    "required phase states",
+    "permitted phase transitions",
+    "owner-reserved checkpoints",
+    "no-self-clearance transition limits",
+    "candidate freeze and review-target immutability flags",
+    "evidence precedence",
+    "required phase-report fields",
+    "required CCEP regression inventory"
+  ],
+  "documentaryOnly": [
+    "natural-language quality of review rationale",
+    "semantic truth of free-form evidence prose",
+    "human judgment that an implemented fix fully satisfies a finding",
+    "ultimate reviewer or owner independence beyond recorded role and review-class metadata"
+  ],
+  "roles": [
+    "OWNER",
+    "ORCHESTRATOR",
+    "IMPLEMENTER",
+    "INDEPENDENT_REVIEWER",
+    "TAKEOVER_AGENT",
+    "RELEASE_VERIFIER",
+    "MERGE_EXECUTOR"
+  ],
+  "reviewClasses": {
+    "LEVEL_A_ISOLATED_SESSION_REVIEW": {
+      "nonAuthoringContextRequired": true,
+      "crossAgentRequired": false,
+      "candidateImmutable": true,
+      "reviewerTargetAccess": "READ_ONLY",
+      "mayCloseFindings": true,
+      "mayClaimCrossModelReview": false
+    },
+    "LEVEL_B_CROSS_AGENT_REVIEW": {
+      "nonAuthoringContextRequired": true,
+      "crossAgentRequired": true,
+      "candidateImmutable": true,
+      "reviewerTargetAccess": "READ_ONLY",
+      "mayCloseFindings": true,
+      "mayClaimCrossModelReview": true
+    }
+  },
+  "executionModes": ["SINGLE_PROVIDER_ONLY", "CROSS_AGENT_AVAILABLE", "CODEX_ONLY"],
+  "permissionClasses": [
+    "P0_READ_ONLY",
+    "P1_LOCAL_EXECUTION",
+    "P2_DISPOSABLE_MUTATION",
+    "P3_REPOSITORY_WRITE",
+    "P4_EXTERNAL_MUTATION"
+  ],
+  "externalAuthorities": [
+    "NETWORK",
+    "DEPENDENCY_INSTALL",
+    "PUSH",
+    "MERGE",
+    "DEPLOY",
+    "INFRASTRUCTURE_MUTATION"
+  ],
+  "permissionImplications": [],
+  "phaseStates": [
+    "TAKEOVER",
+    "REVIEW",
+    "REMEDIATION_REQUIRED",
+    "REMEDIATION",
+    "READY_FOR_INDEPENDENT_REREVIEW",
+    "INDEPENDENT_REREVIEW",
+    "READY_FOR_OWNER_MERGE_DECISION",
+    "REMOTE_INTEGRATION_VERIFICATION",
+    "READY_FOR_OWNER_FINAL_MERGE_DECISION",
+    "OWNER_AUTHORIZED_MERGE",
+    "POST_MERGE_VERIFICATION",
+    "COMPLETE"
+  ],
+  "permittedTransitions": [
+    {
+      "from": "TAKEOVER",
+      "to": "REVIEW",
+      "requiredRole": "TAKEOVER_AGENT"
+    },
+    {
+      "from": "REVIEW",
+      "to": "REMEDIATION_REQUIRED",
+      "requiredRole": "INDEPENDENT_REVIEWER"
+    },
+    {
+      "from": "REMEDIATION_REQUIRED",
+      "to": "REMEDIATION",
+      "requiredRole": "IMPLEMENTER"
+    },
+    {
+      "from": "REMEDIATION",
+      "to": "READY_FOR_INDEPENDENT_REREVIEW",
+      "requiredRole": "IMPLEMENTER"
+    },
+    {
+      "from": "READY_FOR_INDEPENDENT_REREVIEW",
+      "to": "INDEPENDENT_REREVIEW",
+      "requiredRole": "INDEPENDENT_REVIEWER",
+      "requiresNonAuthoringContext": true
+    },
+    {
+      "from": "INDEPENDENT_REREVIEW",
+      "to": "REMEDIATION_REQUIRED",
+      "requiredRole": "INDEPENDENT_REVIEWER"
+    },
+    {
+      "from": "INDEPENDENT_REREVIEW",
+      "to": "READY_FOR_OWNER_MERGE_DECISION",
+      "requiredRole": "INDEPENDENT_REVIEWER"
+    },
+    {
+      "from": "READY_FOR_OWNER_MERGE_DECISION",
+      "to": "REMOTE_INTEGRATION_VERIFICATION",
+      "requiredRole": "RELEASE_VERIFIER"
+    },
+    {
+      "from": "REMOTE_INTEGRATION_VERIFICATION",
+      "to": "READY_FOR_OWNER_FINAL_MERGE_DECISION",
+      "requiredRole": "RELEASE_VERIFIER"
+    },
+    {
+      "from": "READY_FOR_OWNER_FINAL_MERGE_DECISION",
+      "to": "OWNER_AUTHORIZED_MERGE",
+      "requiredRole": "OWNER",
+      "requiresOwnerAuthorization": true
+    },
+    {
+      "from": "OWNER_AUTHORIZED_MERGE",
+      "to": "POST_MERGE_VERIFICATION",
+      "requiredRole": "MERGE_EXECUTOR",
+      "requiresOwnerAuthorization": true
+    },
+    {
+      "from": "POST_MERGE_VERIFICATION",
+      "to": "COMPLETE",
+      "requiredRole": "RELEASE_VERIFIER"
+    }
+  ],
+  "ownerReservedCheckpoints": [
+    "PUSH",
+    "MERGE",
+    "DEPLOY",
+    "INFRASTRUCTURE_MUTATION",
+    "production configuration",
+    "remote CI or security configuration",
+    "acceptance of blocking known limitations",
+    "material scope change"
+  ],
+  "noSelfClearance": {
+    "implementerMayDeclare": ["IMPLEMENTED", "READY_FOR_INDEPENDENT_REREVIEW"],
+    "implementerMayNotDeclare": [
+      "CLOSED",
+      "READY_FOR_OWNER_MERGE_DECISION",
+      "READY_FOR_OWNER_FINAL_MERGE_DECISION",
+      "OWNER_AUTHORIZED_MERGE",
+      "COMPLETE"
+    ],
+    "reviewReadinessRequiresIndependentReviewBeforeOwnerMergeReadiness": true,
+    "ownerDecisionDistinctFromReviewVerdict": true
+  },
+  "candidateFreeze": {
+    "requiredBeforeIndependentReview": true,
+    "recordHead": true,
+    "recordTree": true,
+    "recordWorktreePath": true
+  },
+  "reviewTargetImmutability": {
+    "reviewerMayMutateTarget": false,
+    "negativeFixturesMustBeDisposable": true
+  },
+  "evidencePrecedence": [
+    "executed deterministic evidence",
+    "Git object identity",
+    "deterministic test or gate evidence",
+    "static repository evidence",
+    "independently verified phase reports",
+    "external coordination state",
+    "historical agent residue or conversation"
+  ],
+  "requiredPhaseReportFields": [
+    "CHAIN_OF_CUSTODY",
+    "ROLE",
+    "REVIEW_CLASS",
+    "PHASE",
+    "PERMISSIONS",
+    "SCOPE",
+    "FINDING_LEDGER",
+    "EVIDENCE",
+    "COMMAND_LEDGER",
+    "KNOWN_LIMITATIONS",
+    "REMAINING_WORK",
+    "FINAL_GIT_STATE",
+    "NEXT_PERMITTED_PHASE",
+    "VERDICT"
+  ],
+  "requiredTestCases": [
+    "CCEP-T01",
+    "CCEP-T02",
+    "CCEP-T03",
+    "CCEP-T04",
+    "CCEP-T05",
+    "CCEP-T06",
+    "CCEP-T07",
+    "CCEP-T08",
+    "CCEP-T09",
+    "CCEP-T10",
+    "CCEP-T11",
+    "CCEP-T12",
+    "CCEP-T13",
+    "CCEP-T14"
+  ]
+}

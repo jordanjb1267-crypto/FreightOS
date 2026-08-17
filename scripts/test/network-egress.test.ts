@@ -1,8 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import {
+  assertInsideFixture,
+  createGovernanceFixture,
+  SOURCE_ROOT,
+  type GovernanceFixture,
+} from './helpers/governance-fixture';
 
 /**
  * N4 — the egress gate has to be able to recognise egress.
@@ -11,7 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
  * only that the tree is clean. It says nothing about whether the detector could recognise a real
  * prohibited surface, and a scanner that matches nothing at all reports exactly the same thing.
  * This file is the anti-vacuity control: it introduces a genuine egress primitive on each surface
- * the gate claims to cover, requires a failure naming that primitive, and restores.
+ * the gate claims to cover, requires a failure naming that primitive, and destroys the copy.
  *
  * NOTHING HERE PERFORMS NETWORK I/O. Every mutation is static source text that is scanned and then
  * removed; no probe file is ever imported, compiled or executed, and the detector reads bytes.
@@ -22,23 +28,38 @@ import { afterEach, describe, expect, it } from 'vitest';
  * `$id`s, prose comments and a denied module name appearing OUTSIDE import position all remain
  * legal — that is the difference between a detector and a string search.
  *
- * The mutations restore in `afterEach` rather than at the end of each test, so a failing assertion
- * cannot leave an egress primitive behind.
+ * Every mutation runs in a per-test disposable repository copy. The source worktree is never the
+ * mutation target.
  */
 
-const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const DETECTOR = join(ROOT, 'scripts', 'check-network-egress.mjs');
-const SRC = join(ROOT, 'packages', 'database', 'src');
-const MIGRATION = join(
+let fixture: GovernanceFixture;
+let ROOT = SOURCE_ROOT;
+const DETECTOR = join(SOURCE_ROOT, 'scripts', 'check-network-egress.mjs');
+let SRC = join(ROOT, 'packages', 'database', 'src');
+let MIGRATION = join(
   ROOT,
   'packages',
   'database',
   'migrations',
   '0030_network_transport_intent.up.sql',
 );
-const DB_MANIFEST = join(ROOT, 'packages', 'database', 'package.json');
+let DB_MANIFEST = join(ROOT, 'packages', 'database', 'package.json');
 /** A file that does not exist until a test creates it, and never survives one. */
-const PROBE = join(SRC, 'egress-probe.generated.ts');
+let PROBE = join(SRC, 'egress-probe.generated.ts');
+
+function refreshPaths(root: string): void {
+  ROOT = root;
+  SRC = join(ROOT, 'packages', 'database', 'src');
+  MIGRATION = join(
+    ROOT,
+    'packages',
+    'database',
+    'migrations',
+    '0030_network_transport_intent.up.sql',
+  );
+  DB_MANIFEST = join(ROOT, 'packages', 'database', 'package.json');
+  PROBE = join(SRC, 'egress-probe.generated.ts');
+}
 
 interface Run {
   ok: boolean;
@@ -47,7 +68,15 @@ interface Run {
 
 function runDetector(): Run {
   try {
-    return { ok: true, output: execFileSync('node', [DETECTOR], { encoding: 'utf8' }) };
+    return {
+      ok: true,
+      output: execFileSync('node', [DETECTOR], {
+        cwd: SOURCE_ROOT,
+        encoding: 'utf8',
+        env: { ...process.env, GOVERNANCE_REPO_ROOT: ROOT },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    };
   } catch (error) {
     const e = error as { stdout?: string; stderr?: string };
     return { ok: false, output: `${e.stdout ?? ''}${e.stderr ?? ''}` };
@@ -57,20 +86,28 @@ function runDetector(): Run {
 const restore: { path: string; content: Buffer | null }[] = [];
 
 function mutate(path: string, next: string | null): void {
+  assertInsideFixture(ROOT, path);
   restore.push({ path, content: existsSync(path) ? readFileSync(path) : null });
-  if (next === null) execFileSync('rm', ['-f', path]);
+  if (next === null) rmSync(path, { force: true });
   else writeFileSync(path, next);
 }
 
 const append = (path: string, text: string): void =>
   mutate(path, `${readFileSync(path, 'utf8')}${text}`);
 
+beforeEach(() => {
+  fixture = createGovernanceFixture('freightos-network-egress-');
+  refreshPaths(fixture.root);
+});
+
 afterEach(() => {
   while (restore.length > 0) {
     const entry = restore.pop()!;
-    if (entry.content === null) execFileSync('rm', ['-f', entry.path]);
+    if (entry.content === null) rmSync(entry.path, { force: true });
     else writeFileSync(entry.path, entry.content);
   }
+  fixture.cleanup();
+  refreshPaths(SOURCE_ROOT);
 });
 
 describe('the network egress gate', () => {

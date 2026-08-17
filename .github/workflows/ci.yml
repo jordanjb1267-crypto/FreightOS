@@ -106,6 +106,12 @@ jobs:
       - name: Architecture governance binding (ADR, module state, Horizon)
         run: node scripts/check-architecture-governance.mjs
 
+      # Repository-native CCEP is the durable engineering protocol, not a production-handoff
+      # architecture layer. This gate keeps its role, custody, review-independence, owner-authority
+      # and sidecar-boundary invariants wired into CI without adding it to governance-layers.json.
+      - name: Cross-agent engineering protocol governance
+        run: node scripts/check-ccep-governance.mjs
+
       - name: Anti-overbuilding and autonomy ceiling
         run: node scripts/validate-scope.mjs
 

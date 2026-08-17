@@ -41,7 +41,8 @@ import { isAbsolute, join, posix as pathPosix, relative, resolve, sep } from 'no
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
-export const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+export const REPO_ROOT =
+  process.env.GOVERNANCE_REPO_ROOT ?? fileURLToPath(new URL('../..', import.meta.url));
 export const LAYERS_FILE = join(REPO_ROOT, 'governance-layers.json');
 export const PROVENANCE_FILE = join(REPO_ROOT, 'handoff-provenance.json');
 export const HANDOFF_TREE = join(REPO_ROOT, 'docs', 'production-handoff');
@@ -52,7 +53,27 @@ export const LAYER_ROLES = Object.freeze(['base', 'controlling', 'additive-subor
 export const ANCHORED_CI_REQUIRED_GATES = Object.freeze([
   'scripts/check-network-governance.mjs',
   'scripts/check-architecture-governance.mjs',
+  'scripts/check-ccep-governance.mjs',
   'scripts/validate-scope.mjs',
+]);
+
+export const CCEP_CONTROL_SURFACE = Object.freeze([
+  Object.freeze({
+    path: 'scripts/check-ccep-governance.mjs',
+    sha256: '835fdd4da5c3a50ce1571f8d856947b39f35edc4469819e4f15e48cfe78bae6c',
+  }),
+  Object.freeze({
+    path: 'scripts/lib/ccep-policy.mjs',
+    sha256: '370a50b768493b6b04b775fb05d38eed81bda7b65cce3485820a1d415c111cb9',
+  }),
+  Object.freeze({
+    path: 'docs/governance/ccep-policy.json',
+    sha256: '3463dad6f1df7c4e49a2da54ade75d6312185d6dd6411072073ae6457b499f92',
+  }),
+  Object.freeze({
+    path: 'scripts/test/ccep-governance.test.ts',
+    sha256: '2b35d1761406e0bf6949903d6bc029b231a522ba6eaf657c6d1df83d676c948e',
+  }),
 ]);
 
 export const REQUIRED_SUBORDINATION =

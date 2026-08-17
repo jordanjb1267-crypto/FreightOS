@@ -10,8 +10,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import {
+  assertInsideFixture,
+  createGovernanceFixture,
+  SOURCE_ROOT,
+  type GovernanceFixture,
+} from './helpers/governance-fixture';
 
 /**
  * N0 — the governance wiring itself has to be checkable.
@@ -22,14 +28,25 @@ import { afterEach, describe, expect, it } from 'vitest';
  * propagated silently. `scripts/check-network-governance.mjs` closes that; this file proves the
  * closing works, by breaking it three ways and requiring a failure each time.
  *
- * The mutations restore the repository in `afterEach` rather than at the end of each test, so a
- * failing assertion cannot leave a modified governance package behind.
+ * Every mutation runs inside a per-test disposable repository copy. Cleanup and restoration are
+ * defense in depth; the source worktree is not the mutation target.
  */
 
-const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const VALIDATOR = join(ROOT, 'scripts', 'check-network-governance.mjs');
-const LAYERS = join(ROOT, 'governance-layers.json');
-const V14 = join(ROOT, 'docs', 'production-handoff', 'v1.4.0-network-architecture');
+let fixture: GovernanceFixture;
+let ROOT = SOURCE_ROOT;
+let VALIDATOR = join(ROOT, 'scripts', 'check-network-governance.mjs');
+let LAYERS = join(ROOT, 'governance-layers.json');
+let V14 = join(ROOT, 'docs', 'production-handoff', 'v1.4.0-network-architecture');
+let FIXTURE_DIR = join(ROOT, 'docs', 'production-handoff', 'v0.0.0-awe0-fixture');
+const FIXTURE_ROOT = 'docs/production-handoff/v0.0.0-awe0-fixture';
+
+function refreshPaths(root: string): void {
+  ROOT = root;
+  VALIDATOR = join(ROOT, 'scripts', 'check-network-governance.mjs');
+  LAYERS = join(ROOT, 'governance-layers.json');
+  V14 = join(ROOT, 'docs', 'production-handoff', 'v1.4.0-network-architecture');
+  FIXTURE_DIR = join(ROOT, 'docs', 'production-handoff', 'v0.0.0-awe0-fixture');
+}
 
 interface Run {
   ok: boolean;
@@ -38,7 +55,14 @@ interface Run {
 
 function runValidator(): Run {
   try {
-    return { ok: true, output: execFileSync('node', [VALIDATOR], { encoding: 'utf8' }) };
+    return {
+      ok: true,
+      output: execFileSync('node', [VALIDATOR], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    };
   } catch (error) {
     const e = error as { stdout?: string; stderr?: string };
     return { ok: false, output: `${e.stdout ?? ''}${e.stderr ?? ''}` };
@@ -49,17 +73,25 @@ function runValidator(): Run {
 const restore: { path: string; content: Buffer | null }[] = [];
 
 function mutate(path: string, next: Buffer | string | null): void {
+  assertInsideFixture(ROOT, path);
   restore.push({ path, content: existsSync(path) ? readFileSync(path) : null });
-  if (next === null) execFileSync('rm', ['-f', path]);
+  if (next === null) rmSync(path, { force: true });
   else writeFileSync(path, next);
 }
+
+beforeEach(() => {
+  fixture = createGovernanceFixture('freightos-network-governance-');
+  refreshPaths(fixture.root);
+});
 
 afterEach(() => {
   while (restore.length > 0) {
     const entry = restore.pop()!;
-    if (entry.content === null) execFileSync('rm', ['-f', entry.path]);
+    if (entry.content === null) rmSync(entry.path, { force: true });
     else writeFileSync(entry.path, entry.content);
   }
+  fixture.cleanup();
+  refreshPaths(SOURCE_ROOT);
 });
 
 describe('layered governance integrity', () => {
@@ -153,22 +185,17 @@ describe('layered governance integrity', () => {
  * unverified: the gate parsed one format and had nothing to say about the other. Silence read as
  * PASS.
  *
- * EVERY MUTATION BELOW RUNS AGAINST A DISPOSABLE FIXTURE PACKAGE, never against an accepted one.
- * The tests above this line are older than AWE-0 and do tamper with the real v1.4.0 package; that
- * pattern is pre-existing on the accepted base and is left exactly as it was. What AWE-0 adds does
- * not extend it: an independent review flagged mutating immutable accepted artifacts as a hazard,
- * and a fixture removes the hazard for the new cases without rewriting the old ones. The fixture is
- * registered as a real layer, so the gate treats it exactly as it treats a governed package.
+ * EVERY MUTATION BELOW RUNS AGAINST A DISPOSABLE COPY, never against an accepted package in the
+ * source worktree. Fixture packages are registered as real layers inside that copy, so the gate
+ * treats them exactly as it treats a governed package without creating live-tree residue.
  */
 describe('JSON-manifest integrity and manifest containment', () => {
-  const FIXTURE_DIR = join(ROOT, 'docs', 'production-handoff', 'v0.0.0-awe0-fixture');
-  const FIXTURE_ROOT = 'docs/production-handoff/v0.0.0-awe0-fixture';
-
   /** Files created by a fixture, torn down in reverse order after each test. */
   const created: string[] = [];
 
   function writeFixtureFile(name: string, content: string): void {
     const path = join(FIXTURE_DIR, name);
+    assertInsideFixture(ROOT, path);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, content);
     created.push(path);

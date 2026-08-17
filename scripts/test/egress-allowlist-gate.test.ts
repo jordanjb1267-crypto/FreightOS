@@ -1,9 +1,15 @@
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import {
+  assertInsideFixture,
+  createGovernanceFixture,
+  SOURCE_ROOT,
+  type GovernanceFixture,
+} from './helpers/governance-fixture';
 
 /**
  * The bounded-egress gate, exercised against its own failure modes.
@@ -13,23 +19,33 @@ import { afterAll, describe, expect, it } from 'vitest';
  * controls matter more than its positive one: the only evidence that it can say FAIL is a run in
  * which it does.
  *
- * Every control below mutates a REAL file on disk, runs the REAL gate as a subprocess, and restores
- * byte-exactly in `afterAll` — checked by SHA, not assumed. Running the gate as a subprocess rather
- * than importing it is deliberate: `process.exit()` is part of the contract CI depends on, and a
- * test that stubbed it would be testing something else.
+ * Every control below mutates a disposable repository copy, runs the real gate as a subprocess, and
+ * leaves the source worktree untouched. Running the gate as a subprocess rather than importing it
+ * is deliberate: `process.exit()` is part of the contract CI depends on, and a test that stubbed it
+ * would be testing something else.
  *
  * NO NETWORK ACCESS. The planted primitives are never executed — they are text in a file that a
  * static scanner reads.
  */
 
-const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const GATE = join(ROOT, 'scripts/check-egress-allowlist.mjs');
-const LEGACY = join(ROOT, 'scripts/check-network-egress.mjs');
-const MANIFEST = join(ROOT, 'config/network/egress-allowlist.json');
+let fixture: GovernanceFixture;
+let ROOT = SOURCE_ROOT;
+const GATE = join(SOURCE_ROOT, 'scripts/check-egress-allowlist.mjs');
+const LEGACY = join(SOURCE_ROOT, 'scripts/check-network-egress.mjs');
+let MANIFEST = join(ROOT, 'config/network/egress-allowlist.json');
 /** A real package source tree, so the scanner's own file discovery is what finds the plant. */
-const PLANT_DIR = join(ROOT, 'packages/context/src');
-const PLANT = join(PLANT_DIR, 'zz-egress-gate-probe.ts');
-const MANIFEST_BACKUP = `${MANIFEST}.probe-backup`;
+let PLANT_DIR = join(ROOT, 'packages/context/src');
+let PLANT = join(PLANT_DIR, 'zz-egress-gate-probe.ts');
+let MANIFEST_BACKUP = `${MANIFEST}.probe-backup`;
+let BASELINE_SHA = '';
+
+function refreshPaths(root: string): void {
+  ROOT = root;
+  MANIFEST = join(ROOT, 'config/network/egress-allowlist.json');
+  PLANT_DIR = join(ROOT, 'packages/context/src');
+  PLANT = join(PLANT_DIR, 'zz-egress-gate-probe.ts');
+  MANIFEST_BACKUP = `${MANIFEST}.probe-backup`;
+}
 
 interface Run {
   readonly code: number;
@@ -39,7 +55,12 @@ interface Run {
 
 function run(script: string): Run {
   try {
-    const stdout = execFileSync('node', [script], { cwd: ROOT, encoding: 'utf8' });
+    const stdout = execFileSync('node', [script], {
+      cwd: SOURCE_ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, GOVERNANCE_REPO_ROOT: ROOT },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     return { code: 0, stdout, stderr: '' };
   } catch (error) {
     const e = error as { status?: number; stdout?: string; stderr?: string };
@@ -50,7 +71,16 @@ function run(script: string): Run {
 const manifestSha = (): string =>
   execFileSync('sha256sum', [MANIFEST], { encoding: 'utf8' }).split(' ')[0]!;
 
-const BASELINE_SHA = manifestSha();
+function writeProbe(content: string): void {
+  assertInsideFixture(ROOT, PLANT);
+  mkdirSync(PLANT_DIR, { recursive: true });
+  writeFileSync(PLANT, content);
+}
+
+function writeManifest(content: string): void {
+  assertInsideFixture(ROOT, MANIFEST);
+  writeFileSync(MANIFEST, content);
+}
 
 function restore(): void {
   rmSync(PLANT, { force: true });
@@ -62,9 +92,17 @@ function restore(): void {
   }
 }
 
-afterAll(() => {
+beforeEach(() => {
+  fixture = createGovernanceFixture('freightos-egress-allowlist-');
+  refreshPaths(fixture.root);
+  BASELINE_SHA = manifestSha();
+});
+
+afterEach(() => {
   restore();
   expect(manifestSha(), 'the manifest must be restored byte-exactly').toBe(BASELINE_SHA);
+  fixture.cleanup();
+  refreshPaths(SOURCE_ROOT);
 });
 
 describe('the bounded-egress gate passes on a clean tree', () => {
@@ -93,8 +131,7 @@ describe('the bounded-egress gate passes on a clean tree', () => {
 
 describe('negative controls — the gate names what is wrong', () => {
   it('fails on an egress primitive in an unapproved module, naming the file', () => {
-    mkdirSync(PLANT_DIR, { recursive: true });
-    writeFileSync(PLANT, 'export const probe = async (): Promise<unknown> => fetch("x");\n');
+    writeProbe('export const probe = async (): Promise<unknown> => fetch("x");\n');
     try {
       const r = run(GATE);
       expect(r.code).toBe(1);
@@ -112,8 +149,7 @@ describe('negative controls — the gate names what is wrong', () => {
   it('fails on a network-capable IMPORT, not only on a bare call', () => {
     // §37: the gate must not be limited to literal `fetch(`. An import is the other half of
     // capability acquisition and is matched in import position only.
-    mkdirSync(PLANT_DIR, { recursive: true });
-    writeFileSync(PLANT, "import { request } from 'node:https';\nexport const p = request;\n");
+    writeProbe("import { request } from 'node:https';\nexport const p = request;\n");
     try {
       const r = run(GATE);
       expect(r.code).toBe(1);
@@ -145,8 +181,7 @@ describe('negative controls — the gate names what is wrong', () => {
     ['V01-B', 'http2'],
   ] as const) {
     it(`${label} — fails on the Node core HTTP/2 client imported as '${specifier}'`, () => {
-      mkdirSync(PLANT_DIR, { recursive: true });
-      writeFileSync(PLANT, `import { connect } from '${specifier}';\nexport const p = connect;\n`);
+      writeProbe(`import { connect } from '${specifier}';\nexport const p = connect;\n`);
       try {
         const r = run(GATE);
         expect(r.code, `'${specifier}' did not fail the bounded-allowlist gate`).toBe(1);
@@ -167,9 +202,8 @@ describe('negative controls — the gate names what is wrong', () => {
     // The two gates share one inventory, so this ought to follow — but "ought to follow" is what
     // the shared-inventory contract asserts structurally, and this asserts it behaviourally. If
     // they ever diverged, the gate that kept the older list would keep reporting PASS.
-    mkdirSync(PLANT_DIR, { recursive: true });
     for (const specifier of ['node:http2', 'http2'] as const) {
-      writeFileSync(PLANT, `import { connect } from '${specifier}';\nexport const p = connect;\n`);
+      writeProbe(`import { connect } from '${specifier}';\nexport const p = connect;\n`);
       try {
         const r = run(LEGACY);
         expect(r.code, `'${specifier}' did not fail the zero-capability gate`).toBe(1);
@@ -188,7 +222,7 @@ describe('negative controls — the gate names what is wrong', () => {
     // A real file, deliberately one with no egress in it.
     m['modules'] = ['packages/context/src/disclosure-delivery.ts'];
     m['expectedCount'] = 1;
-    writeFileSync(MANIFEST, `${JSON.stringify(m, null, 2)}\n`);
+    writeManifest(`${JSON.stringify(m, null, 2)}\n`);
     try {
       const r = run(GATE);
       expect(r.code).toBe(1);
@@ -205,7 +239,7 @@ describe('negative controls — the gate names what is wrong', () => {
     const m = JSON.parse(readFileSync(MANIFEST, 'utf8')) as Record<string, unknown>;
     m['modules'] = ['packages/context/src/does-not-exist.ts'];
     m['expectedCount'] = 1;
-    writeFileSync(MANIFEST, `${JSON.stringify(m, null, 2)}\n`);
+    writeManifest(`${JSON.stringify(m, null, 2)}\n`);
     try {
       const r = run(GATE);
       expect(r.code).toBe(1);
@@ -222,7 +256,7 @@ describe('negative controls — the gate names what is wrong', () => {
     const m = JSON.parse(readFileSync(MANIFEST, 'utf8')) as Record<string, unknown>;
     m['modules'] = ['packages/context/src/disclosure-delivery.ts'];
     // expectedCount deliberately left at 0
-    writeFileSync(MANIFEST, `${JSON.stringify(m, null, 2)}\n`);
+    writeManifest(`${JSON.stringify(m, null, 2)}\n`);
     try {
       const r = run(GATE);
       expect(r.code).toBe(1);
@@ -237,7 +271,7 @@ describe('negative controls — the gate names what is wrong', () => {
     const m = JSON.parse(readFileSync(MANIFEST, 'utf8')) as Record<string, unknown>;
     m['modules'] = ['packages/context/src/adapters/**'];
     m['expectedCount'] = 1;
-    writeFileSync(MANIFEST, `${JSON.stringify(m, null, 2)}\n`);
+    writeManifest(`${JSON.stringify(m, null, 2)}\n`);
     try {
       const r = run(GATE);
       expect(r.code).toBe(1);
@@ -253,7 +287,7 @@ describe('negative controls — the gate names what is wrong', () => {
     const dup = 'packages/context/src/disclosure-delivery.ts';
     m['modules'] = [dup, dup];
     m['expectedCount'] = 2;
-    writeFileSync(MANIFEST, `${JSON.stringify(m, null, 2)}\n`);
+    writeManifest(`${JSON.stringify(m, null, 2)}\n`);
     try {
       const r = run(GATE);
       expect(r.code).toBe(1);
@@ -266,6 +300,7 @@ describe('negative controls — the gate names what is wrong', () => {
   it('fails when the manifest is missing entirely', () => {
     // "No manifest" is not "no egress approved" — it is "nobody is checking".
     copyFileSync(MANIFEST, MANIFEST_BACKUP);
+    assertInsideFixture(ROOT, MANIFEST);
     rmSync(MANIFEST);
     try {
       const r = run(GATE);
