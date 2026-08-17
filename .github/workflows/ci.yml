@@ -94,8 +94,17 @@ jobs:
       # nothing verified either before N0 — a binding schema or acceptance gate could have been
       # edited in place and every downstream PR would have gone on citing it. This also catches an
       # UNLISTED file added beside a package, which `sha256sum -c` is silent about.
-      - name: Layered governance integrity (v1.3.0, v1.4.0)
+      - name: Layered governance integrity (v1.3.0 … v1.8.1)
         run: node scripts/check-network-governance.mjs
+
+      # The sibling question, and the one nothing asked before AWE-0. The six architecture packages
+      # installed after v1.4.0 were substantive, internally coherent, and connected to the
+      # repository's controlling authority by nothing: zero ADR references in either direction,
+      # zero module ids from the scope registry, no declared precedence. Integrity says a package
+      # has not changed; this says it is bound to the ADR, module-state and Horizon authority that
+      # governs it — and that being registered never becomes permission to implement.
+      - name: Architecture governance binding (ADR, module state, Horizon)
+        run: node scripts/check-architecture-governance.mjs
 
       - name: Anti-overbuilding and autonomy ceiling
         run: node scripts/validate-scope.mjs
