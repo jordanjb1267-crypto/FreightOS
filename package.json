@@ -31,7 +31,8 @@
     "validate:scope": "node scripts/validate-scope.mjs",
     "validate:network": "node scripts/check-network-governance.mjs",
     "validate:architecture": "node scripts/check-architecture-governance.mjs",
-    "validate": "pnpm validate:handoff && pnpm validate:provenance && pnpm validate:network && pnpm validate:architecture && pnpm validate:egress && pnpm validate:egress-allowlist && pnpm validate:scope",
+    "validate:ccep": "node scripts/check-ccep-governance.mjs",
+    "validate": "pnpm validate:handoff && pnpm validate:provenance && pnpm validate:network && pnpm validate:architecture && pnpm validate:ccep && pnpm validate:egress && pnpm validate:egress-allowlist && pnpm validate:scope",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:coverage && pnpm validate",
     "validate:egress": "node scripts/check-network-egress.mjs",
     "validate:egress-allowlist": "node scripts/check-egress-allowlist.mjs"
