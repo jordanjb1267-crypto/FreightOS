@@ -38,17 +38,17 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Full history: the secret scan below covers every commit, not just the diff.
           fetch-depth: 0
 
-      # No `version:` here on purpose. pnpm/action-setup@v4 errors out when a version is given
+      # No `version:` here on purpose. pnpm/action-setup errors out when a version is given
       # both here and as `packageManager` in package.json. package.json is the better source of
       # truth — it pins the exact version for local development too — so this reads from there.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -57,7 +57,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Set up Python for the handoff validator
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
