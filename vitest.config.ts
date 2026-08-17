@@ -85,27 +85,13 @@ export default defineConfig({
           // for a script parked inside a package would be exactly that — R2-03.
           include: ['packages/*/test/unit/**/*.test.ts', 'scripts/test/**/*.test.ts'],
           environment: 'node',
-          // THE REPOSITORY TREE IS A SHARED MUTABLE RESOURCE HERE, exactly as one cluster is for
-          // the integration project.
-          //
-          // `scripts/test/network-governance.test.ts` proves the governance validator actually
-          // detects tampering, and the only way to prove that is to tamper: it edits and DELETES
-          // manifest-protected artifacts, then restores them in `afterEach`. Meanwhile
-          // `network-schemas.test.ts`, `n3-durable-refs.test.ts` and
-          // `network-schema-packaging.test.ts` read those same files to compile and hash-pin the
-          // governed contracts. Run in parallel workers, a reader can land inside the mutation
-          // window and fail with ENOENT on a protected artifact — which reads as governance
-          // tampering rather than as the scheduling accident it is.
-          //
-          // `poolOptions.singleFork` is what puts every file in one process; the give-away when it
-          // was introduced was `prepare`, 2.09s of worker startup becoming 84ms. It is also
-          // FASTER, 4.1s → 3.6s, because one process replaces a dozen worker startups, so the
-          // usual serialisation trade-off does not apply and there is nothing to weigh.
-          //
-          // `threads.singleThread` is carried over unchanged from the workspace file. It is inert
-          // while the pool is `forks`, and this task is not the place to remove it: doing so would
-          // be an unrelated change to a project whose behaviour must be preserved exactly.
-          poolOptions: { forks: { singleFork: true }, threads: { singleThread: true } },
+          /**
+           * Governance negative tests execute long-running validator subprocesses in disposable
+           * repository fixtures. They are isolated by filesystem root, so they can run in parallel;
+           * using the thread pool keeps that concurrency while avoiding fork-worker RPC timeouts
+           * caused by synchronous subprocess-heavy test bodies.
+           */
+          pool: 'threads',
         },
       },
       {

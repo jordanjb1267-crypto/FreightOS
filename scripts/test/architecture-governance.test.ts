@@ -1,8 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import {
+  assertInsideFixture,
+  createGovernanceFixture,
+  SOURCE_ROOT,
+  type GovernanceFixture,
+} from './helpers/governance-fixture';
 
 /**
  * AWE-0 — the binding between accepted architecture and repository authority has to be checkable.
@@ -22,19 +28,25 @@ import { afterEach, describe, expect, it } from 'vitest';
  * A correctly registered seventh package deliberately asserts PASS. A gate that cannot be
  * satisfied correctly is as broken as one that cannot be failed.
  *
- * NOTHING HERE MUTATES AN ACCEPTED PACKAGE OR AN ACCEPTED ADR. The first candidate edited
- * `adr/0011-safety-critical-control-boundary.md` in place to test the not-Accepted path; the
- * repository already contains genuinely Proposed authority (`ADR-N0015`), so the same property is
- * tested against real repository state with no mutation at all. Registry, workflow and planted
- * source files are restored in `afterEach`, and the unit project runs in a single fork, so no
- * concurrent reader can land inside a mutation window.
+ * NOTHING HERE MUTATES THE SOURCE WORKTREE. Every negative fixture runs inside a per-test
+ * disposable repository copy. Restoration remains as defense in depth inside that copy, but source
+ * worktree immutability does not depend on cleanup or test-file serialization.
  */
 
-const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const VALIDATOR = join(ROOT, 'scripts', 'check-architecture-governance.mjs');
-const LAYERS = join(ROOT, 'governance-layers.json');
-const LIB = join(ROOT, 'scripts', 'lib', 'governance-layers.mjs');
-const WORKFLOW = join(ROOT, '.github', 'workflows', 'ci.yml');
+let fixture: GovernanceFixture;
+let ROOT = SOURCE_ROOT;
+let VALIDATOR = join(ROOT, 'scripts', 'check-architecture-governance.mjs');
+let LAYERS = join(ROOT, 'governance-layers.json');
+let LIB = join(ROOT, 'scripts', 'lib', 'governance-layers.mjs');
+let WORKFLOW = join(ROOT, '.github', 'workflows', 'ci.yml');
+
+function refreshPaths(root: string): void {
+  ROOT = root;
+  VALIDATOR = join(ROOT, 'scripts', 'check-architecture-governance.mjs');
+  LAYERS = join(ROOT, 'governance-layers.json');
+  LIB = join(ROOT, 'scripts', 'lib', 'governance-layers.mjs');
+  WORKFLOW = join(ROOT, '.github', 'workflows', 'ci.yml');
+}
 
 interface Run {
   ok: boolean;
@@ -43,7 +55,14 @@ interface Run {
 
 function runValidator(): Run {
   try {
-    return { ok: true, output: execFileSync('node', [VALIDATOR], { encoding: 'utf8' }) };
+    return {
+      ok: true,
+      output: execFileSync('node', [VALIDATOR], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    };
   } catch (error) {
     const e = error as { stdout?: string; stderr?: string };
     return { ok: false, output: `${e.stdout ?? ''}${e.stderr ?? ''}` };
@@ -56,12 +75,14 @@ const restore: { path: string; content: Buffer | null }[] = [];
 const planted: string[] = [];
 
 function mutate(path: string, next: Buffer | string | null): void {
+  assertInsideFixture(ROOT, path);
   restore.push({ path, content: existsSync(path) ? readFileSync(path) : null });
   if (next === null) rmSync(path, { force: true });
   else writeFileSync(path, next);
 }
 
 function plant(path: string, content: string): void {
+  assertInsideFixture(ROOT, path);
   mkdirSync(join(path, '..'), { recursive: true });
   writeFileSync(path, content);
   planted.push(path);
@@ -177,6 +198,11 @@ function reacceptBinding(id: string): void {
   recordBindingDigest(id, digestArchitecture(layerOf(registry, id).architecture!));
 }
 
+beforeEach(() => {
+  fixture = createGovernanceFixture('freightos-architecture-governance-');
+  refreshPaths(fixture.root);
+});
+
 afterEach(() => {
   while (planted.length > 0) rmSync(planted.pop()!, { recursive: true, force: true });
   while (restore.length > 0) {
@@ -184,6 +210,8 @@ afterEach(() => {
     if (entry.content === null) rmSync(entry.path, { recursive: true, force: true });
     else writeFileSync(entry.path, entry.content);
   }
+  fixture.cleanup();
+  refreshPaths(SOURCE_ROOT);
 });
 
 describe('architecture governance binding', () => {
@@ -700,11 +728,57 @@ describe('architecture governance binding', () => {
         registry.architectureGovernance.ciWiring.requiredGates.filter(
           (gate) => gate !== 'scripts/check-architecture-governance.mjs',
         );
-      registry.architectureGovernance.ciWiring.expectedRequiredGates = 2;
+      registry.architectureGovernance.ciWiring.expectedRequiredGates = 3;
     });
     expect(run.ok, 'requiredGates metadata removed its own validator').toBe(false);
     expect(run.output).toContain('must exactly match the anchored required gate set');
     expect(run.output).toContain('does not actually RUN scripts/check-architecture-governance.mjs');
+  });
+
+  it('CCEP-RR-02: required governance gates cannot remove the CCEP gate', () => {
+    mutate(
+      WORKFLOW,
+      readFileSync(WORKFLOW, 'utf8').replace(
+        'run: node scripts/check-ccep-governance.mjs',
+        'run: node scripts/validate-scope.mjs',
+      ),
+    );
+    const run = withRegistry((registry) => {
+      registry.architectureGovernance.ciWiring.requiredGates =
+        registry.architectureGovernance.ciWiring.requiredGates.filter(
+          (gate) => gate !== 'scripts/check-ccep-governance.mjs',
+        );
+      registry.architectureGovernance.ciWiring.expectedRequiredGates = 3;
+    });
+    expect(run.ok, 'requiredGates metadata removed the CCEP validator').toBe(false);
+    expect(run.output).toContain('must exactly match the anchored required gate set');
+    expect(run.output).toContain('does not actually RUN scripts/check-ccep-governance.mjs');
+  });
+
+  it('CCEP-RR-02: fails when the CCEP CI command is masked or non-blocking', () => {
+    mutate(
+      WORKFLOW,
+      readFileSync(WORKFLOW, 'utf8').replace(
+        'run: node scripts/check-ccep-governance.mjs',
+        'continue-on-error: true\n        run: node scripts/check-ccep-governance.mjs',
+      ),
+    );
+    const nonBlocking = runValidator();
+    expect(nonBlocking.ok).toBe(false);
+    expect(nonBlocking.output).toContain('does not actually RUN scripts/check-ccep-governance.mjs');
+
+    const entry = restore.pop()!;
+    writeFileSync(entry.path, entry.content!);
+    mutate(
+      WORKFLOW,
+      readFileSync(WORKFLOW, 'utf8').replace(
+        'run: node scripts/check-ccep-governance.mjs',
+        'run: node scripts/check-ccep-governance.mjs || true',
+      ),
+    );
+    const masked = runValidator();
+    expect(masked.ok).toBe(false);
+    expect(masked.output).toContain('shell control operators');
   });
 
   // ── F-05: the runtime-authority guard ───────────────────────────────────────────────────────

@@ -88,9 +88,10 @@
       "requiredGates": [
         "scripts/check-network-governance.mjs",
         "scripts/check-architecture-governance.mjs",
+        "scripts/check-ccep-governance.mjs",
         "scripts/validate-scope.mjs"
       ],
-      "expectedRequiredGates": 3
+      "expectedRequiredGates": 4
     },
     "adrRelationVocabulary": {
       "governed-by": "The record rules the matter. Where the package and the record differ, the record wins.",

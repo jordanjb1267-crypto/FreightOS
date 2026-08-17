@@ -1,15 +1,21 @@
 #!/usr/bin/env node
-// CI gate: repository-native CCEP governance must preserve the protocol invariants.
+// CI gate: repository-native CCEP governance must preserve the machine-enforced CCEP contract.
 //
 // This is intentionally narrow. CCEP is not an installed production-handoff architecture layer, so
-// it does not belong in governance-layers.json. This gate only verifies the durable engineering
-// protocol package, its package/CI wiring, and the most important no-self-clearance, custody,
-// review-class, phase, permission, sidecar, and owner-authority invariants.
+// it does not belong in governance-layers.json. This gate verifies a bounded, machine-readable
+// policy contract, durable document presence, package/CI wiring, and required regression inventory.
+// It does not claim semantic completeness for free-form Markdown prose.
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+
+import {
+  CCEP_POLICY_FILE,
+  validateCcepPolicyContract,
+  validateCcepTestInventory,
+} from './lib/ccep-policy.mjs';
 
 export const REPO_ROOT =
   process.env.CCEP_REPO_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
@@ -17,6 +23,9 @@ export const REPO_ROOT =
 const REQUIRED_DOCS = Object.freeze({
   'docs/governance/CROSS_AGENT_CONTINUOUS_ENGINEERING_PROTOCOL.md': Object.freeze([
     'Cross-Agent Continuous Engineering Protocol',
+    'Machine-Enforced Contract',
+    'ccep-policy.json',
+    'does not prove',
     'AGENT_IDENTITY',
     'ENGINEERING_ROLE',
     'IMPLEMENTER_RESULT != INDEPENDENT_REVIEW_RESULT != OWNER_DECISION',
@@ -149,6 +158,8 @@ const REQUIRED_PACKAGE_SCRIPTS = Object.freeze({
   'validate:ccep': 'node scripts/check-ccep-governance.mjs',
 });
 
+const REQUIRED_POLICY_WIRING = Object.freeze([CCEP_POLICY_FILE]);
+
 function readText(root, relPath, errors) {
   const path = join(root, relPath);
   if (!existsSync(path)) {
@@ -193,6 +204,12 @@ function checkPackageScripts(root, errors) {
   }
   if (typeof scripts.validate !== 'string' || !scripts.validate.includes('pnpm validate:ccep')) {
     errors.push('package.json scripts.validate must include pnpm validate:ccep');
+  }
+}
+
+function checkPolicyWiring(root, errors) {
+  for (const relPath of REQUIRED_POLICY_WIRING) {
+    if (!existsSync(join(root, relPath))) errors.push(`${relPath} is missing`);
   }
 }
 
@@ -248,6 +265,9 @@ function checkWorkflow(root, errors) {
 
 export function validateCcepGovernance(root = REPO_ROOT) {
   const errors = [];
+  const policy = validateCcepPolicyContract(root, errors);
+  validateCcepTestInventory(root, policy, errors);
+  checkPolicyWiring(root, errors);
   checkDocs(root, errors);
   checkPackageScripts(root, errors);
   checkWorkflow(root, errors);
@@ -255,6 +275,7 @@ export function validateCcepGovernance(root = REPO_ROOT) {
     ok: errors.length === 0,
     errors,
     docs: Object.keys(REQUIRED_DOCS),
+    policy: CCEP_POLICY_FILE,
   };
 }
 
@@ -266,13 +287,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
   console.log('CCEP_GOVERNANCE=PASS');
-  console.log('CCEP_DOC_PACKAGE=PASS');
-  console.log('NO_SELF_CLEARANCE=PASS');
-  console.log('REVIEW_CLASS_MODEL=PASS');
-  console.log('PHASE_STATE_MACHINE=PASS');
-  console.log('GIT_CUSTODY_MODEL=PASS');
-  console.log('PERMISSION_AND_OWNER_AUTHORITY=PASS');
-  console.log('SIDECAR_BOUNDARY=PASS');
-  console.log('LIVE_STATE_EXCLUSION=PASS');
+  console.log('CCEP_POLICY_CONTRACT=PASS');
+  console.log('CCEP_REPOSITORY_WIRING=PASS');
+  console.log('CCEP_DOCUMENT_SET=PASS');
+  console.log('CCEP_REGRESSION_INVENTORY=PASS');
+  console.log('CCEP_LIVE_STATE_EXCLUSION=PASS');
+  console.log(
+    '  bounded meaning: machine policy, document presence, package/CI wiring and regression inventory verified',
+  );
+  console.log('  not proven: semantic completeness or truth of free-form Markdown prose');
+  console.log(`  ccep policy: ${result.policy}`);
   console.log(`  ccep documents checked: ${result.docs.length}`);
 }

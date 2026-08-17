@@ -67,6 +67,7 @@ import {
   AUTHORITY_RELATIONS,
   AUTHORITY_MODEL_CONTRACT,
   AUTHORITY_SOURCES,
+  CCEP_CONTROL_SURFACE,
   EXEMPTION_ANCHORS,
   KNOWN_UNRESOLVED_AUTHORITY_BY_ROOT,
   LAYER_ROLES,
@@ -84,6 +85,7 @@ import {
   isAccepted,
   isGovernedArchitectureLayer,
   loadRegistry,
+  sha256,
   workflowRunCommands,
 } from './lib/governance-layers.mjs';
 import { SOURCE_FILE_PATTERN, walk as walkSource } from './lib/network-primitives.mjs';
@@ -1140,6 +1142,33 @@ if (!ciWiring || typeof ciWiring !== 'object' || !Array.isArray(ciWiring.require
   }
   notes.push(`ci jobs walked: ${jobs}, blocking run steps: ${steps}, commands: ${commands.length}`);
 }
+
+// ---------------------------------------------------------------------------
+// 9b. CCEP repository-control self-protection.
+//
+// CCEP validates its own policy and wiring, but that alone is circular. The repository's existing
+// architecture governance anchor already protects required CI gates by a source-code constant and
+// parsed workflow execution. CCEP is added to that gate inventory as repository governance, not as
+// a production-handoff architecture layer, and its core control files are digest-pinned here.
+// This is not infinite tamper resistance: changes to this anchor itself terminate at ordinary
+// repository review, Git object identity and owner/reviewer trust.
+// ---------------------------------------------------------------------------
+for (const control of CCEP_CONTROL_SURFACE) {
+  const path = join(REPO_ROOT, control.path);
+  if (!existsSync(path)) {
+    fail(`CCEP control surface is missing: ${control.path}`);
+    continue;
+  }
+  const actual = sha256(path);
+  if (actual !== control.sha256) {
+    fail(
+      `CCEP control surface changed: ${control.path}\n` +
+        `    expected ${control.sha256}\n` +
+        `    actual   ${actual}`,
+    );
+  }
+}
+notes.push(`ccep control files digest-pinned: ${CCEP_CONTROL_SURFACE.length}`);
 
 // ---------------------------------------------------------------------------
 // Report. Anti-vacuity: a run that examined nothing must not print PASS.

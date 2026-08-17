@@ -20,7 +20,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+export const REPO_ROOT =
+  process.env.GOVERNANCE_REPO_ROOT ?? fileURLToPath(new URL('../..', import.meta.url));
 
 /** Repo-relative POSIX path, so output is identical on any checkout. */
 export const rel = (abs) => relative(REPO_ROOT, abs).split(sep).join('/');

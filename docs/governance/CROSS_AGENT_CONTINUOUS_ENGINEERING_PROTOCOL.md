@@ -10,6 +10,27 @@ CCEP is complementary to FreightOS architecture, security, privacy, tenant-isola
 
 The repository-native CCEP package is durable protocol. It must not store live transient session state. Live operational state belongs in the external CCEP sidecar selected by the owner or orchestrator for the active phase.
 
+## Machine-Enforced Contract
+
+The Markdown CCEP documents are human-readable normative guidance. CI does not run a natural-language semantic parser over that prose and must not describe token or substring presence as semantic validation.
+
+The machine-enforced CCEP subset is `docs/governance/ccep-policy.json`. The CCEP checker validates that structured contract for repository-checkable properties: protocol version, role identifiers, review classes, permission classes, external authorities, phase states, permitted phase transitions, owner-reserved checkpoints, no-self-clearance, candidate freeze, review-target immutability, evidence precedence, required report fields, and required regression-case inventory.
+
+The checker also validates document presence, prohibited live-state exclusion, package script wiring, direct blocking CI wiring, and required CCEP regression case IDs. Its aggregate `CCEP_GOVERNANCE=PASS` means only that those bounded machine checks passed.
+
+The checker does not prove semantic completeness or truth of free-form Markdown prose, the quality of human review rationale, actual independence beyond recorded review-class metadata, or final owner acceptance. Those remain process obligations anchored by executed evidence, independent review, and owner authority.
+
+CCEP self-protection is deliberately independent of the CCEP checker. The required CI gate inventory and digest-pinned CCEP control surface are anchored by the existing architecture governance machinery. The trust chain is bounded:
+
+```text
+CCEP governed surface
+-> CCEP checker
+-> architecture governance required-gate and digest anchor
+-> Git object identity, independent review, and owner authority
+```
+
+This is a finite repository/reviewer trust anchor. It detects trivial replacement or hollowing of the CCEP control surface, but it does not claim protection against a coordinated change that also modifies the independent anchor and is accepted through repository review.
+
 ## 1. Roles
 
 CCEP separates **AGENT_IDENTITY** from **ENGINEERING_ROLE**.
