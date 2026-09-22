@@ -1,0 +1,77 @@
+name: NSS Stage-C Zero-Call Preflight
+
+on:
+  push:
+    branches:
+      - nss-stage-c-safety-floor-confirmatory-v0.1
+    paths:
+      - 'experiments/nss-stage-c-preflight/**'
+      - '.github/workflows/nss-stage-c-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase-w-write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Phase W — construct and write frozen candidate
+        working-directory: experiments/nss-stage-c-preflight
+        env:
+          RUN_MODE: write
+          EVIDENCE_DIR: ${{ runner.temp }}/nss1-stage-c-preflight-v0.1
+        run: node preflight.mjs | tee phase-w.log
+      - name: Upload exact Phase-W evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-c-phase-w-evidence
+          path: |
+            ${{ runner.temp }}/nss1-stage-c-preflight-v0.1
+            experiments/nss-stage-c-preflight/phase-w.log
+          if-no-files-found: error
+          retention-days: 30
+
+  phase-v-verify:
+    needs: phase-w-write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download exact Phase-W evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: nss-stage-c-phase-w-evidence
+          path: ${{ runner.temp }}/downloaded
+      - name: Locate evidence root
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=$(find "${RUNNER_TEMP}/downloaded" -type f -name artifact-index.json -printf '%h\n' | head -n1)
+          test -n "$ROOT"
+          echo "EVIDENCE_ROOT=$ROOT" >> "$GITHUB_ENV"
+      - name: Phase V — independent readback and verification
+        working-directory: experiments/nss-stage-c-preflight
+        env:
+          RUN_MODE: verify
+          EVIDENCE_DIR: ${{ env.EVIDENCE_ROOT }}
+        run: node preflight.mjs | tee phase-v.log
+      - name: Upload terminal verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-c-phase-v-terminal
+          path: |
+            ${{ env.EVIDENCE_ROOT }}/VERIFICATION_RESULT.json
+            ${{ env.EVIDENCE_ROOT }}/FREEZE_POINTER.json
+            experiments/nss-stage-c-preflight/phase-v.log
+          if-no-files-found: warn
+          retention-days: 30
