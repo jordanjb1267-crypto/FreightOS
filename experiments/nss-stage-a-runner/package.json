@@ -1,0 +1,14 @@
+{
+  "name": "interbraid-nss-stage-a-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node runner.mjs",
+    "preflight": "RUN_MODE=preflight node runner.mjs",
+    "execute": "RUN_MODE=execute node runner.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
