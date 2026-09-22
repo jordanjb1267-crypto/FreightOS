@@ -25,23 +25,23 @@ jobs:
         working-directory: experiments/nss-stage-c-preflight
         env:
           RUN_MODE: write
-          EVIDENCE_DIR: ${{ runner.temp }}/nss1-stage-c-preflight-v0.1
+          EVIDENCE_DIR: ${{ runner.temp }}/nss1-stage-c-preflight-v0.2
         shell: bash
         run: |
           set -euo pipefail
-          node preflight-fixed.mjs | tee phase-w.log
+          node preflight-v2.mjs | tee phase-w.log
       - name: Upload exact Phase-W evidence
         uses: actions/upload-artifact@v4
         with:
-          name: nss-stage-c-phase-w-evidence
-          path: ${{ runner.temp }}/nss1-stage-c-preflight-v0.1
+          name: nss-stage-c-v02-phase-w-evidence
+          path: ${{ runner.temp }}/nss1-stage-c-preflight-v0.2
           if-no-files-found: error
           retention-days: 30
       - name: Upload Phase-W log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nss-stage-c-phase-w-log
+          name: nss-stage-c-v02-phase-w-log
           path: experiments/nss-stage-c-preflight/phase-w.log
           if-no-files-found: warn
           retention-days: 30
@@ -58,7 +58,7 @@ jobs:
       - name: Download exact Phase-W evidence
         uses: actions/download-artifact@v4
         with:
-          name: nss-stage-c-phase-w-evidence
+          name: nss-stage-c-v02-phase-w-evidence
           path: ${{ runner.temp }}/evidence
       - name: Assert evidence root
         shell: bash
@@ -74,12 +74,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node preflight-fixed.mjs | tee phase-v.log
+          node preflight-v2.mjs | tee phase-v.log
       - name: Upload terminal verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nss-stage-c-phase-v-terminal
+          name: nss-stage-c-v02-phase-v-terminal
           path: |
             ${{ env.EVIDENCE_ROOT }}/VERIFICATION_RESULT.json
             ${{ env.EVIDENCE_ROOT }}/FREEZE_POINTER.json
