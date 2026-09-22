@@ -1,6 +1,7 @@
 {
   "name": "interbraid-nss-stage-b-shared-receipt",
   "version": "0.1.0",
+  "description": "Zero-provider-call shared-receipt normalization for NSS-1 Stage-B.",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
