@@ -26,15 +26,24 @@ jobs:
         env:
           RUN_MODE: write
           EVIDENCE_DIR: ${{ runner.temp }}/nss1-stage-c-preflight-v0.1
-        run: node preflight.mjs | tee phase-w.log
+        shell: bash
+        run: |
+          set -euo pipefail
+          node preflight-fixed.mjs | tee phase-w.log
       - name: Upload exact Phase-W evidence
         uses: actions/upload-artifact@v4
         with:
           name: nss-stage-c-phase-w-evidence
-          path: |
-            ${{ runner.temp }}/nss1-stage-c-preflight-v0.1
-            experiments/nss-stage-c-preflight/phase-w.log
+          path: ${{ runner.temp }}/nss1-stage-c-preflight-v0.1
           if-no-files-found: error
+          retention-days: 30
+      - name: Upload Phase-W log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-c-phase-w-log
+          path: experiments/nss-stage-c-preflight/phase-w.log
+          if-no-files-found: warn
           retention-days: 30
 
   phase-v-verify:
@@ -50,20 +59,22 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: nss-stage-c-phase-w-evidence
-          path: ${{ runner.temp }}/downloaded
-      - name: Locate evidence root
+          path: ${{ runner.temp }}/evidence
+      - name: Assert evidence root
         shell: bash
         run: |
           set -euo pipefail
-          ROOT=$(find "${RUNNER_TEMP}/downloaded" -type f -name artifact-index.json -printf '%h\n' | head -n1)
-          test -n "$ROOT"
-          echo "EVIDENCE_ROOT=$ROOT" >> "$GITHUB_ENV"
+          test -f "${RUNNER_TEMP}/evidence/artifact-index.json"
+          echo "EVIDENCE_ROOT=${RUNNER_TEMP}/evidence" >> "$GITHUB_ENV"
       - name: Phase V — independent readback and verification
         working-directory: experiments/nss-stage-c-preflight
         env:
           RUN_MODE: verify
           EVIDENCE_DIR: ${{ env.EVIDENCE_ROOT }}
-        run: node preflight.mjs | tee phase-v.log
+        shell: bash
+        run: |
+          set -euo pipefail
+          node preflight-fixed.mjs | tee phase-v.log
       - name: Upload terminal verification evidence
         if: always()
         uses: actions/upload-artifact@v4
