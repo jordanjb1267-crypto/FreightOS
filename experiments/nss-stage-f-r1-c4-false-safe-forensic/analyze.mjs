@@ -196,7 +196,7 @@ const result={
 };
 await mkdir(OUT_ROOT,{recursive:false});
 const eventsPath=path.join(OUT_ROOT,'C4_FALSE_SAFE_EVENTS.json'),resultPath=path.join(OUT_ROOT,'C4_FALSE_SAFE_FORENSIC_RESULT.json');
-await writeFile(eventsPath,JSON.stringify({false_safe,false_safe_count:falseSafe.length,correct_c4:correct,correct_c4_count:correct.length},null,2)+'\n',{flag:'wx'});
+await writeFile(eventsPath,JSON.stringify({false_safe:falseSafe,false_safe_count:falseSafe.length,correct_c4:correct,correct_c4_count:correct.length},null,2)+'\n',{flag:'wx'});
 await writeFile(resultPath,JSON.stringify(result,null,2)+'\n',{flag:'wx'});
 console.log('NSS1_STAGE_F_R1_C4_FALSE_SAFE_FORENSIC',JSON.stringify({...result,false_safe_event_ids:undefined,correct_c4_event_ids:undefined,result_sha256:sha(await readFile(resultPath)),events_sha256:sha(await readFile(eventsPath))}));
 if(issues.length)process.exitCode=2;
