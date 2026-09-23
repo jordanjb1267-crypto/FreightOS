@@ -20,7 +20,7 @@ const EXPECTED = Object.freeze({
 });
 
 const sha = b => createHash('sha256').update(b).digest('hex');
-const stable = v => Array.isArray(v) ? `[${v.map(stable).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k)=>`${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}` : JSON.stringify(v);
+const stable = v => Array.isArray(v) ? `[${v.map(stable).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}` : JSON.stringify(v);
 const shaStable = v => sha(Buffer.from(stable(v)));
 const exists = async f => { try { await stat(f); return true; } catch { return false; } };
 const check=(issues,ok,code)=>{if(!ok)issues.push(code)};
