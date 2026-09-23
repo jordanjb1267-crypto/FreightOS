@@ -6,11 +6,11 @@ import { fileURLToPath } from 'node:url';
 // Independent Phase V verifier. No provider/runner imports and no network I/O.
 globalThis.fetch = async () => { throw new Error('PHASE_V_NETWORK_PROHIBITED'); };
 
-const RUN_ID = 'NSS1-STAGE-F-R1-PHASE-V-v0.2';
+const RUN_ID = 'NSS1-STAGE-F-R1-PHASE-V-v0.3';
 const R1_RUN_ID = 'NSS1-STAGE-F-JEV-REMEDIATION-R1-v0.1';
 const SOURCE_ROOT = process.env.STAGE_F_SOURCE_LEDGER_ROOT ?? '/data/nss1-stage-f-provider-v0.2';
 const R1_ROOT = process.env.STAGE_F_R1_LEDGER_ROOT ?? '/data/nss1-stage-f-jev-remediation-r1-v0.1';
-const OUT_ROOT = process.env.STAGE_F_R1_PHASE_V_OUT ?? '/data/nss1-stage-f-r1-phase-v-v0.2';
+const OUT_ROOT = process.env.STAGE_F_R1_PHASE_V_OUT ?? '/data/nss1-stage-f-r1-phase-v-v0.3';
 const EXPECTED = Object.freeze({
   predecessorIndex: '2e50185fa5d4ee5c3f137ccfbb4283d5a8964e6e3d53288a29043ee8f9d207e7',
   r1Index: 'b47252de25cc86dc6bf94f4c52ac7f44f21faabb1db13a41801400b35944b900',
@@ -31,10 +31,10 @@ const bump = (o, k) => { o[k] = (o[k] ?? 0) + 1; };
 const sameSortedStrings = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 const verifierSha256 = await rawHash(fileURLToPath(import.meta.url));
-let predecessorIndex = [], r1Index = [], expectedR1EventIds = [];
-const statusCounts = {}, modelCounts = {};
+let predecessorIndex = [], r1Index = [], predecessorJevEventIds = [];
+const statusCounts = {}, modelCounts = {}, predecessorJevStatusCounts = {};
 let rawVerified = 0, attemptsVerified = 0;
-let exactCandidateEventSetMatch = false;
+let exactPredecessorJevEventSetMatch = false;
 
 try {
   const fp = path.join(SOURCE_ROOT, 'RECEIPT_INDEX.json');
@@ -44,19 +44,19 @@ try {
   const pc = {};
   for (const row of predecessorIndex) {
     bump(pc, row.provider);
+    if (row.provider === 'jev') {
+      predecessorJevEventIds.push(row.event_id);
+      bump(predecessorJevStatusCounts, row.status);
+    }
     const rp = path.join(SOURCE_ROOT, 'receipts', row.provider, `${row.event_id}.json`);
     check((await rawHash(rp)) === row.receipt_sha256, `PREDECESSOR_RECEIPT_HASH:${row.event_id}`);
   }
+  predecessorJevEventIds.sort();
   check(pc.luna === 240, `PREDECESSOR_LUNA:${pc.luna ?? 0}`);
   check(pc.jev === 160, `PREDECESSOR_JEV:${pc.jev ?? 0}`);
-
-  const matrixPath = path.join(SOURCE_ROOT, 'provider_matrix.json');
-  check((await rawHash(matrixPath)) === EXPECTED.providerMatrix, 'PROVIDER_MATRIX_HASH_MISMATCH');
-  const matrix = await json(matrixPath);
-  const candidateRows = matrix.filter(row => row.candidate_provider === 'JEV');
-  expectedR1EventIds = candidateRows.map(row => row.event_id).sort();
-  check(candidateRows.length === 160, `JEV_CANDIDATE_ROW_COUNT:${candidateRows.length}`);
-  check(new Set(expectedR1EventIds).size === 160, 'JEV_CANDIDATE_EVENT_DUPLICATE');
+  check(predecessorJevEventIds.length === 160 && new Set(predecessorJevEventIds).size === 160, 'PREDECESSOR_JEV_EVENT_SET_CARDINALITY');
+  check(predecessorJevStatusCounts.PROVIDER_ERROR === 160 && Object.keys(predecessorJevStatusCounts).length === 1,
+    `PREDECESSOR_JEV_STATUS_DOMAIN:${JSON.stringify(predecessorJevStatusCounts)}`);
 } catch (e) { issues.push(`PREDECESSOR_READ:${e?.message ?? e}`); }
 
 try {
@@ -68,8 +68,8 @@ try {
   check(r1Index.every((x, i, a) => i === 0 || a[i - 1].event_id.localeCompare(x.event_id) < 0), 'R1_INDEX_ORDER');
 
   const actualR1EventIds = r1Index.map(row => row.event_id).sort();
-  exactCandidateEventSetMatch = sameSortedStrings(expectedR1EventIds, actualR1EventIds);
-  check(exactCandidateEventSetMatch, 'R1_EVENT_SET_NOT_EXACT_FROZEN_JEV_CANDIDATE_SET');
+  exactPredecessorJevEventSetMatch = sameSortedStrings(predecessorJevEventIds, actualR1EventIds);
+  check(exactPredecessorJevEventSetMatch, 'R1_EVENT_SET_NOT_EXACT_PREDECESSOR_JEV_SET');
 
   for (const row of r1Index) {
     const receiptPath = path.join(R1_ROOT, 'receipts', 'jev', `${row.event_id}.json`);
@@ -124,11 +124,12 @@ const result = {
   verification_mode: 'INDEPENDENT_ZERO_CALL_READ_ONLY_SOURCE_LEDGERS',
   predecessor_receipt_index_sha256: EXPECTED.predecessorIndex,
   predecessor_receipts_verified: predecessorIndex.length,
-  provider_matrix_sha256: EXPECTED.providerMatrix,
-  frozen_jev_candidate_events: expectedR1EventIds.length,
-  exact_candidate_event_set_match: exactCandidateEventSetMatch,
+  predecessor_jev_events: predecessorJevEventIds.length,
+  predecessor_jev_status_counts: predecessorJevStatusCounts,
+  r1_exact_predecessor_jev_event_set_match: exactPredecessorJevEventSetMatch,
   r1_receipt_index_sha256: EXPECTED.r1Index,
   r1_runner_execution_manifest_sha256: EXPECTED.runnerManifest,
+  frozen_provider_matrix_contract_sha256: EXPECTED.providerMatrix,
   r1_receipts_verified: r1Index.length,
   r1_raw_verified: rawVerified,
   r1_attempts_verified: attemptsVerified,
@@ -145,8 +146,10 @@ const result = {
   r1_ledger_mutation: false,
   authority_effects: 'NONE',
   production_promotion: false,
-  predecessor_phase_v_v0_1_result_sha256: 'b781c4e2b879f1fa4875e650eb925cfbc9bd4fde66b1b7f687493cac19d61262',
-  predecessor_phase_v_v0_1_disposition: 'VERIFIER_LANE_PARSER_DEFECT_ONLY_PRESERVED_UNMODIFIED',
+  predecessor_phase_v_results: [
+    { version: 'v0.1', sha256: 'b781c4e2b879f1fa4875e650eb925cfbc9bd4fde66b1b7f687493cac19d61262', disposition: 'VERIFIER_EVENT_ID_LANE_PARSER_DEFECT_ONLY_PRESERVED_UNMODIFIED' },
+    { version: 'v0.2', sha256: 'f477fc5d357502e31782a7cdaafa940568f2519044c1f5627a90ac9f36c34cb0', disposition: 'VERIFIER_EPHEMERAL_PROVIDER_MATRIX_PATH_ASSUMPTION_DEFECT_ONLY_PRESERVED_UNMODIFIED' }
+  ],
   verifier_sha256: verifierSha256,
   issues
 };
