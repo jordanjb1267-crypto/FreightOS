@@ -3,19 +3,22 @@ import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Independent Phase V verifier. No provider/runner imports and no network I/O.
 globalThis.fetch = async () => { throw new Error('PHASE_V_NETWORK_PROHIBITED'); };
 
-const RUN_ID = 'NSS1-STAGE-F-R1-PHASE-V-v0.1';
+const RUN_ID = 'NSS1-STAGE-F-R1-PHASE-V-v0.2';
 const R1_RUN_ID = 'NSS1-STAGE-F-JEV-REMEDIATION-R1-v0.1';
 const SOURCE_ROOT = process.env.STAGE_F_SOURCE_LEDGER_ROOT ?? '/data/nss1-stage-f-provider-v0.2';
 const R1_ROOT = process.env.STAGE_F_R1_LEDGER_ROOT ?? '/data/nss1-stage-f-jev-remediation-r1-v0.1';
-const OUT_ROOT = process.env.STAGE_F_R1_PHASE_V_OUT ?? '/data/nss1-stage-f-r1-phase-v-v0.1';
+const OUT_ROOT = process.env.STAGE_F_R1_PHASE_V_OUT ?? '/data/nss1-stage-f-r1-phase-v-v0.2';
 const EXPECTED = Object.freeze({
   predecessorIndex: '2e50185fa5d4ee5c3f137ccfbb4283d5a8964e6e3d53288a29043ee8f9d207e7',
   r1Index: 'b47252de25cc86dc6bf94f4c52ac7f44f21faabb1db13a41801400b35944b900',
   runnerManifest: 'a25b395fb70a571bea8711d1354a6032772a553468da8d005100aed4f3b386b8',
   qset: '0e8c01c8d98e2fbbeb9f7b034ef638dcf11df0f9f2189834322830bb0b758bcb',
-  requestedModel: 'jev-latest', effectiveModel: 'jev-1.13.0'
+  providerMatrix: '8135ad29cf2c13d0c433de6a4825d0395889d0c25ef6556e873048728bba9ff8',
+  requestedModel: 'jev-latest',
+  effectiveModel: 'jev-1.13.0'
 });
 const sha = b => createHash('sha256').update(b).digest('hex');
 const rawHash = async f => sha(await readFile(f));
@@ -25,11 +28,13 @@ const listTxt = async d => { try { return (await readdir(d)).filter(x => x.endsW
 const issues = [];
 const check = (v, code) => { if (!v) issues.push(code); };
 const bump = (o, k) => { o[k] = (o[k] ?? 0) + 1; };
+const sameSortedStrings = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 const verifierSha256 = await rawHash(fileURLToPath(import.meta.url));
-let predecessorIndex = [], r1Index = [];
-const statusCounts = {}, modelCounts = {}, laneCounts = {};
+let predecessorIndex = [], r1Index = [], expectedR1EventIds = [];
+const statusCounts = {}, modelCounts = {};
 let rawVerified = 0, attemptsVerified = 0;
+let exactCandidateEventSetMatch = false;
 
 try {
   const fp = path.join(SOURCE_ROOT, 'RECEIPT_INDEX.json');
@@ -44,6 +49,14 @@ try {
   }
   check(pc.luna === 240, `PREDECESSOR_LUNA:${pc.luna ?? 0}`);
   check(pc.jev === 160, `PREDECESSOR_JEV:${pc.jev ?? 0}`);
+
+  const matrixPath = path.join(SOURCE_ROOT, 'provider_matrix.json');
+  check((await rawHash(matrixPath)) === EXPECTED.providerMatrix, 'PROVIDER_MATRIX_HASH_MISMATCH');
+  const matrix = await json(matrixPath);
+  const candidateRows = matrix.filter(row => row.candidate_provider === 'JEV');
+  expectedR1EventIds = candidateRows.map(row => row.event_id).sort();
+  check(candidateRows.length === 160, `JEV_CANDIDATE_ROW_COUNT:${candidateRows.length}`);
+  check(new Set(expectedR1EventIds).size === 160, 'JEV_CANDIDATE_EVENT_DUPLICATE');
 } catch (e) { issues.push(`PREDECESSOR_READ:${e?.message ?? e}`); }
 
 try {
@@ -53,6 +66,10 @@ try {
   check(r1Index.length === 160, `R1_INDEX_COUNT:${r1Index.length}`);
   check(new Set(r1Index.map(x => x.event_id)).size === 160, 'R1_DUPLICATE_EVENT_ID');
   check(r1Index.every((x, i, a) => i === 0 || a[i - 1].event_id.localeCompare(x.event_id) < 0), 'R1_INDEX_ORDER');
+
+  const actualR1EventIds = r1Index.map(row => row.event_id).sort();
+  exactCandidateEventSetMatch = sameSortedStrings(expectedR1EventIds, actualR1EventIds);
+  check(exactCandidateEventSetMatch, 'R1_EVENT_SET_NOT_EXACT_FROZEN_JEV_CANDIDATE_SET');
 
   for (const row of r1Index) {
     const receiptPath = path.join(R1_ROOT, 'receipts', 'jev', `${row.event_id}.json`);
@@ -81,8 +98,8 @@ try {
     check(a.question_set_sha256 === r.question_set_sha256, `R1_ATTEMPT_QSET:${row.event_id}`);
     check(a.requested_model === r.requested_model, `R1_ATTEMPT_MODEL:${row.event_id}`);
     attemptsVerified++;
-    bump(statusCounts, r.status); bump(modelCounts, r.effective_model);
-    const lane = row.event_id.includes('P2') ? 'P2' : row.event_id.includes('P3') ? 'P3' : 'UNKNOWN'; bump(laneCounts, lane);
+    bump(statusCounts, r.status);
+    bump(modelCounts, r.effective_model);
   }
 
   check((await listJson(path.join(R1_ROOT, 'receipts', 'jev'))).length === 160, 'R1_RECEIPT_FILE_COUNT');
@@ -100,7 +117,6 @@ try {
 
 check(statusCounts.OK === 160 && Object.keys(statusCounts).length === 1, `R1_STATUS_DOMAIN:${JSON.stringify(statusCounts)}`);
 check(modelCounts[EXPECTED.effectiveModel] === 160 && Object.keys(modelCounts).length === 1, `R1_MODEL_DOMAIN:${JSON.stringify(modelCounts)}`);
-check(laneCounts.P2 === 80 && laneCounts.P3 === 80 && (laneCounts.UNKNOWN ?? 0) === 0, `R1_LANES:${JSON.stringify(laneCounts)}`);
 
 const result = {
   run_id: RUN_ID,
@@ -108,6 +124,9 @@ const result = {
   verification_mode: 'INDEPENDENT_ZERO_CALL_READ_ONLY_SOURCE_LEDGERS',
   predecessor_receipt_index_sha256: EXPECTED.predecessorIndex,
   predecessor_receipts_verified: predecessorIndex.length,
+  provider_matrix_sha256: EXPECTED.providerMatrix,
+  frozen_jev_candidate_events: expectedR1EventIds.length,
+  exact_candidate_event_set_match: exactCandidateEventSetMatch,
   r1_receipt_index_sha256: EXPECTED.r1Index,
   r1_runner_execution_manifest_sha256: EXPECTED.runnerManifest,
   r1_receipts_verified: r1Index.length,
@@ -115,12 +134,19 @@ const result = {
   r1_attempts_verified: attemptsVerified,
   status_counts: statusCounts,
   effective_model_counts: modelCounts,
-  lane_counts: laneCounts,
-  provider_calls: 0, provider_replay: false,
-  jev_calls: 0, luna_calls: 0, openrouter_calls: 0, frontier_calls: 0,
+  provider_calls: 0,
+  provider_replay: false,
+  jev_calls: 0,
+  luna_calls: 0,
+  openrouter_calls: 0,
+  frontier_calls: 0,
   credentials_read: false,
-  source_ledger_mutation: false, r1_ledger_mutation: false,
-  authority_effects: 'NONE', production_promotion: false,
+  source_ledger_mutation: false,
+  r1_ledger_mutation: false,
+  authority_effects: 'NONE',
+  production_promotion: false,
+  predecessor_phase_v_v0_1_result_sha256: 'b781c4e2b879f1fa4875e650eb925cfbc9bd4fde66b1b7f687493cac19d61262',
+  predecessor_phase_v_v0_1_disposition: 'VERIFIER_LANE_PARSER_DEFECT_ONLY_PRESERVED_UNMODIFIED',
   verifier_sha256: verifierSha256,
   issues
 };
