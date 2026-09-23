@@ -1,0 +1,83 @@
+name: NSS Stage-F Phase-W Program Successor Preflight
+
+on:
+  push:
+    branches:
+      - nss-stage-f-gold-bearing-confirmatory-v0.1
+    paths:
+      - 'experiments/nss-stage-f-runner/phase-w-program.mjs'
+      - 'experiments/nss-stage-f-runner/verify-phase-w.mjs'
+      - 'experiments/nss-stage-f-runner/verify-phase-w-program-preflight.mjs'
+      - '.github/workflows/nss-stage-f-phase-w-program-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  phase-w-program-preflight:
+    name: Phase W Program — zero-call successor manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download exact verified Stage-F evidence artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/10729029512/zip > "$RUNNER_TEMP/stage-f-verified.zip"
+          echo 'b43f7bb6f2a158300c63ff0df9519de21a18e1005860490f4f97ac907ba52af8  '"$RUNNER_TEMP/stage-f-verified.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/stage-f-verified"
+          unzip -q "$RUNNER_TEMP/stage-f-verified.zip" -d "$RUNNER_TEMP/stage-f-verified"
+      - name: Run zero-call successor program preflight
+        env:
+          RUN_MODE: preflight
+          STAGE_F_EVIDENCE_ROOT: ${{ runner.temp }}/stage-f-verified/stage-f-evidence
+          PROGRAM_PREFLIGHT_OUT: ${{ runner.temp }}/stage-f-program-preflight
+          EVIDENCE_DIR: ${{ runner.temp }}/stage-f-provider-empty
+        run: node experiments/nss-stage-f-runner/phase-w-program.mjs
+      - name: Upload exact successor preflight evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-f-phase-w-program-preflight
+          path: ${{ runner.temp }}/stage-f-program-preflight
+          if-no-files-found: error
+          retention-days: 30
+
+  phase-v-program-preflight:
+    name: Phase V — independent successor-program verification
+    needs: phase-w-program-preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download exact verified Stage-F evidence artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/10729029512/zip > "$RUNNER_TEMP/stage-f-verified.zip"
+          echo 'b43f7bb6f2a158300c63ff0df9519de21a18e1005860490f4f97ac907ba52af8  '"$RUNNER_TEMP/stage-f-verified.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/stage-f-verified"
+          unzip -q "$RUNNER_TEMP/stage-f-verified.zip" -d "$RUNNER_TEMP/stage-f-verified"
+      - name: Download exact Phase-W program-preflight evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: nss-stage-f-phase-w-program-preflight
+          path: ${{ runner.temp }}/stage-f-program-preflight
+      - name: Independently verify successor program preflight
+        env:
+          STAGE_F_EVIDENCE_ROOT: ${{ runner.temp }}/stage-f-verified/stage-f-evidence
+          PROGRAM_PREFLIGHT_ROOT: ${{ runner.temp }}/stage-f-program-preflight
+        run: node experiments/nss-stage-f-runner/verify-phase-w-program-preflight.mjs
+      - name: Upload independently verified successor evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-f-phase-w-program-preflight-verified
+          path: ${{ runner.temp }}/stage-f-program-preflight
+          if-no-files-found: error
+          retention-days: 30
