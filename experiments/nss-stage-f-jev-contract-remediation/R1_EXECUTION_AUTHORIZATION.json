@@ -1,0 +1,22 @@
+{
+  "status": "AUTHORIZED_TO_EXECUTE_STAGE_F_R1_JEV_REMEDIATION",
+  "run_id": "NSS1-STAGE-F-JEV-REMEDIATION-R1-v0.1",
+  "runner_execution_manifest_sha256": "a25b395fb70a571bea8711d1354a6032772a553468da8d005100aed4f3b386b8",
+  "request_manifest_sha256": "2de00a307df61db89cf69dd142b2e26cc9c102349f9fe8f40e5460cd39c29403",
+  "question_schema_sha256": "fb81d34a0ed11798d04bc332c28fcf0e80b7db4361ca16e488e6dcba1b2273b0",
+  "verified_stage_f_archive_sha256": "b43f7bb6f2a158300c63ff0df9519de21a18e1005860490f4f97ac907ba52af8",
+  "predecessor_receipt_index_sha256": "2e50185fa5d4ee5c3f137ccfbb4283d5a8964e6e3d53288a29043ee8f9d207e7",
+  "predecessor_forensic_result_sha256": "65447706a68cf3ab92e0c115db98cf25c3c7a6aea8a1407b748c6211e1b8538f",
+  "remediation_verification_sha256": "aee61afac6472bc6249ddffd194fbe47c8823c76da822609fa34537a30e67da9",
+  "new_jev_attempts": 160,
+  "new_luna_attempts": 0,
+  "reused_luna_control_receipts": 240,
+  "reused_luna_candidate_fallback_receipts": 80,
+  "evidence_dir": "/data/nss1-stage-f-jev-remediation-r1-v0.1",
+  "provider_replay": false,
+  "authority_effects": "NONE",
+  "live_effects": 0,
+  "openrouter_calls": 0,
+  "frontier_calls": 0,
+  "production_promotion": false
+}
