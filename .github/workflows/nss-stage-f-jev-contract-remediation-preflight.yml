@@ -1,0 +1,79 @@
+name: NSS Stage-F Jev Contract Remediation Preflight
+
+on:
+  push:
+    branches:
+      - nss-stage-f-jev-contract-remediation-v0.1
+    paths:
+      - 'experiments/nss-stage-f-jev-contract-remediation/**'
+      - '.github/workflows/nss-stage-f-jev-contract-remediation-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  phase-w:
+    name: Phase W — construct remediated Jev request contract offline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download exact verified Stage-F evidence artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/10729029512/zip > "$RUNNER_TEMP/stage-f-verified.zip"
+          echo 'b43f7bb6f2a158300c63ff0df9519de21a18e1005860490f4f97ac907ba52af8  '"$RUNNER_TEMP/stage-f-verified.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/stage-f-verified"
+          unzip -q "$RUNNER_TEMP/stage-f-verified.zip" -d "$RUNNER_TEMP/stage-f-verified"
+      - name: Build all 160 remediated Jev request bodies with zero network
+        env:
+          STAGE_F_EVIDENCE_ROOT: ${{ runner.temp }}/stage-f-verified/stage-f-evidence
+          REMEDIATION_PREFLIGHT_OUT: ${{ runner.temp }}/jev-contract-remediation
+        run: node experiments/nss-stage-f-jev-contract-remediation/preflight.mjs
+      - name: Upload exact Phase-W remediation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-f-jev-contract-remediation-phase-w
+          path: ${{ runner.temp }}/jev-contract-remediation
+          if-no-files-found: error
+          retention-days: 30
+
+  phase-v:
+    name: Phase V — independent request-contract recomputation
+    needs: phase-w
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download exact verified Stage-F evidence artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/10729029512/zip > "$RUNNER_TEMP/stage-f-verified.zip"
+          echo 'b43f7bb6f2a158300c63ff0df9519de21a18e1005860490f4f97ac907ba52af8  '"$RUNNER_TEMP/stage-f-verified.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/stage-f-verified"
+          unzip -q "$RUNNER_TEMP/stage-f-verified.zip" -d "$RUNNER_TEMP/stage-f-verified"
+      - name: Download exact Phase-W remediation evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: nss-stage-f-jev-contract-remediation-phase-w
+          path: ${{ runner.temp }}/jev-contract-remediation
+      - name: Independently recompute and verify all request bodies
+        env:
+          STAGE_F_EVIDENCE_ROOT: ${{ runner.temp }}/stage-f-verified/stage-f-evidence
+          REMEDIATION_PREFLIGHT_ROOT: ${{ runner.temp }}/jev-contract-remediation
+        run: node experiments/nss-stage-f-jev-contract-remediation/verify.mjs
+      - name: Upload independently verified remediation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-f-jev-contract-remediation-verified
+          path: ${{ runner.temp }}/jev-contract-remediation
+          if-no-files-found: error
+          retention-days: 30
