@@ -1,0 +1,2 @@
+Trigger current-source build for Stage-F R1 typed-gate verifier repair v0.1 after stale-snapshot redeploy resolved.
+Zero provider calls. No ledger mutation. No authority effects.
