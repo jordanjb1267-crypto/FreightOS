@@ -1,0 +1,32 @@
+name: NSS Stage-F R1 C4 False-Safe Forensic Zero-Call Preflight
+
+on:
+  push:
+    branches:
+      - nss-stage-f-r1-c4-false-safe-forensic-v0.1
+    paths:
+      - 'experiments/nss-stage-f-r1-c4-false-safe-forensic/**'
+      - '.github/workflows/nss-stage-f-r1-c4-forensic-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  preflight:
+    name: C4 false-safe forensic source and invariant preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check forensic implementation
+        run: |
+          node --check experiments/nss-stage-f-r1-c4-false-safe-forensic/analyze.mjs
+          node --check experiments/nss-stage-f-r1-c4-false-safe-forensic/verify.mjs
+          node --check experiments/nss-stage-f-r1-c4-false-safe-forensic/railway-entry.mjs
+          node --check experiments/nss-stage-f-r1-c4-false-safe-forensic/preflight.mjs
+      - name: Verify zero-provider and gate invariants
+        run: node experiments/nss-stage-f-r1-c4-false-safe-forensic/preflight.mjs
