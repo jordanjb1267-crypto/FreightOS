@@ -1,0 +1,2 @@
+Trigger Stage-F R1 typed-gate verifier repair v0.1 from current forensic lineage.
+Zero provider calls. No ledger mutation. No authority effects.
