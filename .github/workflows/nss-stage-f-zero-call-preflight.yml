@@ -1,0 +1,85 @@
+name: NSS Stage-F Zero-Call Gold-Bearing Preflight
+
+on:
+  push:
+    branches:
+      - nss-stage-f-gold-bearing-confirmatory-v0.1
+    paths:
+      - 'experiments/nss-stage-f-confirmatory/**'
+      - '.github/workflows/nss-stage-f-zero-call-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase-w:
+    name: Phase W — construct frozen zero-call evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Construct Stage-F evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf stage-f-evidence
+          node experiments/nss-stage-f-confirmatory/preflight.mjs | tee stage-f-phase-w.log
+          test -f stage-f-evidence/WRITE_STATE.json
+          grep -q 'NSS1_STAGE_F_PREFLIGHT_WRITE_COMPLETE' stage-f-phase-w.log
+      - name: Upload exact Phase-W evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-f-phase-w-evidence
+          path: |
+            stage-f-evidence/
+            stage-f-phase-w.log
+          if-no-files-found: error
+          retention-days: 30
+
+  phase-v:
+    name: Phase V — independent zero-call verification
+    needs: phase-w
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download exact Phase-W evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: nss-stage-f-phase-w-evidence
+          path: downloaded
+      - name: Restore evidence at fixed path
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf stage-f-evidence
+          if [ -d downloaded/stage-f-evidence ]; then
+            mv downloaded/stage-f-evidence stage-f-evidence
+          else
+            mkdir -p stage-f-evidence
+            find downloaded -maxdepth 1 -type f -name '*.json' -exec cp {} stage-f-evidence/ \;
+          fi
+          test -f stage-f-evidence/WRITE_STATE.json
+      - name: Independently verify Stage-F evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node experiments/nss-stage-f-confirmatory/verify.mjs | tee stage-f-phase-v.log
+          grep -q 'NSS1_STAGE_F_PREFLIGHT_VERIFY_COMPLETE' stage-f-phase-v.log
+          grep -q '"status":"PASS"' stage-f-phase-v.log
+      - name: Upload independently verified evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-f-verified-evidence
+          path: |
+            stage-f-evidence/
+            stage-f-phase-v.log
+          if-no-files-found: error
+          retention-days: 30
