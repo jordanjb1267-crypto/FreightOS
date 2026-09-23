@@ -1,0 +1,84 @@
+name: NSS Stage-F R1 Jev Runner Preflight
+
+on:
+  push:
+    branches:
+      - nss-stage-f-jev-contract-remediation-v0.1
+    paths:
+      - 'experiments/nss-stage-f-jev-contract-remediation/r1-runner.mjs'
+      - 'experiments/nss-stage-f-jev-contract-remediation/r1-provider-adapter.mjs'
+      - 'experiments/nss-stage-f-jev-contract-remediation/provider-contract.mjs'
+      - 'experiments/nss-stage-f-jev-contract-remediation/verify-r1-runner-preflight.mjs'
+      - '.github/workflows/nss-stage-f-r1-runner-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  phase-w:
+    name: Phase W — exact R1 runner zero-receipt preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download exact verified Stage-F evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/10729029512/zip > "$RUNNER_TEMP/stage-f-verified.zip"
+          echo 'b43f7bb6f2a158300c63ff0df9519de21a18e1005860490f4f97ac907ba52af8  '"$RUNNER_TEMP/stage-f-verified.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/stage-f-verified"
+          unzip -q "$RUNNER_TEMP/stage-f-verified.zip" -d "$RUNNER_TEMP/stage-f-verified"
+      - name: Run execute-capable R1 runner in preflight mode
+        env:
+          RUN_MODE: preflight
+          STAGE_F_EVIDENCE_ROOT: ${{ runner.temp }}/stage-f-verified/stage-f-evidence
+          EVIDENCE_DIR: ${{ runner.temp }}/r1-empty-ledger
+          R1_PREFLIGHT_OUT: ${{ runner.temp }}/r1-runner-preflight
+        run: node experiments/nss-stage-f-jev-contract-remediation/r1-runner.mjs
+      - name: Upload exact Phase-W R1 preflight
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-f-r1-runner-preflight-phase-w
+          path: ${{ runner.temp }}/r1-runner-preflight
+          if-no-files-found: error
+          retention-days: 30
+
+  phase-v:
+    name: Phase V — independent R1 runner preflight verification
+    needs: phase-w
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download exact verified Stage-F evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/10729029512/zip > "$RUNNER_TEMP/stage-f-verified.zip"
+          echo 'b43f7bb6f2a158300c63ff0df9519de21a18e1005860490f4f97ac907ba52af8  '"$RUNNER_TEMP/stage-f-verified.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/stage-f-verified"
+          unzip -q "$RUNNER_TEMP/stage-f-verified.zip" -d "$RUNNER_TEMP/stage-f-verified"
+      - name: Download exact Phase-W R1 preflight
+        uses: actions/download-artifact@v4
+        with:
+          name: nss-stage-f-r1-runner-preflight-phase-w
+          path: ${{ runner.temp }}/r1-runner-preflight
+      - name: Independently verify R1 runner surface and manifest
+        env:
+          STAGE_F_EVIDENCE_ROOT: ${{ runner.temp }}/stage-f-verified/stage-f-evidence
+          R1_PREFLIGHT_ROOT: ${{ runner.temp }}/r1-runner-preflight
+        run: node experiments/nss-stage-f-jev-contract-remediation/verify-r1-runner-preflight.mjs
+      - name: Upload independently verified R1 runner preflight
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-stage-f-r1-runner-preflight-verified
+          path: ${{ runner.temp }}/r1-runner-preflight
+          if-no-files-found: error
+          retention-days: 30
