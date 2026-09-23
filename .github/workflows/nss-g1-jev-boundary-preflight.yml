@@ -1,0 +1,39 @@
+name: NSS G1 Jev Boundary Requalification Zero-Call Preflight
+
+on:
+  push:
+    branches:
+      - nss-g1-jev-boundary-requalification-v0.1
+    paths:
+      - 'experiments/nss-g1-jev-boundary-requalification/**'
+      - '.github/workflows/nss-g1-jev-boundary-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  g1-preflight:
+    name: G1 Phase W — fresh 32-fixture zero-call construction
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Construct fresh G1 evidence with zero provider calls
+        env:
+          G1_PREFLIGHT_OUT: ${{ runner.temp }}/g1-preflight
+        run: node experiments/nss-g1-jev-boundary-requalification/preflight.mjs
+      - name: Independently verify G1 preflight
+        env:
+          G1_PREFLIGHT_ROOT: ${{ runner.temp }}/g1-preflight
+        run: node experiments/nss-g1-jev-boundary-requalification/verify-preflight.mjs
+      - name: Upload verified G1 preflight evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nss-g1-jev-boundary-preflight
+          path: ${{ runner.temp }}/g1-preflight
+          if-no-files-found: error
+          retention-days: 30
